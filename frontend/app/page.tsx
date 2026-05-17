@@ -508,6 +508,8 @@ export default function HomePage() {
     useState<FlightAlertSnapshot | null>(null);
   const [flightAlertHistory, setFlightAlertHistory] =
     useState<FlightAlertHistoryItem[]>([]);
+  const [flightAlertDetailsVisible, setFlightAlertDetailsVisible] = useState(false);
+  const [serverFlightAlertChangeCount, setServerFlightAlertChangeCount] = useState(0);
   const [serverFlightAlertLoading, setServerFlightAlertLoading] = useState(false);
   const [serverFlightAlertStatus, setServerFlightAlertStatus] = useState("");
   const [dailyStatus, setDailyStatus] = useState<"normal" | "issue">("normal");
@@ -531,8 +533,10 @@ export default function HomePage() {
     setIssueNotionRecord(loadIssueNotionRecord());
 
     const savedSnapshot = loadFlightAlertSnapshot();
+    const savedHistory = loadFlightAlertHistory();
     setFlightAlertSnapshot(savedSnapshot);
-    setFlightAlertHistory(loadFlightAlertHistory());
+    setFlightAlertHistory(savedHistory);
+    setServerFlightAlertChangeCount(savedHistory.length);
     setAlertCheckedAt(savedSnapshot?.savedAt || getCurrentTimeLabel());
 
     void fetchWeather();
@@ -625,6 +629,10 @@ export default function HomePage() {
     });
 
     setFlightAlertHistory(nextItems);
+    setServerFlightAlertChangeCount(nextItems.length);
+    if (nextItems.length === 0) {
+      setFlightAlertDetailsVisible(false);
+    }
     saveFlightAlertHistory(nextItems);
     setServerFlightAlertStatus("선택한 알림을 삭제하는 중입니다.");
 
@@ -649,6 +657,8 @@ export default function HomePage() {
 
     try {
       setFlightAlertHistory([]);
+      setServerFlightAlertChangeCount(0);
+      setFlightAlertDetailsVisible(false);
       clearFlightAlertHistory();
       const clearResult = await clearServerFlightAlertHistory();
       setServerFlightAlertStatus(`알림 이력을 전체 삭제했습니다. 서버 이력 ${clearResult.cleared ?? 0}건 정리`);
@@ -781,6 +791,7 @@ export default function HomePage() {
       const nextItems = mergeFlightAlertHistoryItems(serverItems, currentItems);
 
       setFlightAlertHistory(nextItems);
+      setServerFlightAlertChangeCount(nextItems.length);
       saveFlightAlertHistory(nextItems);
 
       const addedCount = Math.max(0, nextItems.length - currentItems.length);
@@ -833,7 +844,14 @@ export default function HomePage() {
 
     const nextHistory = [...historyItems, ...flightAlertHistory].slice(0, 20);
     setFlightAlertHistory(nextHistory);
+    setServerFlightAlertChangeCount(nextHistory.length);
+    setFlightAlertDetailsVisible(false);
     saveFlightAlertHistory(nextHistory);
+  };
+
+  const handleRevealServerFlightAlertHistory = async () => {
+    setFlightAlertDetailsVisible(true);
+    await handleLoadServerFlightAlertHistory(true);
   };
 
   const openFlights = () => router.push("/flights");
@@ -869,6 +887,8 @@ export default function HomePage() {
         setFlightAlertSnapshot(null);
         if (typeof window !== "undefined") localStorage.removeItem("cargo_ops_flight_alert_snapshot_v1");
         setFlightAlertHistory([]);
+        setServerFlightAlertChangeCount(0);
+        setFlightAlertDetailsVisible(false);
         clearFlightAlertHistory();
 
         const checkedAt = getCurrentSyncLabel();
@@ -892,6 +912,8 @@ export default function HomePage() {
       }
 
       setFlightAlertHistory([]);
+      setServerFlightAlertChangeCount(0);
+      setFlightAlertDetailsVisible(false);
       clearFlightAlertHistory();
       await fetchAutoPushStatus();
     } catch (error) {
@@ -1720,9 +1742,11 @@ export default function HomePage() {
           historyItems={flightAlertHistory}
           serverLoading={serverFlightAlertLoading}
           serverStatus={serverFlightAlertStatus}
+          summaryCount={serverFlightAlertChangeCount}
+          detailsVisible={flightAlertDetailsVisible}
           onDeleteItem={handleDeleteFlightAlertHistoryItem}
           onClear={handleClearFlightAlertHistory}
-          onLoadServerHistory={handleLoadServerFlightAlertHistory}
+          onLoadServerHistory={handleRevealServerFlightAlertHistory}
         />
 
         <ActionCard

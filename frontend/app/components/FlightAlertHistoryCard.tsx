@@ -7,31 +7,39 @@ type FlightAlertHistoryCardProps = {
   historyItems: FlightAlertHistoryItem[];
   serverLoading?: boolean;
   serverStatus?: string;
+  summaryCount?: number;
+  detailsVisible?: boolean;
   onDeleteItem: (item: FlightAlertHistoryItem) => void;
   onClear: () => void;
-  onLoadServerHistory: () => void;
+  onLoadServerHistory: () => void | Promise<void>;
 };
 
 export function FlightAlertHistoryCard({
   historyItems,
   serverLoading = false,
   serverStatus = "",
+  summaryCount,
+  detailsVisible = false,
   onDeleteItem,
   onClear,
   onLoadServerHistory,
 }: FlightAlertHistoryCardProps) {
+  const visibleCount = summaryCount ?? historyItems.length;
+  const hasHistoryItems = historyItems.length > 0;
+  const hasRecentChanges = visibleCount > 0;
+
   return (
     <section style={flightAlertHistoryCardStyle}>
       <div style={flightAlertTopStyle}>
         <div>
           <div style={cardLabelStyle}>출도착 알림 이력</div>
-          <h2 style={flightAlertTitleStyle}>최근 변경 {historyItems.length}건</h2>
+          <h2 style={flightAlertTitleStyle}>최근 변경 {visibleCount}건</h2>
         </div>
         <div style={flightAlertBadgeStyle}>자동 반영</div>
       </div>
 
       <div style={autoGuideStyle}>
-        서버 이력이 발생하면 이 목록에 자동으로 반영됩니다. 바로 확인하려면 서버 이력 즉시 확인을 누르세요.
+        서버 이력이 신규 발생하면 최근 변경 건수가 먼저 표시됩니다. 세부 사항은 서버 이력 즉시 확인을 눌러 확인하세요.
       </div>
 
       <div style={serverActionRowStyle}>
@@ -46,8 +54,8 @@ export function FlightAlertHistoryCard({
         <button
           type="button"
           onClick={onClear}
-          disabled={serverLoading || historyItems.length === 0}
-          style={historyItems.length > 0 ? dangerButtonStyle : disabledServerButtonStyle}
+          disabled={serverLoading || !hasHistoryItems}
+          style={hasHistoryItems ? dangerButtonStyle : disabledServerButtonStyle}
         >
           전체 삭제
         </button>
@@ -55,7 +63,13 @@ export function FlightAlertHistoryCard({
 
       {serverStatus && <div style={serverStatusStyle}>{serverStatus}</div>}
 
-      {historyItems.length > 0 ? (
+      {hasRecentChanges && !detailsVisible ? (
+        <div style={flightAlertSummaryNoticeStyle}>
+          최근 변경 {visibleCount}건이 있습니다. 세부 사항은 서버 이력 즉시 확인을 눌러 확인하세요.
+        </div>
+      ) : null}
+
+      {hasHistoryItems && detailsVisible ? (
         <div style={flightAlertListStyle}>
           {historyItems.slice(0, 5).map((item, index) => (
             <div key={`${item.key}-${item.checkedAt}-${index}`} style={flightAlertHistoryItemStyle}>
@@ -77,9 +91,11 @@ export function FlightAlertHistoryCard({
             </div>
           ))}
         </div>
-      ) : (
+      ) : null}
+
+      {!hasRecentChanges ? (
         <div style={flightAlertMetaStyle}>아직 저장된 알림 이력이 없습니다.</div>
-      )}
+      ) : null}
     </section>
   );
 }
@@ -130,6 +146,18 @@ const flightAlertMetaStyle: CSSProperties = {
   color: "#94a3b8",
   fontSize: 13,
   lineHeight: 1.5,
+  marginBottom: 14,
+};
+
+const flightAlertSummaryNoticeStyle: CSSProperties = {
+  border: "1px solid rgba(250, 204, 21, 0.28)",
+  background: "rgba(250, 204, 21, 0.08)",
+  borderRadius: 14,
+  padding: "12px 14px",
+  color: "#fef3c7",
+  fontSize: 13,
+  lineHeight: 1.55,
+  fontWeight: 850,
   marginBottom: 14,
 };
 
@@ -222,11 +250,6 @@ const serverStatusStyle: CSSProperties = {
   marginBottom: 10,
 };
 
-
-
-
-
-
 const deleteItemButtonStyle: CSSProperties = {
   border: "1px solid rgba(248, 113, 113, 0.42)",
   borderRadius: 999,
@@ -238,7 +261,6 @@ const deleteItemButtonStyle: CSSProperties = {
   cursor: "pointer",
   whiteSpace: "nowrap",
 };
-
 
 function formatHistoryTime(value?: string) {
   if (!value) return "-";
