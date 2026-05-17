@@ -49,6 +49,7 @@ import {
   updateDailyRecord,
   updateIssueRecord,
 } from "./lib/notion-api";
+import { getApiBaseUrl } from "./lib/api-config";
 
 const STORAGE_KEY = "cargo_ops_monitor_rooms_v6";
 
@@ -119,8 +120,7 @@ const IMAGE_SLOT_PROPERTY_NAME: Record<ImageSlotKey, string> = {
   issue: "이미지",
 };
 
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://cargo-ops-backend.onrender.com";
+const BACKEND_URL = getApiBaseUrl();
 
 type HourlyWeather = {
   time?: string;
