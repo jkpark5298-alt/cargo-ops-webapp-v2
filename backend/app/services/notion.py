@@ -98,8 +98,23 @@ def _image_memo_property_name(image: dict[str, Any]) -> str | None:
     return None
 
 
+def _format_image_memo_entry(index: int, image: dict[str, Any], memo: str) -> str:
+    saved_at = str(image.get("savedAt") or "").strip()
+    label = str(image.get("label") or "").strip()
+
+    lines = [f"[{index}]"]
+    if saved_at:
+        lines.append(f"저장일시: {saved_at}")
+    if label:
+        lines.append(f"사진: {label}")
+    lines.append(f"메모: {memo}")
+
+    return "\n".join(lines)
+
+
 def _memo_properties_for_images(images: list[dict[str, Any]]) -> dict[str, Any]:
-    memo_properties: dict[str, Any] = {}
+    memo_groups: dict[str, list[str]] = {}
+    memo_counts: dict[str, int] = {}
 
     for image in images:
         if not isinstance(image, dict):
@@ -113,9 +128,15 @@ def _memo_properties_for_images(images: list[dict[str, Any]]) -> dict[str, Any]:
         if not property_name:
             continue
 
-        memo_properties[property_name] = _text_property(memo)
+        memo_counts[property_name] = memo_counts.get(property_name, 0) + 1
+        memo_groups.setdefault(property_name, []).append(
+            _format_image_memo_entry(memo_counts[property_name], image, memo)
+        )
 
-    return memo_properties
+    return {
+        property_name: _text_property("\n\n".join(entries))
+        for property_name, entries in memo_groups.items()
+    }
 
 
 def _parse_data_url(data_url: str) -> tuple[str, bytes]:
