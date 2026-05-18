@@ -288,9 +288,7 @@ export function ImageViewerModal({
                 onPointerCancel={endMarkDrag}
               >
                 {markPoint && <div style={markPreviewStyle(markPoint, markType)} />}
-                <div style={markGuideStyle}>
-                  사진에서 표시할 위치를 직접 누르거나 드래그하세요
-                </div>
+                <div style={markGuideStyle}>사진에서 표시할 위치를 직접 누르거나 드래그하세요</div>
               </div>
             )}
           </div>
@@ -312,6 +310,20 @@ export function ImageViewerModal({
                 영역 초기화
               </button>
             </div>
+            {isCropMode && (
+              <button
+                type="button"
+                onClick={saveFreeCroppedImage}
+                disabled={isSaving}
+                style={annotateButtonStyle}
+              >
+                {isSaving ? "수정본 저장 중..." : "선택 영역 자르기 저장"}
+              </button>
+            )}
+            <div style={hintStyle}>
+              자유 자르기 시작 후 사진 위 박스를 움직이고, 오른쪽 아래 손잡이로 크기를 조절하세요. 저장하면 현재 사진 1장만 교체됩니다.
+            </div>
+          </div>
 
           <div style={editBoxStyle}>
             <label style={editLabelStyle}>사진에 글씨 쓰기</label>
