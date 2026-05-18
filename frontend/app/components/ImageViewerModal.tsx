@@ -636,19 +636,24 @@ const imageWrapStyle: CSSProperties = {
 
 const cropStageStyle: CSSProperties = {
   position: "relative",
-  display: "inline-block",
+  width: "100%",
   maxWidth: "100%",
   margin: "0 auto",
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
   touchAction: "none",
 };
 
 const imageStyle: CSSProperties = {
-  width: "auto",
+  width: "100%",
+  height: "auto",
   maxWidth: "100%",
   maxHeight: "58vh",
   objectFit: "contain",
   display: "block",
   userSelect: "none",
+  WebkitUserSelect: "none",
 };
 
 const cropOverlayStyle: CSSProperties = {
