@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  useRef,
-  useState,
-  type CSSProperties,
-  type MouseEvent,
-  type PointerEvent,
-  type TouchEvent,
-} from "react";
+import { useRef, useState, type CSSProperties, type PointerEvent } from "react";
 
 export type ImageViewerSlotKey =
   | "daily-schedule"
@@ -23,8 +16,6 @@ export type ImageViewerImage = {
   dataUrl: string;
 };
 
-type MarkType = "arrow" | "circle" | "box";
-type MarkPoint = { x: number; y: number };
 type CropRect = { x: number; y: number; width: number; height: number };
 type CropDragMode = "move" | "resize";
 
@@ -39,12 +30,6 @@ type ImageViewerModalProps = {
   onSaveAnnotatedImage: (dataUrl: string, memo: string) => void;
 };
 
-const markTypeOptions: Array<{ label: string; value: MarkType }> = [
-  { label: "화살표", value: "arrow" },
-  { label: "동그라미", value: "circle" },
-  { label: "박스", value: "box" },
-];
-
 const defaultCropRect: CropRect = { x: 12, y: 12, width: 76, height: 60 };
 
 export function ImageViewerModal({
@@ -58,7 +43,6 @@ export function ImageViewerModal({
   onSaveAnnotatedImage,
 }: ImageViewerModalProps) {
   const imageElementRef = useRef<HTMLImageElement | null>(null);
-  const markDragRef = useRef<{ pointerId: number } | null>(null);
   const cropDragRef = useRef<{
     mode: CropDragMode;
     pointerId: number;
@@ -72,9 +56,6 @@ export function ImageViewerModal({
   const [memo, setMemo] = useState("");
   const [isCropMode, setIsCropMode] = useState(false);
   const [cropRect, setCropRect] = useState<CropRect>(defaultCropRect);
-  const [markType, setMarkType] = useState<MarkType>("arrow");
-  const [isMarkMode, setIsMarkMode] = useState(false);
-  const [markPoint, setMarkPoint] = useState<MarkPoint | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   if (!image) return null;
@@ -112,125 +93,12 @@ export function ImageViewerModal({
     }
   };
 
-  const saveMarkedImage = async () => {
-    const selectedType = markTypeOptions.find((option) => option.value === markType) || markTypeOptions[0];
-
-    if (!markPoint) {
-      window.alert("사진에서 표시할 위치를 먼저 눌러주세요.");
-      return;
-    }
-
-    try {
-      setIsSaving(true);
-      const dataUrl = await drawMarkOnImage(image.dataUrl, markType, markPoint);
-      onSaveAnnotatedImage(dataUrl, `${selectedType.label} 표시`);
-      setIsMarkMode(false);
-    } catch {
-      window.alert("사진에 표시를 넣는 중 오류가 발생했습니다.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   const toggleCropMode = () => {
-    setIsCropMode((current) => {
-      const next = !current;
-      if (next) setIsMarkMode(false);
-      return next;
-    });
+    setIsCropMode((current) => !current);
   };
 
   const resetCropRect = () => {
     setCropRect(defaultCropRect);
-  };
-
-  const toggleMarkMode = () => {
-    setIsMarkMode((current) => {
-      const next = !current;
-      if (next) setIsCropMode(false);
-      return next;
-    });
-  };
-
-  const resetMarkPoint = () => {
-    setMarkPoint(null);
-  };
-
-  const updateMarkPointFromClient = (clientX: number, clientY: number) => {
-    if (!imageElementRef.current) return;
-
-    const bounds = imageElementRef.current.getBoundingClientRect();
-    if (bounds.width <= 0 || bounds.height <= 0) return;
-
-    const x = clamp(((clientX - bounds.left) / bounds.width) * 100, 0, 100);
-    const y = clamp(((clientY - bounds.top) / bounds.height) * 100, 0, 100);
-    setMarkPoint({ x, y });
-  };
-
-  const updateMarkPointFromPointer = (event: PointerEvent<HTMLDivElement>) => {
-    updateMarkPointFromClient(event.clientX, event.clientY);
-  };
-
-  const updateMarkPointFromTouch = (event: TouchEvent<HTMLDivElement>) => {
-    const touch = event.touches[0] || event.changedTouches[0];
-    if (!touch) return;
-
-    updateMarkPointFromClient(touch.clientX, touch.clientY);
-  };
-
-  const selectMarkPointByClick = (event: MouseEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    updateMarkPointFromClient(event.clientX, event.clientY);
-  };
-
-  const startMarkDrag = (event: PointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-
-    if (event.currentTarget.setPointerCapture) {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    }
-
-    markDragRef.current = { pointerId: event.pointerId };
-    updateMarkPointFromPointer(event);
-  };
-
-  const moveMarkDrag = (event: PointerEvent<HTMLDivElement>) => {
-    const drag = markDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-    updateMarkPointFromPointer(event);
-  };
-
-  const endMarkDrag = (event: PointerEvent<HTMLDivElement>) => {
-    const drag = markDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-    updateMarkPointFromPointer(event);
-    markDragRef.current = null;
-  };
-
-  const startMarkTouch = (event: TouchEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    updateMarkPointFromTouch(event);
-  };
-
-  const moveMarkTouch = (event: TouchEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    updateMarkPointFromTouch(event);
-  };
-
-  const endMarkTouch = (event: TouchEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    updateMarkPointFromTouch(event);
   };
 
   const startCropDrag = (event: PointerEvent<HTMLDivElement>, mode: CropDragMode) => {
@@ -325,23 +193,7 @@ export function ImageViewerModal({
                 </div>
               </div>
             )}
-            {isMarkMode && (
-              <div
-                style={markOverlayStyle}
-                onClick={selectMarkPointByClick}
-                onPointerDown={startMarkDrag}
-                onPointerMove={moveMarkDrag}
-                onPointerUp={endMarkDrag}
-                onPointerCancel={endMarkDrag}
-                onTouchStart={startMarkTouch}
-                onTouchMove={moveMarkTouch}
-                onTouchEnd={endMarkTouch}
-                onTouchCancel={endMarkTouch}
-              >
-                {markPoint && <div style={markPreviewStyle(markPoint, markType)} />}
-                <div style={markGuideStyle}>사진에서 표시할 위치를 직접 터치하거나 드래그하세요</div>
-              </div>
-            )}
+
           </div>
         </div>
 
@@ -393,39 +245,6 @@ export function ImageViewerModal({
               {isSaving ? "수정본 저장 중..." : "글씨 넣고 수정본 저장"}
             </button>
             <div style={hintStyle}>입력한 글씨는 사진 하단에 박스 형태로 들어갑니다.</div>
-          </div>
-
-          <div style={editBoxStyle}>
-            <label style={editLabelStyle}>화살표/표시 넣기</label>
-            <div style={optionGridStyle}>
-              {markTypeOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setMarkType(option.value)}
-                  style={markType === option.value ? selectedOptionButtonStyle : optionButtonStyle}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <div style={cropButtonGridStyle}>
-              <button type="button" onClick={toggleMarkMode} style={isMarkMode ? selectedOptionButtonStyle : optionButtonStyle}>
-                {isMarkMode ? "직접 표시 모드 끄기" : "사진에서 직접 표시"}
-              </button>
-              <button type="button" onClick={resetMarkPoint} style={optionButtonStyle}>
-                표시 위치 초기화
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={saveMarkedImage}
-              disabled={isSaving || !markPoint}
-              style={annotateButtonStyle}
-            >
-              {isSaving ? "수정본 저장 중..." : "표시 넣고 수정본 저장"}
-            </button>
-            <div style={hintStyle}>사진에서 표시할 위치를 직접 터치하면 빨간 표시가 미리보기로 나타납니다. 저장하면 현재 사진 1장만 교체합니다.</div>
           </div>
         </div>
 
@@ -507,46 +326,6 @@ function cropImageByRect(dataUrl: string, rect: CropRect): Promise<string> {
   });
 }
 
-function drawMarkOnImage(dataUrl: string, markType: MarkType, point: MarkPoint): Promise<string> {
-  return withImageCanvas(dataUrl, ({ image, canvas, ctx, canvasWidth, canvasHeight }) => {
-    ctx.drawImage(image, 0, 0, canvasWidth, canvasHeight);
-
-    const target = {
-      x: (point.x / 100) * canvasWidth,
-      y: (point.y / 100) * canvasHeight,
-    };
-    const size = Math.max(70, Math.round(Math.min(canvasWidth, canvasHeight) * 0.18));
-    const lineWidth = Math.max(8, Math.round(Math.min(canvasWidth, canvasHeight) * 0.014));
-
-    ctx.strokeStyle = "#ef4444";
-    ctx.fillStyle = "rgba(239, 68, 68, 0.16)";
-    ctx.lineWidth = lineWidth;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-
-    if (markType === "circle") {
-      ctx.beginPath();
-      ctx.arc(target.x, target.y, size / 2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    }
-
-    if (markType === "box") {
-      const x = clamp(target.x - size / 2, lineWidth, canvasWidth - size - lineWidth);
-      const y = clamp(target.y - size / 2, lineWidth, canvasHeight - size - lineWidth);
-      ctx.fillRect(x, y, size, size);
-      ctx.strokeRect(x, y, size, size);
-    }
-
-    if (markType === "arrow") {
-      const start = getArrowStartPointFromTarget(target, canvasWidth, canvasHeight, size);
-      drawArrow(ctx, start.x, start.y, target.x, target.y, lineWidth, size * 0.32);
-    }
-
-    return canvas.toDataURL("image/jpeg", 0.86);
-  });
-}
-
 function withImageCanvas(
   dataUrl: string,
   draw: (params: {
@@ -582,46 +361,6 @@ function withImageCanvas(
     image.onerror = () => reject(new Error("Image load failed."));
     image.src = dataUrl;
   });
-}
-
-function getArrowStartPointFromTarget(
-  target: { x: number; y: number },
-  width: number,
-  height: number,
-  size: number,
-) {
-  const offset = size * 1.35;
-  const fromLeft = target.x < width / 2;
-  const fromTop = target.y < height / 2;
-
-  return {
-    x: clamp(target.x + (fromLeft ? offset : -offset), offset * 0.35, width - offset * 0.35),
-    y: clamp(target.y + (fromTop ? offset : -offset), offset * 0.35, height - offset * 0.35),
-  };
-}
-
-function drawArrow(
-  ctx: CanvasRenderingContext2D,
-  fromX: number,
-  fromY: number,
-  toX: number,
-  toY: number,
-  lineWidth: number,
-  headLength: number,
-) {
-  const angle = Math.atan2(toY - fromY, toX - fromX);
-
-  ctx.beginPath();
-  ctx.moveTo(fromX, fromY);
-  ctx.lineTo(toX, toY);
-  ctx.stroke();
-
-  ctx.beginPath();
-  ctx.moveTo(toX, toY);
-  ctx.lineTo(toX - headLength * Math.cos(angle - Math.PI / 6), toY - headLength * Math.sin(angle - Math.PI / 6));
-  ctx.moveTo(toX, toY);
-  ctx.lineTo(toX - headLength * Math.cos(angle + Math.PI / 6), toY - headLength * Math.sin(angle + Math.PI / 6));
-  ctx.stroke();
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -808,74 +547,6 @@ const resizeHandleStyle: CSSProperties = {
   pointerEvents: "auto",
 };
 
-const markOverlayStyle: CSSProperties = {
-  position: "absolute",
-  inset: 0,
-  background: "rgba(2, 6, 23, 0.08)",
-  cursor: "crosshair",
-  touchAction: "none",
-  pointerEvents: "auto",
-};
-
-function markPreviewStyle(point: MarkPoint, markType: MarkType): CSSProperties {
-  const base: CSSProperties = {
-    position: "absolute",
-    left: `${point.x}%`,
-    top: `${point.y}%`,
-    transform: "translate(-50%, -50%)",
-    pointerEvents: "none",
-  };
-
-  if (markType === "circle") {
-    return {
-      ...base,
-      width: 74,
-      height: 74,
-      borderRadius: 999,
-      border: "4px solid #ef4444",
-      background: "rgba(239, 68, 68, 0.16)",
-      boxShadow: "0 0 0 2px rgba(255, 255, 255, 0.75)",
-    };
-  }
-
-  if (markType === "box") {
-    return {
-      ...base,
-      width: 82,
-      height: 82,
-      border: "4px solid #ef4444",
-      background: "rgba(239, 68, 68, 0.16)",
-      boxShadow: "0 0 0 2px rgba(255, 255, 255, 0.75)",
-    };
-  }
-
-  return {
-    ...base,
-    width: 92,
-    height: 8,
-    background: "#ef4444",
-    borderRadius: 999,
-    transform: "translate(-50%, -50%) rotate(-35deg)",
-    boxShadow: "0 0 0 2px rgba(255, 255, 255, 0.75)",
-  };
-}
-
-const markGuideStyle: CSSProperties = {
-  position: "absolute",
-  left: 12,
-  bottom: 12,
-  right: 12,
-  borderRadius: 999,
-  background: "rgba(2, 6, 23, 0.78)",
-  color: "#fee2e2",
-  fontSize: 12,
-  fontWeight: 950,
-  lineHeight: 1.35,
-  padding: "7px 10px",
-  textAlign: "center",
-  pointerEvents: "none",
-};
-
 const metaStyle: CSSProperties = {
   marginTop: 12,
   padding: 12,
@@ -932,19 +603,6 @@ const hintStyle: CSSProperties = {
   fontSize: 12,
   fontWeight: 750,
   lineHeight: 1.45,
-  marginTop: 8,
-};
-
-const optionGridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(3, 1fr)",
-  gap: 8,
-};
-
-const positionGridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(2, 1fr)",
-  gap: 8,
   marginTop: 8,
 };
 
