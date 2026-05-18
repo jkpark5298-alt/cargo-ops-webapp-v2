@@ -1385,9 +1385,10 @@ export default function HomePage() {
       [...IMAGE_SLOTS, ISSUE_IMAGE_SLOT].find((slot) => slot.key === imageViewerImage.type) ||
       IMAGE_SLOTS[0];
     const savedAt = new Date().toLocaleString("ko-KR");
+    const saveLabel = memo.trim() || "수정본 저장";
     const nextImage: SavedImage = {
       ...imageViewerImage,
-      label: `${slotInfo.title} · 글씨 저장`,
+      label: `${slotInfo.title} · ${saveLabel}`,
       savedAt,
       dataUrl,
     };
@@ -1395,7 +1396,7 @@ export default function HomePage() {
       image.id === imageViewerImage.id ? nextImage : image,
     );
 
-    persistImages(nextImages, `${slotInfo.title}에 글씨를 넣어 저장했습니다.`);
+    persistImages(nextImages, `${slotInfo.title} ${saveLabel} 완료했습니다.`);
     setImageViewerImage(nextImage);
   };
 
