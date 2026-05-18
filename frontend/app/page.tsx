@@ -208,6 +208,8 @@ type SavedImage = {
   label: string;
   savedAt: string;
   dataUrl: string;
+  capturedAt?: string;
+  locationText?: string;
 };
 
 function loadRooms(): MonitorRoom[] {
@@ -474,6 +476,215 @@ function resizeImageDataUrl(dataUrl: string, maxSize = 1280, quality = 0.72): Pr
     image.onerror = () => resolve(dataUrl);
     image.src = dataUrl;
   });
+}
+
+
+type ImageFileMetadata = {
+  capturedAt?: string;
+  locationText?: string;
+};
+
+async function readImageFileMetadata(file: File): Promise<ImageFileMetadata> {
+  try {
+    const buffer = await file.arrayBuffer();
+    const exif = readExifMetadata(buffer);
+    const capturedAt = exif.capturedAt || formatFileLastModified(file);
+
+    return {
+      capturedAt,
+      locationText: exif.locationText,
+    };
+  } catch {
+    return {
+      capturedAt: formatFileLastModified(file),
+    };
+  }
+}
+
+function formatFileLastModified(file: File) {
+  if (!file.lastModified) return undefined;
+  const date = new Date(file.lastModified);
+  if (Number.isNaN(date.getTime())) return undefined;
+  return `${date.toLocaleString("ko-KR")} · 파일 기준`;
+}
+
+function readExifMetadata(buffer: ArrayBuffer): ImageFileMetadata {
+  const view = new DataView(buffer);
+  const metadata: ImageFileMetadata = {};
+
+  if (view.byteLength < 4 || view.getUint16(0, false) !== 0xffd8) return metadata;
+
+  let offset = 2;
+
+  while (offset + 4 < view.byteLength) {
+    if (view.getUint8(offset) !== 0xff) break;
+
+    const marker = view.getUint8(offset + 1);
+    const length = view.getUint16(offset + 2, false);
+    const segmentStart = offset + 4;
+
+    if (marker === 0xe1 && segmentStart + 6 <= view.byteLength) {
+      const exifHeader = readAscii(view, segmentStart, 6);
+
+      if (exifHeader === "Exif\u0000\u0000") {
+        return parseExifTiff(view, segmentStart + 6);
+      }
+    }
+
+    if (length < 2) break;
+    offset += 2 + length;
+  }
+
+  return metadata;
+}
+
+function parseExifTiff(view: DataView, tiffStart: number): ImageFileMetadata {
+  const metadata: ImageFileMetadata = {};
+  const endian = readAscii(view, tiffStart, 2);
+  const littleEndian = endian === "II";
+
+  if (endian !== "II" && endian !== "MM") return metadata;
+  if (tiffStart + 8 > view.byteLength) return metadata;
+
+  const firstIfdOffset = getUint32Safe(view, tiffStart + 4, littleEndian);
+  const zerothIfd = readIfdEntries(view, tiffStart, tiffStart + firstIfdOffset, littleEndian);
+  const exifIfdOffset = getEntryNumber(zerothIfd.get(0x8769), view, tiffStart, littleEndian);
+  const gpsIfdOffset = getEntryNumber(zerothIfd.get(0x8825), view, tiffStart, littleEndian);
+  const fallbackDate = getEntryString(zerothIfd.get(0x0132), view, tiffStart, littleEndian);
+
+  if (exifIfdOffset) {
+    const exifIfd = readIfdEntries(view, tiffStart, tiffStart + exifIfdOffset, littleEndian);
+    const dateOriginal =
+      getEntryString(exifIfd.get(0x9003), view, tiffStart, littleEndian) ||
+      getEntryString(exifIfd.get(0x9004), view, tiffStart, littleEndian);
+    metadata.capturedAt = formatExifDate(dateOriginal || fallbackDate);
+  } else {
+    metadata.capturedAt = formatExifDate(fallbackDate);
+  }
+
+  if (gpsIfdOffset) {
+    const gpsIfd = readIfdEntries(view, tiffStart, tiffStart + gpsIfdOffset, littleEndian);
+    const latitude = readGpsCoordinate(gpsIfd.get(0x0002), view, tiffStart, littleEndian);
+    const longitude = readGpsCoordinate(gpsIfd.get(0x0004), view, tiffStart, littleEndian);
+    const latRef = getEntryString(gpsIfd.get(0x0001), view, tiffStart, littleEndian);
+    const lonRef = getEntryString(gpsIfd.get(0x0003), view, tiffStart, littleEndian);
+
+    if (latitude !== undefined && longitude !== undefined) {
+      const lat = latRef === "S" ? -latitude : latitude;
+      const lon = lonRef === "W" ? -longitude : longitude;
+      metadata.locationText = `위도 ${lat.toFixed(6)}, 경도 ${lon.toFixed(6)}`;
+    }
+  }
+
+  return metadata;
+}
+
+type IfdEntry = {
+  type: number;
+  count: number;
+  valueOffset: number;
+  valueFieldOffset: number;
+};
+
+function readIfdEntries(view: DataView, tiffStart: number, ifdOffset: number, littleEndian: boolean) {
+  const entries = new Map<number, IfdEntry>();
+  if (ifdOffset <= 0 || ifdOffset + 2 > view.byteLength) return entries;
+
+  const count = getUint16Safe(view, ifdOffset, littleEndian);
+
+  for (let index = 0; index < count; index += 1) {
+    const entryOffset = ifdOffset + 2 + index * 12;
+    if (entryOffset + 12 > view.byteLength) break;
+
+    const tag = getUint16Safe(view, entryOffset, littleEndian);
+    const type = getUint16Safe(view, entryOffset + 2, littleEndian);
+    const entryCount = getUint32Safe(view, entryOffset + 4, littleEndian);
+    const valueOffset = getUint32Safe(view, entryOffset + 8, littleEndian);
+
+    entries.set(tag, {
+      type,
+      count: entryCount,
+      valueOffset,
+      valueFieldOffset: entryOffset + 8,
+    });
+  }
+
+  return entries;
+}
+
+function getEntryNumber(entry: IfdEntry | undefined, view: DataView, tiffStart: number, littleEndian: boolean) {
+  if (!entry) return undefined;
+  if (entry.type === 3 && entry.count === 1) return getUint16Safe(view, entry.valueFieldOffset, littleEndian);
+  if (entry.type === 4 && entry.count === 1) return entry.valueOffset;
+  return entry.valueOffset;
+}
+
+function getEntryString(entry: IfdEntry | undefined, view: DataView, tiffStart: number, littleEndian: boolean) {
+  if (!entry || entry.type !== 2) return undefined;
+
+  const length = Math.max(0, entry.count - 1);
+  const start = entry.count <= 4 ? entry.valueFieldOffset : tiffStart + entry.valueOffset;
+
+  if (start < 0 || start + length > view.byteLength) return undefined;
+  return readAscii(view, start, length).trim().replace(/\u0000/g, "");
+}
+
+function readGpsCoordinate(entry: IfdEntry | undefined, view: DataView, tiffStart: number, littleEndian: boolean) {
+  if (!entry || entry.type !== 5 || entry.count < 3) return undefined;
+
+  const start = tiffStart + entry.valueOffset;
+  if (start < 0 || start + 24 > view.byteLength) return undefined;
+
+  const degrees = readRational(view, start, littleEndian);
+  const minutes = readRational(view, start + 8, littleEndian);
+  const seconds = readRational(view, start + 16, littleEndian);
+
+  if (degrees === undefined || minutes === undefined || seconds === undefined) return undefined;
+  return degrees + minutes / 60 + seconds / 3600;
+}
+
+function readRational(view: DataView, offset: number, littleEndian: boolean) {
+  const numerator = getUint32Safe(view, offset, littleEndian);
+  const denominator = getUint32Safe(view, offset + 4, littleEndian);
+  if (!denominator) return undefined;
+  return numerator / denominator;
+}
+
+function formatExifDate(value?: string) {
+  if (!value) return undefined;
+  const match = value.match(/^(\d{4}):(\d{2}):(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/);
+  if (!match) return value;
+
+  const [, year, month, day, hour, minute, second] = match;
+  const date = new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+  );
+
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("ko-KR");
+}
+
+function readAscii(view: DataView, offset: number, length: number) {
+  let text = "";
+  for (let index = 0; index < length && offset + index < view.byteLength; index += 1) {
+    text += String.fromCharCode(view.getUint8(offset + index));
+  }
+  return text;
+}
+
+function getUint16Safe(view: DataView, offset: number, littleEndian: boolean) {
+  if (offset < 0 || offset + 2 > view.byteLength) return 0;
+  return view.getUint16(offset, littleEndian);
+}
+
+function getUint32Safe(view: DataView, offset: number, littleEndian: boolean) {
+  if (offset < 0 || offset + 4 > view.byteLength) return 0;
+  return view.getUint32(offset, littleEndian);
 }
 
 
@@ -1307,6 +1518,7 @@ export default function HomePage() {
       if (!originalDataUrl) return;
 
       const dataUrl = await resizeImageDataUrl(originalDataUrl, 1280, 0.72);
+      const metadata = await readImageFileMetadata(file);
       const savedAt = new Date().toLocaleString("ko-KR");
       const slotKey = pendingImageSlotRef.current;
       const slotInfo =
@@ -1319,6 +1531,8 @@ export default function HomePage() {
         label,
         savedAt,
         dataUrl,
+        capturedAt: metadata.capturedAt,
+        locationText: metadata.locationText,
       };
       const nextImages = upsertImageBySlot(images, nextImage);
 
@@ -1385,10 +1599,9 @@ export default function HomePage() {
       [...IMAGE_SLOTS, ISSUE_IMAGE_SLOT].find((slot) => slot.key === imageViewerImage.type) ||
       IMAGE_SLOTS[0];
     const savedAt = new Date().toLocaleString("ko-KR");
-    const saveLabel = memo.trim() || "수정본 저장";
     const nextImage: SavedImage = {
       ...imageViewerImage,
-      label: `${slotInfo.title} · ${saveLabel}`,
+      label: `${slotInfo.title} · 글씨 저장`,
       savedAt,
       dataUrl,
     };
@@ -1396,7 +1609,7 @@ export default function HomePage() {
       image.id === imageViewerImage.id ? nextImage : image,
     );
 
-    persistImages(nextImages, `${slotInfo.title} ${saveLabel} 완료했습니다.`);
+    persistImages(nextImages, `${slotInfo.title}에 글씨를 넣어 저장했습니다.`);
     setImageViewerImage(nextImage);
   };
 

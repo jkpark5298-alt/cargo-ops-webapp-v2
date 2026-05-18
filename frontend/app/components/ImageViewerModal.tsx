@@ -14,6 +14,8 @@ export type ImageViewerImage = {
   label: string;
   savedAt: string;
   dataUrl: string;
+  capturedAt?: string;
+  locationText?: string;
 };
 
 type CropRect = { x: number; y: number; width: number; height: number };
@@ -200,6 +202,11 @@ export function ImageViewerModal({
         <div style={metaStyle}>
           <div>{image.label}</div>
           <small>저장일시: {image.savedAt}</small>
+          <div style={photoInfoStyle}>
+            <strong>사진 정보</strong>
+            <span>촬영일시: {image.capturedAt || "촬영일시 확인 불가"}</span>
+            <span>위치정보: {image.locationText || "위치 정보 없음"}</span>
+          </div>
         </div>
 
         <div style={toolGridStyle}>
@@ -560,6 +567,20 @@ const metaStyle: CSSProperties = {
   flexDirection: "column",
   gap: 4,
   lineHeight: 1.5,
+};
+
+const photoInfoStyle: CSSProperties = {
+  marginTop: 8,
+  padding: 10,
+  borderRadius: 12,
+  border: "1px solid rgba(96, 165, 250, 0.2)",
+  background: "rgba(2, 6, 23, 0.42)",
+  color: "#bfdbfe",
+  display: "flex",
+  flexDirection: "column",
+  gap: 3,
+  fontSize: 12,
+  fontWeight: 750,
 };
 
 const toolGridStyle: CSSProperties = {
