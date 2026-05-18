@@ -91,7 +91,7 @@ export function DailyRecordCard({
   return (
     <section style={cardStyle}>
       <div style={cardLabelStyle}>일일 업무 기록</div>
-      <h2 style={cardTitleStyle}>사진 중심 업무 내용 정리</h2>
+      <h2 style={cardTitleStyle}>Daily 업무 보고</h2>
       <p style={cardDescriptionStyle}>
         항목별로 이미지를 먼저 선택해 저장합니다. 잘못 올린 사진은 보기, 변경, 삭제할 수 있습니다.
       </p>
@@ -105,7 +105,10 @@ export function DailyRecordCard({
           <input
             type="date"
             value={dailyWorkDate}
+            onClick={(event) => event.currentTarget.showPicker?.()}
             onChange={(event) => setDailyWorkDate(event.target.value)}
+            aria-label="업무일자 캘린더 선택"
+            title="업무일자 캘린더 선택"
             style={dateInputStyle}
           />
           <button
@@ -331,6 +334,7 @@ const dateInputStyle: CSSProperties = {
   fontSize: 15,
   fontWeight: 850,
   outline: "none",
+  colorScheme: "dark",
 };
 
 const todayButtonStyle: CSSProperties = {
