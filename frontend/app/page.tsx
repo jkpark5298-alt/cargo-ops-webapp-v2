@@ -1378,6 +1378,26 @@ export default function HomePage() {
     handleDeleteImageSlot(imageViewerImage.type);
   };
 
+  const handleSaveAnnotatedImage = (dataUrl: string, memo: string) => {
+    if (!imageViewerImage) return;
+
+    const slotInfo =
+      [...IMAGE_SLOTS, ISSUE_IMAGE_SLOT].find((slot) => slot.key === imageViewerImage.type) ||
+      IMAGE_SLOTS[0];
+    const savedAt = new Date().toLocaleString("ko-KR");
+    const nextImage: SavedImage = {
+      id: `${Date.now()}`,
+      type: imageViewerImage.type,
+      label: `${slotInfo.title} · 글씨 저장`,
+      savedAt,
+      dataUrl,
+    };
+    const nextImages = upsertImageBySlot(images, nextImage);
+
+    persistImages(nextImages, `${slotInfo.title}에 글씨를 넣어 저장했습니다.`);
+    setImageViewerImage(nextImage);
+  };
+
   const handleSaveNoteLocal = () => {
     saveNote(note);
     setNotice(
@@ -1841,6 +1861,7 @@ export default function HomePage() {
         onCameraChange={handleViewerCameraChange}
         onLibraryChange={handleViewerLibraryChange}
         onDelete={handleViewerDelete}
+        onSaveAnnotatedImage={handleSaveAnnotatedImage}
       />
 
       <footer style={footerStyle}>by jkpark</footer>
