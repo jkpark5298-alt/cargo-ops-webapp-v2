@@ -21,6 +21,10 @@ type DailyNotionRecord = {
 type DailyRecordCardProps = {
   dailyStatus: DailyStatus;
   setDailyStatus: Dispatch<SetStateAction<DailyStatus>>;
+  dailyWorkDate: string;
+  dailyWorkDateTitle: string;
+  setDailyWorkDate: (value: string) => void;
+  resetDailyWorkDateToToday: () => void;
   images: SavedImage[];
   imageSlots: ImageSlot[];
   getImageBySlot: (images: SavedImage[], slotKey: ImageSlotKey) => SavedImage | null;
@@ -52,6 +56,10 @@ type DailyRecordCardProps = {
 export function DailyRecordCard({
   dailyStatus,
   setDailyStatus,
+  dailyWorkDate,
+  dailyWorkDateTitle,
+  setDailyWorkDate,
+  resetDailyWorkDateToToday,
   images,
   imageSlots,
   getImageBySlot,
@@ -83,6 +91,28 @@ export function DailyRecordCard({
       <p style={cardDescriptionStyle}>
         항목별로 이미지를 먼저 선택해 저장합니다. 잘못 올린 사진은 보기, 변경, 삭제할 수 있습니다.
       </p>
+
+      <div style={datePickerBoxStyle}>
+        <div>
+          <label style={fieldLabelStyle}>업무일자</label>
+          <div style={dateTitleStyle}>{dailyWorkDateTitle}</div>
+        </div>
+        <div style={dateControlStyle}>
+          <input
+            type="date"
+            value={dailyWorkDate}
+            onChange={(event) => setDailyWorkDate(event.target.value)}
+            style={dateInputStyle}
+          />
+          <button
+            type="button"
+            onClick={resetDailyWorkDateToToday}
+            style={todayButtonStyle}
+          >
+            오늘
+          </button>
+        </div>
+      </div>
 
       <div style={statusToggleStyle}>
         <button
@@ -223,6 +253,56 @@ const cardDescriptionStyle: CSSProperties = {
   margin: "0 0 14px",
   lineHeight: 1.55,
   fontSize: 14,
+};
+
+
+const datePickerBoxStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr",
+  gap: 10,
+  margin: "14px 0 16px",
+  padding: 14,
+  borderRadius: 16,
+  border: "1px solid rgba(96, 165, 250, 0.28)",
+  background: "rgba(15, 23, 42, 0.72)",
+};
+
+const dateTitleStyle: CSSProperties = {
+  color: "#e0f2fe",
+  fontSize: 16,
+  fontWeight: 950,
+  marginTop: 6,
+};
+
+const dateControlStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr auto",
+  gap: 8,
+};
+
+const dateInputStyle: CSSProperties = {
+  width: "100%",
+  minWidth: 0,
+  boxSizing: "border-box",
+  border: "1px solid #334155",
+  borderRadius: 14,
+  background: "#020817",
+  color: "#f8fafc",
+  padding: "12px 13px",
+  fontSize: 15,
+  fontWeight: 850,
+  outline: "none",
+};
+
+const todayButtonStyle: CSSProperties = {
+  border: "1px solid rgba(96, 165, 250, 0.42)",
+  borderRadius: 14,
+  background: "#1d4ed8",
+  color: "#ffffff",
+  padding: "0 14px",
+  fontSize: 14,
+  fontWeight: 950,
+  cursor: "pointer",
 };
 
 const statusToggleStyle: CSSProperties = {

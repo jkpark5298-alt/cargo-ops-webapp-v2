@@ -313,6 +313,50 @@ function formatDateForTitle(date: Date) {
   return `${yyyy}.${mm}.${dd} ${weekdays[date.getDay()]}`;
 }
 
+const DAILY_WORK_DATE_STORAGE_KEY = "cargo_ops_daily_work_date_v1";
+
+function getTodayDateInputValue() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function getInitialDailyWorkDate() {
+  if (typeof window === "undefined") return getTodayDateInputValue();
+
+  try {
+    const saved = window.localStorage.getItem(DAILY_WORK_DATE_STORAGE_KEY);
+    return saved || getTodayDateInputValue();
+  } catch {
+    return getTodayDateInputValue();
+  }
+}
+
+function saveDailyWorkDate(value: string) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(DAILY_WORK_DATE_STORAGE_KEY, value);
+  } catch {
+    // 날짜 저장 실패는 화면 동작을 막지 않습니다.
+  }
+}
+
+function formatDateInputForTitle(value: string) {
+  const [yyyy, mm, dd] = value.split("-").map((part) => Number(part));
+  if (!yyyy || !mm || !dd) return formatDateForTitle(new Date());
+
+  return formatDateForTitle(new Date(yyyy, mm - 1, dd));
+}
+
+function getDailyWorkDateIso(value: string) {
+  if (!value) return new Date().toISOString();
+
+  return `${value}T00:00:00+09:00`;
+}
+
 function formatDateTime(value?: string) {
   if (!value) return "-";
   return value.replace("T", " ");
@@ -736,7 +780,24 @@ export default function HomePage() {
   const [issueNotionRecord, setIssueNotionRecord] =
     useState<IssueNotionRecord | null>(null);
   const todayText = useMemo(() => formatDateForTitle(new Date()), []);
+  const [dailyWorkDate, setDailyWorkDate] = useState(() => getInitialDailyWorkDate());
+  const dailyWorkDateTitle = useMemo(
+    () => formatDateInputForTitle(dailyWorkDate),
+    [dailyWorkDate],
+  );
   const latestRoom = useMemo(() => getLatestScheduleRoom(rooms), [rooms]);
+
+  useEffect(() => {
+    saveDailyWorkDate(dailyWorkDate);
+  }, [dailyWorkDate]);
+
+  const handleDailyWorkDateChange = (value: string) => {
+    setDailyWorkDate(value || getTodayDateInputValue());
+  };
+
+  const resetDailyWorkDateToToday = () => {
+    setDailyWorkDate(getTodayDateInputValue());
+  };
 
   useEffect(() => {
     setRooms(loadRooms());
@@ -1658,8 +1719,10 @@ export default function HomePage() {
     );
 
     return {
-      title: `${todayText} KJ 일일 업무`,
-      date: new Date().toISOString(),
+      title: `${dailyWorkDateTitle} KJ 일일 업무`,
+      date: getDailyWorkDateIso(dailyWorkDate),
+      workDate: dailyWorkDate,
+      workDateText: dailyWorkDateTitle,
       author,
       status: dailyStatus === "normal" ? "이상 없음" : "특이사항 있음",
       memo: note,
@@ -1767,6 +1830,7 @@ export default function HomePage() {
     setIssueHlnbr("");
     setIssueText("");
     setDailyStatus("normal");
+    resetDailyWorkDateToToday();
     setDailyNotionRecord(null);
     setIssueNotionRecord(null);
 
@@ -2007,6 +2071,10 @@ export default function HomePage() {
         <DailyRecordCard
           dailyStatus={dailyStatus}
           setDailyStatus={setDailyStatus}
+          dailyWorkDate={dailyWorkDate}
+          dailyWorkDateTitle={dailyWorkDateTitle}
+          setDailyWorkDate={handleDailyWorkDateChange}
+          resetDailyWorkDateToToday={resetDailyWorkDateToToday}
           images={images}
           imageSlots={IMAGE_SLOTS}
           getImageBySlot={getImageBySlot}
