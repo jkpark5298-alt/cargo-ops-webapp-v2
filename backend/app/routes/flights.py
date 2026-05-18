@@ -475,13 +475,13 @@ def _get_status_text(row: Dict[str, Any]) -> str:
 
 
 def _get_refresh_exclude_reason(row: Dict[str, Any]) -> str:
-    status_text = _get_status_text(row)
+    remark_text = str(row.get("remark") or "").strip().upper()
 
-    if "도착" in status_text or "ARRIVED" in status_text:
+    if row.get("canceled") or "결항" in remark_text or "CANCEL" in remark_text:
+        return "결항 확정"
+
+    if "도착" in remark_text or "ARRIVED" in remark_text:
         return "도착 확정"
-
-    if "출발" in status_text or "DEPARTED" in status_text:
-        return "출발 확정"
 
     return ""
 
@@ -820,7 +820,7 @@ async def _run_schedule_change_check(push_on_change: bool = True) -> Dict[str, A
             "changed": 0,
             "sent": 0,
             "failed": 0,
-            "message": "모든 Schedule Flight가 출발/도착 확정되어 재조회 대상이 없습니다.",
+            "message": "모든 Schedule Flight가 remark 기준 도착 또는 결항 확정되어 재조회 대상이 없습니다.",
             "excludedFlights": excluded_flights,
         }
 

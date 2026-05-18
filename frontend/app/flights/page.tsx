@@ -377,16 +377,14 @@ function getSelectionKey(row: FlightRow, idx: number) {
 }
 
 function getRefreshExcludeReason(row: FlightRow) {
-  const remarkStatus = getRemarkStatus(row);
-  const rawStatus = String(row.status || "").toUpperCase();
-  const combined = `${remarkStatus} ${rawStatus}`;
+  const remarkStatus = String(row.remark || "").toUpperCase();
 
-  if (combined.includes("도착") || combined.includes("ARRIVED")) {
-    return "도착 확정";
+  if (row.canceled || remarkStatus.includes("결항") || remarkStatus.includes("CANCEL")) {
+    return "결항 확정";
   }
 
-  if (combined.includes("출발") || combined.includes("DEPARTED")) {
-    return "출발 확정";
+  if (remarkStatus.includes("도착") || remarkStatus.includes("ARRIVED")) {
+    return "도착 확정";
   }
 
   return "";
@@ -1019,7 +1017,7 @@ export default function FlightsPage() {
       if (activeFlights.length === 0) {
         nextRows = room.rows || [];
         if (excludedCount > 0) {
-          setError("모든 Schedule Flight가 API remark/status 기준으로 출발·도착 확정되어 재조회 대상에서 제외되었습니다. 화면에는 기존 결과를 유지합니다.");
+          setError("모든 Schedule Flight가 API remark 기준으로 도착 또는 결항 확정되어 재조회 대상에서 제외되었습니다. 화면에는 기존 결과를 유지합니다.");
         }
       } else {
         const res = await fetch(`${BACKEND_URL}/flights/`, {
@@ -1926,7 +1924,7 @@ export default function FlightsPage() {
             <br />
             KJ 전체 조회로 전환하면 기존 편명 직접 조회 결과는 비우고 새 조회 결과만 표시합니다.
             <br />
-            출발·도착이 확정된 항목은 Schedule Flight 선택 대상에서 제외됩니다.
+            remark가 도착 또는 결항으로 확정된 항목은 Schedule Flight 선택 대상에서 제외됩니다.
           </div>
         )}
 
@@ -2060,7 +2058,7 @@ export default function FlightsPage() {
             <div style={{ marginTop: 8, color: "#93c5fd", fontSize: 13, lineHeight: 1.6 }}>
               API 재조회 대상 {refreshActiveRows.length}건 · 확정 제외 {refreshExcludedRows.length}건
               <br />
-              출발편은 remark/status가 출발일 때, 도착편은 도착일 때만 다음 API 호출에서 제외합니다. 착륙은 계속 재조회합니다.
+              remark가 도착 또는 결항일 때만 다음 API 호출에서 제외합니다. 출발, 착륙, 지연, 게이트 변경은 계속 재조회합니다.
             </div>
           </div>
         )}

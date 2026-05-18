@@ -295,23 +295,21 @@ function getComputedStatus(row: FlightRow) {
 }
 
 function getRefreshExcludeReasonFromRow(row: FlightRow) {
-  const remarkStatus = getRemarkStatus(row);
-  const rawStatus = String(row.status || "").toUpperCase();
-  const combined = `${remarkStatus} ${rawStatus}`;
+  const remarkStatus = String(row.remark || "").toUpperCase();
 
-  if (combined.includes("도착") || combined.includes("ARRIVED")) {
-    return "도착 확정";
+  if (row.canceled || remarkStatus.includes("결항") || remarkStatus.includes("CANCEL")) {
+    return "결항 확정";
   }
 
-  if (combined.includes("출발") || combined.includes("DEPARTED")) {
-    return "출발 확정";
+  if (remarkStatus.includes("도착") || remarkStatus.includes("ARRIVED")) {
+    return "도착 확정";
   }
 
   return "";
 }
 
 function isFinalCompletedStatus(status: string) {
-  return status === "출발" || status === "도착";
+  return status === "도착" || status === "결항";
 }
 
 function getLatestRowsByFlight(rows: FlightRow[]) {
@@ -898,7 +896,7 @@ export default function FixedLitePage() {
           <div style={{ color: "#b8c7db", fontSize: 13, lineHeight: 1.5 }}>
             기본 30분 자동조회입니다.
             <br />
-            출발 집중구간은 30분 전~1시간 후, 도착 집중구간은 1시간 전~30분 후이며 이때 5분 간격으로 조회합니다.
+            remark가 도착 또는 결항일 때만 자동조회에서 제외합니다. 출발, 착륙, 지연, 게이트 변경은 계속 조회합니다.
           </div>
         </section>
 
