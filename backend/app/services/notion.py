@@ -75,6 +75,42 @@ def _text_property(value: str | None) -> dict[str, Any]:
     return _rich_text(value)
 
 
+def _image_memo_property_name(image: dict[str, Any]) -> str | None:
+    image_type = image.get("type")
+    property_name = image.get("propertyName")
+
+    if image_type == "daily-schedule" or property_name == "업무일정 이미지":
+        return "업무일정 메모"
+    if image_type == "aircraft-check" or property_name == "화물기 CHECK 이미지":
+        return "화물기 CHECK 메모"
+    if image_type == "inspection-result" or property_name == "점검 대상 결과 이미지":
+        return "점검결과 메모"
+    if image_type == "issue" or property_name == "이미지":
+        return "특이사항 메모"
+
+    return None
+
+
+def _memo_properties_for_images(images: list[dict[str, Any]]) -> dict[str, Any]:
+    memo_properties: dict[str, Any] = {}
+
+    for image in images:
+        if not isinstance(image, dict):
+            continue
+
+        memo = str(image.get("memo") or "").strip()
+        if not memo:
+            continue
+
+        property_name = _image_memo_property_name(image)
+        if not property_name:
+            continue
+
+        memo_properties[property_name] = _text_property(memo)
+
+    return memo_properties
+
+
 def _parse_data_url(data_url: str) -> tuple[str, bytes]:
     if not data_url or "," not in data_url:
         raise ValueError("Invalid image data URL")
@@ -195,6 +231,7 @@ async def create_daily_record(payload: dict[str, Any]) -> dict[str, Any]:
 
     async with httpx.AsyncClient(timeout=60) as client:
         image_properties = await _upload_files_for_properties(client, images)
+        memo_properties = _memo_properties_for_images(images)
 
         properties: dict[str, Any] = {
             "제목": _title(payload.get("title")),
@@ -203,6 +240,7 @@ async def create_daily_record(payload: dict[str, Any]) -> dict[str, Any]:
             "상태": _select(payload.get("status") or "이상 없음"),
             "주요 사항": _text_property(payload.get("memo")),
             **image_properties,
+            **memo_properties,
         }
 
         response = await client.post(
@@ -236,6 +274,7 @@ async def update_daily_record(page_id: str, payload: dict[str, Any]) -> dict[str
 
     async with httpx.AsyncClient(timeout=60) as client:
         image_properties = await _upload_files_for_properties(client, images)
+        memo_properties = _memo_properties_for_images(images)
 
         properties: dict[str, Any] = {
             "제목": _title(payload.get("title")),
@@ -244,6 +283,7 @@ async def update_daily_record(page_id: str, payload: dict[str, Any]) -> dict[str
             "상태": _select(payload.get("status") or "이상 없음"),
             "주요 사항": _text_property(payload.get("memo")),
             **image_properties,
+            **memo_properties,
         }
 
         response = await client.patch(
@@ -296,6 +336,7 @@ async def create_issue_record(payload: dict[str, Any]) -> dict[str, Any]:
 
     async with httpx.AsyncClient(timeout=60) as client:
         image_properties = await _upload_files_for_properties(client, images)
+        memo_properties = _memo_properties_for_images(images)
 
         properties: dict[str, Any] = {
             "제목": _title(payload.get("title")),
@@ -309,6 +350,7 @@ async def create_issue_record(payload: dict[str, Any]) -> dict[str, Any]:
             "작성자": _text_property(payload.get("author")),
             "상태": _select(payload.get("status") or "확인 중"),
             **image_properties,
+            **memo_properties,
         }
 
         response = await client.post(
@@ -342,6 +384,7 @@ async def update_issue_record(page_id: str, payload: dict[str, Any]) -> dict[str
 
     async with httpx.AsyncClient(timeout=60) as client:
         image_properties = await _upload_files_for_properties(client, images)
+        memo_properties = _memo_properties_for_images(images)
 
         properties: dict[str, Any] = {
             "제목": _title(payload.get("title")),
@@ -355,6 +398,7 @@ async def update_issue_record(page_id: str, payload: dict[str, Any]) -> dict[str
             "작성자": _text_property(payload.get("author")),
             "상태": _select(payload.get("status") or "확인 중"),
             **image_properties,
+            **memo_properties,
         }
 
         response = await client.patch(
