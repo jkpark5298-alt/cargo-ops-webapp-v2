@@ -17,7 +17,7 @@ export type ImageViewerImage = {
 };
 
 type MarkType = "arrow" | "circle" | "box";
-type MarkPosition = "top-left" | "top-right" | "center" | "bottom-left" | "bottom-right";
+type MarkPoint = { x: number; y: number };
 type CropRect = { x: number; y: number; width: number; height: number };
 type CropDragMode = "move" | "resize";
 
@@ -38,14 +38,6 @@ const markTypeOptions: Array<{ label: string; value: MarkType }> = [
   { label: "박스", value: "box" },
 ];
 
-const markPositionOptions: Array<{ label: string; value: MarkPosition }> = [
-  { label: "왼쪽 위", value: "top-left" },
-  { label: "오른쪽 위", value: "top-right" },
-  { label: "가운데", value: "center" },
-  { label: "왼쪽 아래", value: "bottom-left" },
-  { label: "오른쪽 아래", value: "bottom-right" },
-];
-
 const defaultCropRect: CropRect = { x: 12, y: 12, width: 76, height: 60 };
 
 export function ImageViewerModal({
@@ -59,6 +51,7 @@ export function ImageViewerModal({
   onSaveAnnotatedImage,
 }: ImageViewerModalProps) {
   const imageElementRef = useRef<HTMLImageElement | null>(null);
+  const markDragRef = useRef<{ pointerId: number } | null>(null);
   const cropDragRef = useRef<{
     mode: CropDragMode;
     pointerId: number;
@@ -73,7 +66,8 @@ export function ImageViewerModal({
   const [isCropMode, setIsCropMode] = useState(false);
   const [cropRect, setCropRect] = useState<CropRect>(defaultCropRect);
   const [markType, setMarkType] = useState<MarkType>("arrow");
-  const [markPosition, setMarkPosition] = useState<MarkPosition>("center");
+  const [isMarkMode, setIsMarkMode] = useState(false);
+  const [markPoint, setMarkPoint] = useState<MarkPoint | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   if (!image) return null;
@@ -114,10 +108,16 @@ export function ImageViewerModal({
   const saveMarkedImage = async () => {
     const selectedType = markTypeOptions.find((option) => option.value === markType) || markTypeOptions[0];
 
+    if (!markPoint) {
+      window.alert("사진에서 표시할 위치를 먼저 눌러주세요.");
+      return;
+    }
+
     try {
       setIsSaving(true);
-      const dataUrl = await drawMarkOnImage(image.dataUrl, markType, markPosition);
+      const dataUrl = await drawMarkOnImage(image.dataUrl, markType, markPoint);
       onSaveAnnotatedImage(dataUrl, `${selectedType.label} 표시`);
+      setIsMarkMode(false);
     } catch {
       window.alert("사진에 표시를 넣는 중 오류가 발생했습니다.");
     } finally {
@@ -126,11 +126,65 @@ export function ImageViewerModal({
   };
 
   const toggleCropMode = () => {
-    setIsCropMode((current) => !current);
+    setIsCropMode((current) => {
+      const next = !current;
+      if (next) setIsMarkMode(false);
+      return next;
+    });
   };
 
   const resetCropRect = () => {
     setCropRect(defaultCropRect);
+  };
+
+  const toggleMarkMode = () => {
+    setIsMarkMode((current) => {
+      const next = !current;
+      if (next) setIsCropMode(false);
+      return next;
+    });
+  };
+
+  const resetMarkPoint = () => {
+    setMarkPoint(null);
+  };
+
+  const updateMarkPointFromEvent = (event: PointerEvent<HTMLDivElement>) => {
+    if (!imageElementRef.current) return;
+
+    const bounds = imageElementRef.current.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+
+    const x = clamp(((event.clientX - bounds.left) / bounds.width) * 100, 0, 100);
+    const y = clamp(((event.clientY - bounds.top) / bounds.height) * 100, 0, 100);
+    setMarkPoint({ x, y });
+  };
+
+  const startMarkDrag = (event: PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    markDragRef.current = { pointerId: event.pointerId };
+    updateMarkPointFromEvent(event);
+  };
+
+  const moveMarkDrag = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = markDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    updateMarkPointFromEvent(event);
+  };
+
+  const endMarkDrag = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = markDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    updateMarkPointFromEvent(event);
+    markDragRef.current = null;
   };
 
   const startCropDrag = (event: PointerEvent<HTMLDivElement>, mode: CropDragMode) => {
@@ -225,6 +279,20 @@ export function ImageViewerModal({
                 </div>
               </div>
             )}
+            {isMarkMode && (
+              <div
+                style={markOverlayStyle}
+                onPointerDown={startMarkDrag}
+                onPointerMove={moveMarkDrag}
+                onPointerUp={endMarkDrag}
+                onPointerCancel={endMarkDrag}
+              >
+                {markPoint && <div style={markPreviewStyle(markPoint, markType)} />}
+                <div style={markGuideStyle}>
+                  사진에서 표시할 위치를 직접 누르거나 드래그하세요
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -234,6 +302,17 @@ export function ImageViewerModal({
         </div>
 
         <div style={toolGridStyle}>
+          <div style={editBoxStyle}>
+            <label style={editLabelStyle}>자유 자르기</label>
+            <div style={cropButtonGridStyle}>
+              <button type="button" onClick={toggleCropMode} style={isCropMode ? selectedOptionButtonStyle : optionButtonStyle}>
+                {isCropMode ? "자르기 모드 끄기" : "자유 자르기 시작"}
+              </button>
+              <button type="button" onClick={resetCropRect} style={optionButtonStyle}>
+                영역 초기화
+              </button>
+            </div>
+
           <div style={editBoxStyle}>
             <label style={editLabelStyle}>사진에 글씨 쓰기</label>
             <textarea
@@ -254,31 +333,6 @@ export function ImageViewerModal({
           </div>
 
           <div style={editBoxStyle}>
-            <label style={editLabelStyle}>자유 자르기</label>
-            <div style={cropButtonGridStyle}>
-              <button type="button" onClick={toggleCropMode} style={isCropMode ? selectedOptionButtonStyle : optionButtonStyle}>
-                {isCropMode ? "자르기 모드 끄기" : "자유 자르기 시작"}
-              </button>
-              <button type="button" onClick={resetCropRect} style={optionButtonStyle}>
-                영역 초기화
-              </button>
-            </div>
-            {isCropMode && (
-              <button
-                type="button"
-                onClick={saveFreeCroppedImage}
-                disabled={isSaving}
-                style={annotateButtonStyle}
-              >
-                {isSaving ? "수정본 저장 중..." : "선택 영역 자르기 저장"}
-              </button>
-            )}
-            <div style={hintStyle}>
-              자유 자르기 시작 후 사진 위 박스를 움직이고, 오른쪽 아래 손잡이로 크기를 조절하세요. 저장하면 현재 사진 1장만 교체됩니다.
-            </div>
-          </div>
-
-          <div style={editBoxStyle}>
             <label style={editLabelStyle}>화살표/표시 넣기</label>
             <div style={optionGridStyle}>
               {markTypeOptions.map((option) => (
@@ -292,27 +346,23 @@ export function ImageViewerModal({
                 </button>
               ))}
             </div>
-            <div style={positionGridStyle}>
-              {markPositionOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setMarkPosition(option.value)}
-                  style={markPosition === option.value ? selectedOptionButtonStyle : optionButtonStyle}
-                >
-                  {option.label}
-                </button>
-              ))}
+            <div style={cropButtonGridStyle}>
+              <button type="button" onClick={toggleMarkMode} style={isMarkMode ? selectedOptionButtonStyle : optionButtonStyle}>
+                {isMarkMode ? "직접 표시 모드 끄기" : "사진에서 직접 표시"}
+              </button>
+              <button type="button" onClick={resetMarkPoint} style={optionButtonStyle}>
+                표시 위치 초기화
+              </button>
             </div>
             <button
               type="button"
               onClick={saveMarkedImage}
-              disabled={isSaving}
+              disabled={isSaving || !markPoint}
               style={annotateButtonStyle}
             >
               {isSaving ? "수정본 저장 중..." : "표시 넣고 수정본 저장"}
             </button>
-            <div style={hintStyle}>선택한 위치에 빨간 화살표, 동그라미, 박스를 넣고 현재 사진 1장만 교체합니다.</div>
+            <div style={hintStyle}>사진에서 표시할 위치를 직접 누르면 빨간 표시가 미리보기로 나타납니다. 저장하면 현재 사진 1장만 교체합니다.</div>
           </div>
         </div>
 
@@ -394,11 +444,14 @@ function cropImageByRect(dataUrl: string, rect: CropRect): Promise<string> {
   });
 }
 
-function drawMarkOnImage(dataUrl: string, markType: MarkType, position: MarkPosition): Promise<string> {
+function drawMarkOnImage(dataUrl: string, markType: MarkType, point: MarkPoint): Promise<string> {
   return withImageCanvas(dataUrl, ({ image, canvas, ctx, canvasWidth, canvasHeight }) => {
     ctx.drawImage(image, 0, 0, canvasWidth, canvasHeight);
 
-    const target = getPositionPoint(position, canvasWidth, canvasHeight);
+    const target = {
+      x: (point.x / 100) * canvasWidth,
+      y: (point.y / 100) * canvasHeight,
+    };
     const size = Math.max(70, Math.round(Math.min(canvasWidth, canvasHeight) * 0.18));
     const lineWidth = Math.max(8, Math.round(Math.min(canvasWidth, canvasHeight) * 0.014));
 
@@ -423,7 +476,7 @@ function drawMarkOnImage(dataUrl: string, markType: MarkType, position: MarkPosi
     }
 
     if (markType === "arrow") {
-      const start = getArrowStartPoint(position, target, canvasWidth, canvasHeight, size);
+      const start = getArrowStartPointFromTarget(target, canvasWidth, canvasHeight, size);
       drawArrow(ctx, start.x, start.y, target.x, target.y, lineWidth, size * 0.32);
     }
 
@@ -468,31 +521,20 @@ function withImageCanvas(
   });
 }
 
-function getPositionPoint(position: MarkPosition, width: number, height: number) {
-  const xPad = width * 0.25;
-  const yPad = height * 0.25;
-
-  if (position === "top-left") return { x: xPad, y: yPad };
-  if (position === "top-right") return { x: width - xPad, y: yPad };
-  if (position === "bottom-left") return { x: xPad, y: height - yPad };
-  if (position === "bottom-right") return { x: width - xPad, y: height - yPad };
-  return { x: width / 2, y: height / 2 };
-}
-
-function getArrowStartPoint(
-  position: MarkPosition,
+function getArrowStartPointFromTarget(
   target: { x: number; y: number },
   width: number,
   height: number,
   size: number,
 ) {
   const offset = size * 1.35;
+  const fromLeft = target.x < width / 2;
+  const fromTop = target.y < height / 2;
 
-  if (position === "top-left") return { x: target.x + offset, y: target.y + offset };
-  if (position === "top-right") return { x: target.x - offset, y: target.y + offset };
-  if (position === "bottom-left") return { x: target.x + offset, y: target.y - offset };
-  if (position === "bottom-right") return { x: target.x - offset, y: target.y - offset };
-  return { x: Math.min(width - offset * 0.5, target.x + offset), y: Math.max(offset * 0.5, target.y - offset) };
+  return {
+    x: clamp(target.x + (fromLeft ? offset : -offset), offset * 0.35, width - offset * 0.35),
+    y: clamp(target.y + (fromTop ? offset : -offset), offset * 0.35, height - offset * 0.35),
+  };
 }
 
 function drawArrow(
@@ -636,24 +678,19 @@ const imageWrapStyle: CSSProperties = {
 
 const cropStageStyle: CSSProperties = {
   position: "relative",
-  width: "100%",
+  display: "inline-block",
   maxWidth: "100%",
   margin: "0 auto",
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
   touchAction: "none",
 };
 
 const imageStyle: CSSProperties = {
-  width: "100%",
-  height: "auto",
+  width: "auto",
   maxWidth: "100%",
   maxHeight: "58vh",
   objectFit: "contain",
   display: "block",
   userSelect: "none",
-  WebkitUserSelect: "none",
 };
 
 const cropOverlayStyle: CSSProperties = {
@@ -706,6 +743,74 @@ const resizeHandleStyle: CSSProperties = {
   cursor: "nwse-resize",
   touchAction: "none",
   pointerEvents: "auto",
+};
+
+const markOverlayStyle: CSSProperties = {
+  position: "absolute",
+  inset: 0,
+  background: "rgba(2, 6, 23, 0.08)",
+  cursor: "crosshair",
+  touchAction: "none",
+  pointerEvents: "auto",
+};
+
+function markPreviewStyle(point: MarkPoint, markType: MarkType): CSSProperties {
+  const base: CSSProperties = {
+    position: "absolute",
+    left: `${point.x}%`,
+    top: `${point.y}%`,
+    transform: "translate(-50%, -50%)",
+    pointerEvents: "none",
+  };
+
+  if (markType === "circle") {
+    return {
+      ...base,
+      width: 74,
+      height: 74,
+      borderRadius: 999,
+      border: "4px solid #ef4444",
+      background: "rgba(239, 68, 68, 0.16)",
+      boxShadow: "0 0 0 2px rgba(255, 255, 255, 0.75)",
+    };
+  }
+
+  if (markType === "box") {
+    return {
+      ...base,
+      width: 82,
+      height: 82,
+      border: "4px solid #ef4444",
+      background: "rgba(239, 68, 68, 0.16)",
+      boxShadow: "0 0 0 2px rgba(255, 255, 255, 0.75)",
+    };
+  }
+
+  return {
+    ...base,
+    width: 92,
+    height: 8,
+    background: "#ef4444",
+    borderRadius: 999,
+    transform: "translate(-50%, -50%) rotate(-35deg)",
+    boxShadow: "0 0 0 2px rgba(255, 255, 255, 0.75)",
+  };
+}
+
+const markGuideStyle: CSSProperties = {
+  position: "absolute",
+  left: 12,
+  bottom: 12,
+  right: 12,
+  borderRadius: 999,
+  background: "rgba(2, 6, 23, 0.78)",
+  color: "#fee2e2",
+  fontSize: 12,
+  fontWeight: 950,
+  lineHeight: 1.35,
+  padding: "7px 10px",
+  textAlign: "center",
+  pointerEvents: "none",
 };
 
 const metaStyle: CSSProperties = {
