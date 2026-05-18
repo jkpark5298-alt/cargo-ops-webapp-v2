@@ -14,6 +14,7 @@ import { ScheduleSummaryCard } from "./components/ScheduleSummaryCard";
 import { DailyRecordCard } from "./components/DailyRecordCard";
 import { IssueRecordCard } from "./components/IssueRecordCard";
 import { PwaNotificationCard } from "./components/PwaNotificationCard";
+import { ImageViewerModal } from "./components/ImageViewerModal";
 import {
   buildFlightAlertSnapshot,
   clearFlightAlertHistory,
@@ -486,6 +487,7 @@ export default function HomePage() {
   const lastImmediateApiCheckRef = useRef(0);
   const [rooms, setRooms] = useState<MonitorRoom[]>([]);
   const [images, setImages] = useState<SavedImage[]>([]);
+  const [imageViewerImage, setImageViewerImage] = useState<SavedImage | null>(null);
   const [note, setNote] = useState("");
   const [notice, setNotice] = useState("");
   const [pwaPermissionLabel, setPwaPermissionLabel] = useState("확인 전");
@@ -1311,15 +1313,19 @@ export default function HomePage() {
         [...IMAGE_SLOTS, ISSUE_IMAGE_SLOT].find((slot) => slot.key === slotKey) ||
         IMAGE_SLOTS[0];
       const label = `${slotInfo.title} · ${sourceLabel}`;
-      const nextImages = upsertImageBySlot(images, {
+      const nextImage: SavedImage = {
         id: `${Date.now()}`,
         type: slotKey,
         label,
         savedAt,
         dataUrl,
-      });
+      };
+      const nextImages = upsertImageBySlot(images, nextImage);
 
       persistImages(nextImages, `${slotInfo.title}를 기기에 저장했습니다.`);
+      setImageViewerImage((current) =>
+        current?.type === slotKey ? nextImage : current,
+      );
     };
 
     reader.onerror = () => {
@@ -1331,57 +1337,45 @@ export default function HomePage() {
 
   const handleDeleteImageSlot = (slotKey: ImageSlotKey) => {
     const image = getImageBySlot(images, slotKey);
-    if (!image) return;
+    if (!image) return false;
 
     const confirmed = window.confirm("이 이미지를 삭제할까요?");
-    if (!confirmed) return;
+    if (!confirmed) return false;
 
     const nextImages = removeImageBySlot(images, slotKey);
     persistImages(nextImages, `${image.label}를 삭제했습니다.`);
+    setImageViewerImage((current) =>
+      current?.type === slotKey ? null : current,
+    );
+    return true;
   };
 
   const openLatestImage = (image: SavedImage) => {
-    const imageWindow = window.open("", "_blank", "noopener,noreferrer");
+    setImageViewerImage(image);
+  };
 
-    if (!imageWindow) {
-      setNotice("이미지를 새 창으로 열 수 없습니다. 팝업 차단을 확인하세요.");
-      return;
-    }
+  const closeImageViewer = () => {
+    setImageViewerImage(null);
+  };
 
-    imageWindow.document.write(`
-      <!doctype html>
-      <html lang="ko">
-        <head>
-          <meta charset="utf-8" />
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <title>${image.label}</title>
-          <style>
-            body {
-              margin: 0;
-              background: #020617;
-              color: #e5edf7;
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-              display: flex;
-              min-height: 100vh;
-              align-items: center;
-              justify-content: center;
-              padding: 16px;
-              box-sizing: border-box;
-            }
-            img {
-              max-width: 100%;
-              max-height: 92vh;
-              border-radius: 14px;
-              object-fit: contain;
-            }
-          </style>
-        </head>
-        <body>
-          <img src="${image.dataUrl}" alt="${image.label}" />
-        </body>
-      </html>
-    `);
-    imageWindow.document.close();
+  const getImageViewerSlotInfo = () =>
+    [...IMAGE_SLOTS, ISSUE_IMAGE_SLOT].find(
+      (slot) => slot.key === imageViewerImage?.type,
+    );
+
+  const handleViewerCameraChange = () => {
+    if (!imageViewerImage) return;
+    openCamera(imageViewerImage.type);
+  };
+
+  const handleViewerLibraryChange = () => {
+    if (!imageViewerImage) return;
+    openPhotoLibrary(imageViewerImage.type);
+  };
+
+  const handleViewerDelete = () => {
+    if (!imageViewerImage) return;
+    handleDeleteImageSlot(imageViewerImage.type);
   };
 
   const handleSaveNoteLocal = () => {
@@ -1713,6 +1707,8 @@ export default function HomePage() {
     }
   };
 
+  const imageViewerSlotInfo = getImageViewerSlotInfo();
+
   return (
     <main style={pageStyle}>
       <section style={heroStyle}>
@@ -1836,6 +1832,17 @@ export default function HomePage() {
 
         {notice && <div style={noticeStyle}>{notice}</div>}
       </section>
+
+      <ImageViewerModal
+        image={imageViewerImage}
+        title={imageViewerSlotInfo?.title}
+        description={imageViewerSlotInfo?.description}
+        onClose={closeImageViewer}
+        onCameraChange={handleViewerCameraChange}
+        onLibraryChange={handleViewerLibraryChange}
+        onDelete={handleViewerDelete}
+      />
+
       <footer style={footerStyle}>by jkpark</footer>
     </main>
   );
