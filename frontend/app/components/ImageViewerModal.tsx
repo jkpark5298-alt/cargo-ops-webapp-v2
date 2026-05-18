@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type CSSProperties } from "react";
+import { useRef, useState, type CSSProperties, type PointerEvent } from "react";
 
 export type ImageViewerSlotKey =
   | "daily-schedule"
@@ -16,9 +16,10 @@ export type ImageViewerImage = {
   dataUrl: string;
 };
 
-type CropRatio = "1:1" | "4:3" | "16:9";
 type MarkType = "arrow" | "circle" | "box";
 type MarkPosition = "top-left" | "top-right" | "center" | "bottom-left" | "bottom-right";
+type CropRect = { x: number; y: number; width: number; height: number };
+type CropDragMode = "move" | "resize";
 
 type ImageViewerModalProps = {
   image: ImageViewerImage | null;
@@ -30,12 +31,6 @@ type ImageViewerModalProps = {
   onDelete: () => void;
   onSaveAnnotatedImage: (dataUrl: string, memo: string) => void;
 };
-
-const cropOptions: Array<{ label: string; value: CropRatio; ratio: number }> = [
-  { label: "1:1", value: "1:1", ratio: 1 },
-  { label: "4:3", value: "4:3", ratio: 4 / 3 },
-  { label: "16:9", value: "16:9", ratio: 16 / 9 },
-];
 
 const markTypeOptions: Array<{ label: string; value: MarkType }> = [
   { label: "화살표", value: "arrow" },
@@ -51,6 +46,8 @@ const markPositionOptions: Array<{ label: string; value: MarkPosition }> = [
   { label: "오른쪽 아래", value: "bottom-right" },
 ];
 
+const defaultCropRect: CropRect = { x: 12, y: 12, width: 76, height: 60 };
+
 export function ImageViewerModal({
   image,
   title,
@@ -61,8 +58,20 @@ export function ImageViewerModal({
   onDelete,
   onSaveAnnotatedImage,
 }: ImageViewerModalProps) {
+  const imageElementRef = useRef<HTMLImageElement | null>(null);
+  const cropDragRef = useRef<{
+    mode: CropDragMode;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startRect: CropRect;
+    imageWidth: number;
+    imageHeight: number;
+  } | null>(null);
+
   const [memo, setMemo] = useState("");
-  const [cropRatio, setCropRatio] = useState<CropRatio>("1:1");
+  const [isCropMode, setIsCropMode] = useState(false);
+  const [cropRect, setCropRect] = useState<CropRect>(defaultCropRect);
   const [markType, setMarkType] = useState<MarkType>("arrow");
   const [markPosition, setMarkPosition] = useState<MarkPosition>("center");
   const [isSaving, setIsSaving] = useState(false);
@@ -89,15 +98,14 @@ export function ImageViewerModal({
     }
   };
 
-  const saveCroppedImage = async () => {
-    const selected = cropOptions.find((option) => option.value === cropRatio) || cropOptions[0];
-
+  const saveFreeCroppedImage = async () => {
     try {
       setIsSaving(true);
-      const dataUrl = await cropImageToRatio(image.dataUrl, selected.ratio);
-      onSaveAnnotatedImage(dataUrl, `자르기 ${selected.label}`);
+      const dataUrl = await cropImageByRect(image.dataUrl, cropRect);
+      onSaveAnnotatedImage(dataUrl, "자유 자르기");
+      setIsCropMode(false);
     } catch {
-      window.alert("사진을 자르는 중 오류가 발생했습니다.");
+      window.alert("선택 영역을 자르는 중 오류가 발생했습니다.");
     } finally {
       setIsSaving(false);
     }
@@ -105,8 +113,6 @@ export function ImageViewerModal({
 
   const saveMarkedImage = async () => {
     const selectedType = markTypeOptions.find((option) => option.value === markType) || markTypeOptions[0];
-    const selectedPosition =
-      markPositionOptions.find((option) => option.value === markPosition) || markPositionOptions[2];
 
     try {
       setIsSaving(true);
@@ -117,6 +123,68 @@ export function ImageViewerModal({
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const toggleCropMode = () => {
+    setIsCropMode((current) => !current);
+  };
+
+  const resetCropRect = () => {
+    setCropRect(defaultCropRect);
+  };
+
+  const startCropDrag = (event: PointerEvent<HTMLDivElement>, mode: CropDragMode) => {
+    if (!imageElementRef.current) return;
+
+    const bounds = imageElementRef.current.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    cropDragRef.current = {
+      mode,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startRect: cropRect,
+      imageWidth: bounds.width,
+      imageHeight: bounds.height,
+    };
+  };
+
+  const moveCropDrag = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = cropDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const dx = ((event.clientX - drag.startX) / drag.imageWidth) * 100;
+    const dy = ((event.clientY - drag.startY) / drag.imageHeight) * 100;
+
+    if (drag.mode === "move") {
+      setCropRect({
+        ...drag.startRect,
+        x: clamp(drag.startRect.x + dx, 0, 100 - drag.startRect.width),
+        y: clamp(drag.startRect.y + dy, 0, 100 - drag.startRect.height),
+      });
+      return;
+    }
+
+    const nextWidth = clamp(drag.startRect.width + dx, 16, 100 - drag.startRect.x);
+    const nextHeight = clamp(drag.startRect.height + dy, 16, 100 - drag.startRect.y);
+    setCropRect({ ...drag.startRect, width: nextWidth, height: nextHeight });
+  };
+
+  const endCropDrag = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = cropDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    cropDragRef.current = null;
   };
 
   return (
@@ -134,7 +202,30 @@ export function ImageViewerModal({
         </div>
 
         <div style={imageWrapStyle}>
-          <img src={image.dataUrl} alt={image.label} style={imageStyle} />
+          <div style={cropStageStyle}>
+            <img ref={imageElementRef} src={image.dataUrl} alt={image.label} style={imageStyle} />
+            {isCropMode && (
+              <div style={cropOverlayStyle}>
+                <div
+                  style={cropBoxStyle(cropRect)}
+                  onPointerDown={(event) => startCropDrag(event, "move")}
+                  onPointerMove={moveCropDrag}
+                  onPointerUp={endCropDrag}
+                  onPointerCancel={endCropDrag}
+                >
+                  <div style={cropBoxLabelStyle}>이동</div>
+                  <div
+                    style={resizeHandleStyle}
+                    onPointerDown={(event) => startCropDrag(event, "resize")}
+                    onPointerMove={moveCropDrag}
+                    onPointerUp={endCropDrag}
+                    onPointerCancel={endCropDrag}
+                    title="크기 조절"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <div style={metaStyle}>
@@ -163,28 +254,28 @@ export function ImageViewerModal({
           </div>
 
           <div style={editBoxStyle}>
-            <label style={editLabelStyle}>사진 자르기</label>
-            <div style={optionGridStyle}>
-              {cropOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setCropRatio(option.value)}
-                  style={cropRatio === option.value ? selectedOptionButtonStyle : optionButtonStyle}
-                >
-                  {option.label}
-                </button>
-              ))}
+            <label style={editLabelStyle}>자유 자르기</label>
+            <div style={cropButtonGridStyle}>
+              <button type="button" onClick={toggleCropMode} style={isCropMode ? selectedOptionButtonStyle : optionButtonStyle}>
+                {isCropMode ? "자르기 모드 끄기" : "자유 자르기 시작"}
+              </button>
+              <button type="button" onClick={resetCropRect} style={optionButtonStyle}>
+                영역 초기화
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={saveCroppedImage}
-              disabled={isSaving}
-              style={annotateButtonStyle}
-            >
-              {isSaving ? "수정본 저장 중..." : "자른 사진 저장"}
-            </button>
-            <div style={hintStyle}>가운데 기준으로 선택한 비율에 맞춰 자르고, 현재 사진 1장만 교체합니다.</div>
+            {isCropMode && (
+              <button
+                type="button"
+                onClick={saveFreeCroppedImage}
+                disabled={isSaving}
+                style={annotateButtonStyle}
+              >
+                {isSaving ? "수정본 저장 중..." : "선택 영역 자르기 저장"}
+              </button>
+            )}
+            <div style={hintStyle}>
+              자유 자르기 시작 후 사진 위 박스를 움직이고, 오른쪽 아래 손잡이로 크기를 조절하세요. 저장하면 현재 사진 1장만 교체됩니다.
+            </div>
           </div>
 
           <div style={editBoxStyle}>
@@ -271,30 +362,19 @@ function drawMemoOnImage(dataUrl: string, memo: string): Promise<string> {
   });
 }
 
-function cropImageToRatio(dataUrl: string, targetRatio: number): Promise<string> {
+function cropImageByRect(dataUrl: string, rect: CropRect): Promise<string> {
   return new Promise((resolve, reject) => {
     const image = new Image();
 
     image.onload = () => {
       const sourceWidth = image.naturalWidth || image.width;
       const sourceHeight = image.naturalHeight || image.height;
-      const sourceRatio = sourceWidth / sourceHeight;
-      let sx = 0;
-      let sy = 0;
-      let sw = sourceWidth;
-      let sh = sourceHeight;
-
-      if (sourceRatio > targetRatio) {
-        sw = sourceHeight * targetRatio;
-        sx = (sourceWidth - sw) / 2;
-      } else {
-        sh = sourceWidth / targetRatio;
-        sy = (sourceHeight - sh) / 2;
-      }
-
+      const sx = Math.round((rect.x / 100) * sourceWidth);
+      const sy = Math.round((rect.y / 100) * sourceHeight);
+      const sw = Math.max(1, Math.round((rect.width / 100) * sourceWidth));
+      const sh = Math.max(1, Math.round((rect.height / 100) * sourceHeight));
       const maxOutput = 1600;
-      const outputWidth = Math.round(Math.min(maxOutput, sw));
-      const outputHeight = Math.round(outputWidth / targetRatio);
+      const scale = Math.min(1, maxOutput / Math.max(sw, sh));
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
 
@@ -303,8 +383,8 @@ function cropImageToRatio(dataUrl: string, targetRatio: number): Promise<string>
         return;
       }
 
-      canvas.width = Math.max(1, outputWidth);
-      canvas.height = Math.max(1, outputHeight);
+      canvas.width = Math.max(1, Math.round(sw * scale));
+      canvas.height = Math.max(1, Math.round(sh * scale));
       ctx.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
       resolve(canvas.toDataURL("image/jpeg", 0.86));
     };
@@ -554,11 +634,73 @@ const imageWrapStyle: CSSProperties = {
   minHeight: 180,
 };
 
+const cropStageStyle: CSSProperties = {
+  position: "relative",
+  width: "100%",
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  touchAction: "none",
+};
+
 const imageStyle: CSSProperties = {
   width: "100%",
   maxHeight: "58vh",
   objectFit: "contain",
   display: "block",
+  userSelect: "none",
+};
+
+const cropOverlayStyle: CSSProperties = {
+  position: "absolute",
+  inset: 0,
+  background: "rgba(2, 6, 23, 0.3)",
+  pointerEvents: "none",
+};
+
+function cropBoxStyle(rect: CropRect): CSSProperties {
+  return {
+    position: "absolute",
+    left: `${rect.x}%`,
+    top: `${rect.y}%`,
+    width: `${rect.width}%`,
+    height: `${rect.height}%`,
+    border: "2px solid #22c55e",
+    background: "rgba(34, 197, 94, 0.1)",
+    boxShadow: "0 0 0 9999px rgba(2, 6, 23, 0.38)",
+    cursor: "move",
+    pointerEvents: "auto",
+    touchAction: "none",
+    boxSizing: "border-box",
+  };
+}
+
+const cropBoxLabelStyle: CSSProperties = {
+  position: "absolute",
+  left: 8,
+  top: 8,
+  borderRadius: 999,
+  background: "rgba(2, 6, 23, 0.78)",
+  color: "#bbf7d0",
+  fontSize: 12,
+  fontWeight: 950,
+  padding: "4px 8px",
+  pointerEvents: "none",
+};
+
+const resizeHandleStyle: CSSProperties = {
+  position: "absolute",
+  right: -10,
+  bottom: -10,
+  width: 28,
+  height: 28,
+  borderRadius: 999,
+  border: "2px solid #bbf7d0",
+  background: "#16a34a",
+  boxShadow: "0 8px 18px rgba(0, 0, 0, 0.35)",
+  cursor: "nwse-resize",
+  touchAction: "none",
+  pointerEvents: "auto",
 };
 
 const metaStyle: CSSProperties = {
@@ -631,6 +773,12 @@ const positionGridStyle: CSSProperties = {
   gridTemplateColumns: "repeat(2, 1fr)",
   gap: 8,
   marginTop: 8,
+};
+
+const cropButtonGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 8,
 };
 
 const actionGridStyle: CSSProperties = {
