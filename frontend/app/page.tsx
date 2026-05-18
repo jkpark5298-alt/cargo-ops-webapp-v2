@@ -1386,13 +1386,14 @@ export default function HomePage() {
       IMAGE_SLOTS[0];
     const savedAt = new Date().toLocaleString("ko-KR");
     const nextImage: SavedImage = {
-      id: `${Date.now()}`,
-      type: imageViewerImage.type,
+      ...imageViewerImage,
       label: `${slotInfo.title} · 글씨 저장`,
       savedAt,
       dataUrl,
     };
-    const nextImages = upsertImageBySlot(images, nextImage);
+    const nextImages = images.map((image) =>
+      image.id === imageViewerImage.id ? nextImage : image,
+    );
 
     persistImages(nextImages, `${slotInfo.title}에 글씨를 넣어 저장했습니다.`);
     setImageViewerImage(nextImage);
