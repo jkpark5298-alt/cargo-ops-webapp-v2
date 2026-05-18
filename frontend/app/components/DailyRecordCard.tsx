@@ -12,6 +12,10 @@ import { ImageSlotCard, type ImageSlot, type ImageSlotKey, type SavedImage } fro
 
 type DailyStatus = "normal" | "issue";
 
+type SavedImageWithMemo = SavedImage & {
+  memo?: string;
+};
+
 type DailyNotionRecord = {
   pageId: string;
   url?: string;
@@ -130,18 +134,24 @@ export function DailyRecordCard({
       </div>
 
       <div style={imageSlotListStyle}>
-        {imageSlots.map((slot) => (
-          <ImageSlotCard
-            key={slot.key}
-            slot={slot}
-            image={getImageBySlot(images, slot.key)}
-            images={images.filter((image) => image.type === slot.key)}
-            onCamera={() => openCamera(slot.key)}
-            onLibrary={() => openPhotoLibrary(slot.key)}
-            onView={openLatestImage}
-            onDelete={() => handleDeleteImageSlot(slot.key)}
-          />
-        ))}
+        {imageSlots.map((slot) => {
+          const slotImages = images.filter((image) => image.type === slot.key) as SavedImageWithMemo[];
+
+          return (
+            <div key={slot.key}>
+              <ImageSlotCard
+                slot={slot}
+                image={getImageBySlot(images, slot.key)}
+                images={slotImages}
+                onCamera={() => openCamera(slot.key)}
+                onLibrary={() => openPhotoLibrary(slot.key)}
+                onView={openLatestImage}
+                onDelete={() => handleDeleteImageSlot(slot.key)}
+              />
+              <PhotoMemoPreview images={slotImages} />
+            </div>
+          );
+        })}
       </div>
 
       <input
@@ -221,6 +231,35 @@ export function DailyRecordCard({
         </div>
       )}
     </section>
+  );
+}
+
+
+function PhotoMemoPreview({ images }: { images: SavedImageWithMemo[] }) {
+  const memoItems = images
+    .map((image, index) => ({
+      id: image.id,
+      label: image.label,
+      memo: image.memo?.trim(),
+      index,
+    }))
+    .filter((item) => item.memo);
+
+  if (memoItems.length === 0) return null;
+
+  return (
+    <div style={photoMemoPreviewBoxStyle}>
+      <div style={photoMemoPreviewTitleStyle}>사진 메모</div>
+      {memoItems.slice(0, 3).map((item) => (
+        <div key={item.id} style={photoMemoPreviewItemStyle}>
+          {memoItems.length > 1 ? `${item.index + 1}. ` : ""}
+          {item.memo}
+        </div>
+      ))}
+      {memoItems.length > 3 && (
+        <div style={photoMemoPreviewMoreStyle}>외 {memoItems.length - 3}건 더 있음</div>
+      )}
+    </div>
   );
 }
 
@@ -341,6 +380,36 @@ const statusIssueButtonStyle: CSSProperties = {
 const imageSlotListStyle: CSSProperties = {
   display: "grid",
   gap: 14,
+};
+
+const photoMemoPreviewBoxStyle: CSSProperties = {
+  marginTop: 8,
+  border: "1px solid rgba(34, 197, 94, 0.18)",
+  borderRadius: 14,
+  background: "rgba(5, 46, 22, 0.24)",
+  padding: 10,
+};
+
+const photoMemoPreviewTitleStyle: CSSProperties = {
+  color: "#bbf7d0",
+  fontSize: 12,
+  fontWeight: 950,
+  marginBottom: 6,
+};
+
+const photoMemoPreviewItemStyle: CSSProperties = {
+  color: "#dcfce7",
+  fontSize: 13,
+  fontWeight: 800,
+  lineHeight: 1.45,
+  wordBreak: "break-word",
+};
+
+const photoMemoPreviewMoreStyle: CSSProperties = {
+  color: "#86efac",
+  fontSize: 12,
+  fontWeight: 850,
+  marginTop: 4,
 };
 
 const fieldBlockStyle: CSSProperties = {

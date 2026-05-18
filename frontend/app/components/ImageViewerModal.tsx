@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 
 export type ImageViewerSlotKey =
   | "daily-schedule"
@@ -16,6 +16,7 @@ export type ImageViewerImage = {
   dataUrl: string;
   capturedAt?: string;
   locationText?: string;
+  memo?: string;
 };
 
 type CropRect = { x: number; y: number; width: number; height: number };
@@ -30,6 +31,7 @@ type ImageViewerModalProps = {
   onLibraryChange: () => void;
   onDelete: () => void;
   onSaveAnnotatedImage: (dataUrl: string, memo: string) => void;
+  onSaveImageMemo: (memo: string) => void;
 };
 
 const defaultCropRect: CropRect = { x: 12, y: 12, width: 76, height: 60 };
@@ -43,6 +45,7 @@ export function ImageViewerModal({
   onLibraryChange,
   onDelete,
   onSaveAnnotatedImage,
+  onSaveImageMemo,
 }: ImageViewerModalProps) {
   const imageElementRef = useRef<HTMLImageElement | null>(null);
   const cropDragRef = useRef<{
@@ -56,11 +59,20 @@ export function ImageViewerModal({
   } | null>(null);
 
   const [memo, setMemo] = useState("");
+  const [photoMemo, setPhotoMemo] = useState("");
   const [isCropMode, setIsCropMode] = useState(false);
   const [cropRect, setCropRect] = useState<CropRect>(defaultCropRect);
   const [isSaving, setIsSaving] = useState(false);
 
+  useEffect(() => {
+    setPhotoMemo(image?.memo || "");
+  }, [image?.id, image?.memo]);
+
   if (!image) return null;
+
+  const savePhotoMemo = () => {
+    onSaveImageMemo(photoMemo);
+  };
 
   const saveMemoOnImage = async () => {
     const cleanMemo = memo.trim();
@@ -207,6 +219,20 @@ export function ImageViewerModal({
             <span>촬영일시: {image.capturedAt || "촬영일시 확인 불가"}</span>
             <span>위치정보: {image.locationText || "위치 정보 없음"}</span>
           </div>
+        </div>
+
+        <div style={photoMemoBoxStyle}>
+          <label style={editLabelStyle}>사진 메모</label>
+          <textarea
+            value={photoMemo}
+            onChange={(event) => setPhotoMemo(event.target.value)}
+            placeholder="예: C02 게이트 변경 확인, 점검 완료, 현장 이상 없음"
+            style={memoInputStyle}
+          />
+          <button type="button" onClick={savePhotoMemo} style={memoSaveButtonStyle}>
+            메모 저장
+          </button>
+          <div style={hintStyle}>사진 메모는 이미지에 박히지 않고 업무 기록 데이터로만 저장됩니다.</div>
         </div>
 
         <div style={toolGridStyle}>
@@ -583,6 +609,14 @@ const photoInfoStyle: CSSProperties = {
   fontWeight: 750,
 };
 
+const photoMemoBoxStyle: CSSProperties = {
+  marginTop: 12,
+  padding: 12,
+  borderRadius: 16,
+  border: "1px solid rgba(34, 197, 94, 0.22)",
+  background: "rgba(5, 46, 22, 0.34)",
+};
+
 const toolGridStyle: CSSProperties = {
   display: "grid",
   gap: 12,
@@ -661,6 +695,14 @@ const annotateButtonStyle: CSSProperties = {
   marginTop: 10,
   border: "1px solid rgba(34, 197, 94, 0.45)",
   background: "#047857",
+};
+
+const memoSaveButtonStyle: CSSProperties = {
+  ...baseButtonStyle,
+  width: "100%",
+  marginTop: 10,
+  border: "1px solid rgba(96, 165, 250, 0.45)",
+  background: "#1d4ed8",
 };
 
 const optionButtonStyle: CSSProperties = {

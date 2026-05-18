@@ -210,6 +210,7 @@ type SavedImage = {
   dataUrl: string;
   capturedAt?: string;
   locationText?: string;
+  memo?: string;
 };
 
 function loadRooms(): MonitorRoom[] {
@@ -1674,6 +1675,22 @@ export default function HomePage() {
     setImageViewerImage(nextImage);
   };
 
+  const handleSaveImageMemo = (memo: string) => {
+    if (!imageViewerImage) return;
+
+    const nextImage: SavedImage = {
+      ...imageViewerImage,
+      memo: memo.trim(),
+    };
+
+    const nextImages = images.map((image) =>
+      image.id === imageViewerImage.id ? nextImage : image,
+    );
+
+    persistImages(nextImages, memo.trim() ? "사진 메모를 저장했습니다." : "사진 메모를 비웠습니다.");
+    setImageViewerImage(nextImage);
+  };
+
   const handleSaveNoteLocal = () => {
     saveNote(note);
     setNotice(
@@ -2145,6 +2162,7 @@ export default function HomePage() {
         onLibraryChange={handleViewerLibraryChange}
         onDelete={handleViewerDelete}
         onSaveAnnotatedImage={handleSaveAnnotatedImage}
+        onSaveImageMemo={handleSaveImageMemo}
       />
 
       <footer style={footerStyle}>by jkpark</footer>
