@@ -369,10 +369,10 @@ function cropImageByRect(dataUrl: string, rect: CropRect): Promise<string> {
     image.onload = () => {
       const sourceWidth = image.naturalWidth || image.width;
       const sourceHeight = image.naturalHeight || image.height;
-      const sx = Math.round((rect.x / 100) * sourceWidth);
-      const sy = Math.round((rect.y / 100) * sourceHeight);
-      const sw = Math.max(1, Math.round((rect.width / 100) * sourceWidth));
-      const sh = Math.max(1, Math.round((rect.height / 100) * sourceHeight));
+      const sx = clamp(Math.round((rect.x / 100) * sourceWidth), 0, sourceWidth - 1);
+      const sy = clamp(Math.round((rect.y / 100) * sourceHeight), 0, sourceHeight - 1);
+      const sw = Math.max(1, Math.min(sourceWidth - sx, Math.round((rect.width / 100) * sourceWidth)));
+      const sh = Math.max(1, Math.min(sourceHeight - sy, Math.round((rect.height / 100) * sourceHeight)));
       const maxOutput = 1600;
       const scale = Math.min(1, maxOutput / Math.max(sw, sh));
       const canvas = document.createElement("canvas");
@@ -636,15 +636,15 @@ const imageWrapStyle: CSSProperties = {
 
 const cropStageStyle: CSSProperties = {
   position: "relative",
-  width: "100%",
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
+  display: "inline-block",
+  maxWidth: "100%",
+  margin: "0 auto",
   touchAction: "none",
 };
 
 const imageStyle: CSSProperties = {
-  width: "100%",
+  width: "auto",
+  maxWidth: "100%",
   maxHeight: "58vh",
   objectFit: "contain",
   display: "block",
