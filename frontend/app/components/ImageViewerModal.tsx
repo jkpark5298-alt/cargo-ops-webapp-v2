@@ -1,6 +1,13 @@
 "use client";
 
-import { useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import {
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+  type PointerEvent,
+  type TouchEvent,
+} from "react";
 
 export type ImageViewerSlotKey =
   | "daily-schedule"
@@ -149,23 +156,44 @@ export function ImageViewerModal({
     setMarkPoint(null);
   };
 
-  const updateMarkPointFromEvent = (event: PointerEvent<HTMLDivElement>) => {
+  const updateMarkPointFromClient = (clientX: number, clientY: number) => {
     if (!imageElementRef.current) return;
 
     const bounds = imageElementRef.current.getBoundingClientRect();
     if (bounds.width <= 0 || bounds.height <= 0) return;
 
-    const x = clamp(((event.clientX - bounds.left) / bounds.width) * 100, 0, 100);
-    const y = clamp(((event.clientY - bounds.top) / bounds.height) * 100, 0, 100);
+    const x = clamp(((clientX - bounds.left) / bounds.width) * 100, 0, 100);
+    const y = clamp(((clientY - bounds.top) / bounds.height) * 100, 0, 100);
     setMarkPoint({ x, y });
+  };
+
+  const updateMarkPointFromPointer = (event: PointerEvent<HTMLDivElement>) => {
+    updateMarkPointFromClient(event.clientX, event.clientY);
+  };
+
+  const updateMarkPointFromTouch = (event: TouchEvent<HTMLDivElement>) => {
+    const touch = event.touches[0] || event.changedTouches[0];
+    if (!touch) return;
+
+    updateMarkPointFromClient(touch.clientX, touch.clientY);
+  };
+
+  const selectMarkPointByClick = (event: MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    updateMarkPointFromClient(event.clientX, event.clientY);
   };
 
   const startMarkDrag = (event: PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    event.currentTarget.setPointerCapture(event.pointerId);
+
+    if (event.currentTarget.setPointerCapture) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+
     markDragRef.current = { pointerId: event.pointerId };
-    updateMarkPointFromEvent(event);
+    updateMarkPointFromPointer(event);
   };
 
   const moveMarkDrag = (event: PointerEvent<HTMLDivElement>) => {
@@ -174,7 +202,7 @@ export function ImageViewerModal({
 
     event.preventDefault();
     event.stopPropagation();
-    updateMarkPointFromEvent(event);
+    updateMarkPointFromPointer(event);
   };
 
   const endMarkDrag = (event: PointerEvent<HTMLDivElement>) => {
@@ -183,8 +211,26 @@ export function ImageViewerModal({
 
     event.preventDefault();
     event.stopPropagation();
-    updateMarkPointFromEvent(event);
+    updateMarkPointFromPointer(event);
     markDragRef.current = null;
+  };
+
+  const startMarkTouch = (event: TouchEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    updateMarkPointFromTouch(event);
+  };
+
+  const moveMarkTouch = (event: TouchEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    updateMarkPointFromTouch(event);
+  };
+
+  const endMarkTouch = (event: TouchEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    updateMarkPointFromTouch(event);
   };
 
   const startCropDrag = (event: PointerEvent<HTMLDivElement>, mode: CropDragMode) => {
@@ -282,13 +328,18 @@ export function ImageViewerModal({
             {isMarkMode && (
               <div
                 style={markOverlayStyle}
+                onClick={selectMarkPointByClick}
                 onPointerDown={startMarkDrag}
                 onPointerMove={moveMarkDrag}
                 onPointerUp={endMarkDrag}
                 onPointerCancel={endMarkDrag}
+                onTouchStart={startMarkTouch}
+                onTouchMove={moveMarkTouch}
+                onTouchEnd={endMarkTouch}
+                onTouchCancel={endMarkTouch}
               >
                 {markPoint && <div style={markPreviewStyle(markPoint, markType)} />}
-                <div style={markGuideStyle}>사진에서 표시할 위치를 직접 누르거나 드래그하세요</div>
+                <div style={markGuideStyle}>사진에서 표시할 위치를 직접 터치하거나 드래그하세요</div>
               </div>
             )}
           </div>
@@ -374,7 +425,7 @@ export function ImageViewerModal({
             >
               {isSaving ? "수정본 저장 중..." : "표시 넣고 수정본 저장"}
             </button>
-            <div style={hintStyle}>사진에서 표시할 위치를 직접 누르면 빨간 표시가 미리보기로 나타납니다. 저장하면 현재 사진 1장만 교체합니다.</div>
+            <div style={hintStyle}>사진에서 표시할 위치를 직접 터치하면 빨간 표시가 미리보기로 나타납니다. 저장하면 현재 사진 1장만 교체합니다.</div>
           </div>
         </div>
 
