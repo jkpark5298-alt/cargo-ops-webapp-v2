@@ -70,7 +70,10 @@ function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
       {items.length > 0 ? (
         items.map((item) => (
           <div key={`${item.flight}-${item.route}`} style={flightRouteRowStyle}>
-            <span style={flightRouteNoStyle}>{item.flight}</span>
+            <span style={flightRouteNoStyle}>
+              {item.flight}
+              {item.registrationNo ? <span style={flightRouteHlStyle}> · {item.registrationNo}</span> : null}
+            </span>
             <span style={flightRouteValueStyle}>{item.route}</span>
             <span style={getFlightRouteMetaStyle(item.status)}>
               <span style={getStatusBadgeStyle(item.status)}>{item.status}</span>
@@ -157,6 +160,7 @@ function getFlightRouteItems(room: MonitorRoom | null) {
 
       return {
         flight,
+        registrationNo: getRegistrationNo(row),
         route: getRouteDisplay(row) || "구간 확인 중",
         direction: "기준",
         status: getComputedStatus(row),
@@ -168,6 +172,7 @@ function getFlightRouteItems(room: MonitorRoom | null) {
     .filter(
       (item): item is {
         flight: string;
+        registrationNo: string;
         route: string;
         direction: string;
         status: string;
@@ -196,6 +201,7 @@ function getFlightRouteItems(room: MonitorRoom | null) {
     .filter(Boolean)
     .map((flight) => ({
       flight,
+      registrationNo: "",
       route: "조회 결과 없음",
       direction: "기준",
       status: "-",
@@ -207,6 +213,10 @@ function getFlightRouteItems(room: MonitorRoom | null) {
 
 function getFlightNo(row: FlightRow) {
   return row.flightNo || row.flightId || "";
+}
+
+function getRegistrationNo(row?: FlightRow) {
+  return row?.fid || "";
 }
 
 function getRouteDisplay(row?: FlightRow) {
@@ -458,7 +468,7 @@ const flightRouteOnlyBlockStyle: CSSProperties = {
 
 const flightRouteRowStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "68px minmax(68px, 1fr) minmax(190px, auto)",
+  gridTemplateColumns: "112px minmax(68px, 1fr) minmax(170px, auto)",
   gap: 10,
   alignItems: "center",
   color: "#f8fafc",
@@ -470,6 +480,14 @@ const flightRouteRowStyle: CSSProperties = {
 const flightRouteNoStyle: CSSProperties = {
   letterSpacing: 0.5,
   whiteSpace: "nowrap",
+};
+
+const flightRouteHlStyle: CSSProperties = {
+  display: "inline-block",
+  color: "#bfdbfe",
+  fontSize: 12,
+  fontWeight: 900,
+  letterSpacing: 0,
 };
 
 const flightRouteValueStyle: CSSProperties = {

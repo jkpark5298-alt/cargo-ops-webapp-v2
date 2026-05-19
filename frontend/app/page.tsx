@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import {
   useEffect,
@@ -195,6 +195,10 @@ export type FlightRow = {
   delay?: boolean;
   canceled?: boolean;
   gateChanged?: boolean;
+  fid?: string;
+  aircraftRegNo?: string;
+  registrationNo?: string;
+  hlnbr?: string;
 };
 
 export type MonitorRoom = {

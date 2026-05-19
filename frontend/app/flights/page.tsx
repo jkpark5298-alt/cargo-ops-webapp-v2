@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
 const BACKEND_URL =
@@ -48,6 +48,8 @@ type MonitorRoom = {
 };
 
 const STORAGE_KEY = "cargo_ops_monitor_rooms_v6";
+const HL_MAPPING_STORAGE_KEY = "cargo_ops_hl_number_mapping_v1";
+const HL_IMAGE_STORAGE_KEY = "cargo_ops_hl_number_image_v1";
 const LAST_FIXED_ROOM_KEY = "last_fixed_room_id";
 const FLIGHT_ALERT_SNAPSHOT_KEY = "cargo_ops_flight_alert_snapshot_v1";
 const FLIGHT_ALERT_HISTORY_KEY = "cargo_ops_flight_alert_history_v1";
@@ -455,6 +457,83 @@ function normalizeFlightKey(value: string) {
   return value.replace(/\s+/g, "").toUpperCase();
 }
 
+function normalizeHlFlightKey(value: string) {
+  const normalized = value.replace(/\s+/g, "").toUpperCase();
+  if (/^\d{3,4}$/.test(normalized)) return `KJ${normalized}`;
+  return normalized;
+}
+
+function normalizeHlNumber(value: string) {
+  return value.replace(/\s+/g, "").toUpperCase();
+}
+
+function parseHlMappingText(text: string): Record<string, string> {
+  const mapping: Record<string, string> = {};
+
+  text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .forEach((line) => {
+      const cleaned = line.replace(/[|,]/g, " ");
+      const parts = cleaned.split(/\s+/).filter(Boolean);
+      if (parts.length < 2) return;
+
+      const flight = normalizeHlFlightKey(parts[0]);
+      const hlNumber = normalizeHlNumber(parts[1]);
+
+      if (!/^KJ\d{2,4}$/i.test(flight)) return;
+      if (!/^HL\d{3,5}$/i.test(hlNumber)) return;
+
+      mapping[flight] = hlNumber;
+    });
+
+  return mapping;
+}
+
+function serializeHlMapping(mapping: Record<string, string>) {
+  return Object.keys(mapping)
+    .sort((a, b) => a.localeCompare(b, "en"))
+    .map((flight) => `${flight} ${mapping[flight]}`)
+    .join("\n");
+}
+
+function loadHlMappingText() {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(HL_MAPPING_STORAGE_KEY) || "";
+}
+
+function saveHlMappingText(value: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(HL_MAPPING_STORAGE_KEY, value);
+}
+
+function loadHlImageDataUrl() {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(HL_IMAGE_STORAGE_KEY) || "";
+}
+
+function saveHlImageDataUrl(value: string) {
+  if (typeof window === "undefined") return;
+  if (value) {
+    window.localStorage.setItem(HL_IMAGE_STORAGE_KEY, value);
+  } else {
+    window.localStorage.removeItem(HL_IMAGE_STORAGE_KEY);
+  }
+}
+
+function getMappedHlNumber(row: FlightRow, mapping: Record<string, string>) {
+  const flight = getFlightKeyFromRow(row);
+  return mapping[flight] || "";
+}
+
+function applyHlMappingToRows(rows: FlightRow[], mapping: Record<string, string>) {
+  return rows.map((row) => {
+    const mappedHl = getMappedHlNumber(row, mapping);
+    return mappedHl ? { ...row, fid: mappedHl } : row;
+  });
+}
+
 function getFlightKeyFromRow(row: FlightRow) {
   return normalizeFlightKey(getFlightDisplay(row));
 }
@@ -660,6 +739,7 @@ function FixedResultsTable({
           <tr style={{ background: "#18263f" }}>
             <th style={thStyle}>선택</th>
             <th style={thStyle}>편명</th>
+            <th style={thStyle}>등록기호</th>
             <th style={thStyle}>구분</th>
             <th style={thStyle}>출발</th>
             <th style={thStyle}>도착</th>
@@ -671,7 +751,7 @@ function FixedResultsTable({
         <tbody>
           {rows.length === 0 && (
             <tr>
-              <td style={tdStyle} colSpan={8}>
+              <td style={tdStyle} colSpan={9}>
                 조회 결과가 없습니다.
               </td>
             </tr>
@@ -741,6 +821,7 @@ function FixedResultsTable({
                     )}
                   </td>
                   <td style={tdStyle}>{getFlightDisplay(row)}</td>
+                  <td style={tdStyle}>{getRegistrationNo(row)}</td>
                   <td
                     style={{
                       ...tdStyle,
@@ -764,7 +845,7 @@ function FixedResultsTable({
 
                 {expanded && (
                   <tr style={{ background: "#0c1a31", borderBottom: "1px solid #2b4269" }}>
-                    <td colSpan={8} style={{ padding: 14 }}>
+                    <td colSpan={9} style={{ padding: 14 }}>
                       <table
                         style={{
                           width: "100%",
@@ -806,6 +887,7 @@ function FragmentRow({ children }: { children: ReactNode }) {
 
 export default function FlightsPage() {
   const router = useRouter();
+  const hlImageInputRef = useRef<HTMLInputElement | null>(null);
 
   const [queryMode, setQueryMode] = useState<"manual" | "kj-all">("manual");
   const [input, setInput] = useState("");
@@ -824,12 +906,23 @@ export default function FlightsPage() {
   const [rooms, setRooms] = useState<MonitorRoom[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState("");
   const [expandedDetailKeys, setExpandedDetailKeys] = useState<Record<string, boolean>>({});
+  const [hlMappingText, setHlMappingText] = useState("");
+  const [hlMappingStatus, setHlMappingStatus] = useState("");
+  const [hlImageDataUrl, setHlImageDataUrl] = useState("");
 
   const currentRangeText = useMemo(() => {
     return `${startDateTime.replace("T", " ")} ~ ${endDateTime.replace("T", " ")}`;
   }, [startDateTime, endDateTime]);
 
   const alertCounts = useMemo(() => getAlertCounts(rows), [rows]);
+
+  const hlNumberMap = useMemo(() => parseHlMappingText(hlMappingText), [hlMappingText]);
+  const hlMappingCount = useMemo(() => Object.keys(hlNumberMap).length, [hlNumberMap]);
+
+  useEffect(() => {
+    setHlMappingText(loadHlMappingText());
+    setHlImageDataUrl(loadHlImageDataUrl());
+  }, []);
 
   const selectedScheduleRows = useMemo(() => {
     const rowMap = new Map<string, FlightRow>();
@@ -866,6 +959,63 @@ export default function FlightsPage() {
       saveRooms(nextRooms);
       return nextRooms;
     });
+  };
+
+  const handleHlImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      setHlImageDataUrl(result);
+      saveHlImageDataUrl(result);
+      setHlMappingStatus("에어제타 최종 변환 이미지를 저장했습니다.");
+    };
+    reader.readAsDataURL(file);
+    event.target.value = "";
+  };
+
+  const handleClearHlImage = () => {
+    setHlImageDataUrl("");
+    saveHlImageDataUrl("");
+    setHlMappingStatus("에어제타 최종 변환 이미지를 삭제했습니다.");
+  };
+
+  const handleSaveHlMapping = async () => {
+    const normalizedText = serializeHlMapping(hlNumberMap);
+    setHlMappingText(normalizedText);
+    saveHlMappingText(normalizedText);
+
+    const nextRows = applyHlMappingToRows(rows, hlNumberMap);
+    const nextRooms = rooms.map((room) => ({
+      ...room,
+      rows: applyHlMappingToRows(room.rows || [], hlNumberMap),
+    }));
+
+    setRows(nextRows);
+    setRooms(nextRooms);
+    saveRooms(nextRooms);
+
+    const nextSelectedRoom = selectedRoom
+      ? nextRooms.find((room) => room.id === selectedRoom.id) || null
+      : null;
+
+    if (nextSelectedRoom?.fixed) {
+      try {
+        await saveLatestScheduleToServer(normalizeScheduleRoomRows(nextSelectedRoom));
+        setHlMappingStatus(`등록기호 ${Object.keys(hlNumberMap).length}건 저장 · Schedule Lite/초기화면 반영`);
+      } catch (error) {
+        setHlMappingStatus(
+          error instanceof Error
+            ? `등록기호 로컬 저장 완료 · 서버 반영 실패: ${error.message}`
+            : "등록기호 로컬 저장 완료 · 서버 반영 실패",
+        );
+      }
+      return;
+    }
+
+    setHlMappingStatus(`등록기호 ${Object.keys(hlNumberMap).length}건 저장`);
   };
 
   const handleFlightsInputChange = (value: string) => {
@@ -1219,7 +1369,7 @@ export default function FlightsPage() {
         throw new Error(json.message || json.detail || `서버 오류 (${res.status})`);
       }
 
-      const nextRows = json.data || [];
+      const nextRows = applyHlMappingToRows(json.data || [], hlNumberMap);
       const fetchedAt = new Date().toLocaleString("ko-KR");
 
       setRows(nextRows);
@@ -1304,7 +1454,7 @@ export default function FlightsPage() {
         );
       }
 
-      const nextRows = json.data || [];
+      const nextRows = applyHlMappingToRows(json.data || [], hlNumberMap);
       const fetchedAt = new Date().toLocaleString("ko-KR");
 
       setRows(nextRows);
@@ -1469,7 +1619,8 @@ export default function FlightsPage() {
       return;
     }
 
-    const selectedFlights = getFlightsFromRowsInOrder(selectedScheduleRows);
+    const selectedRowsWithHl = applyHlMappingToRows(selectedScheduleRows, hlNumberMap);
+    const selectedFlights = getFlightsFromRowsInOrder(selectedRowsWithHl);
     if (selectedFlights.length === 0) {
       setError("선택한 결과에서 편명을 확인하지 못했습니다.");
       return;
@@ -1478,7 +1629,7 @@ export default function FlightsPage() {
     const missingFlights = getMissingInputFlights(input, rows);
     const now = new Date();
     const baseScheduleRoom = selectedRoom?.fixed ? normalizeScheduleRoomRows(selectedRoom) : null;
-    const selectedOnlyRows = buildScheduleRowsForFlights(selectedScheduleRows, selectedFlights);
+    const selectedOnlyRows = buildScheduleRowsForFlights(selectedRowsWithHl, selectedFlights);
     const baseRows = baseScheduleRoom
       ? buildScheduleRowsForFlights(baseScheduleRoom.rows || [], normalizeFlightsInput(baseScheduleRoom.flightsInput))
       : [];
@@ -2019,6 +2170,57 @@ export default function FlightsPage() {
           </button>
         </div>
 
+        <section style={hlMappingCardStyle}>
+          <div style={hlMappingHeaderStyle}>
+            <div>
+              <div style={hlMappingTitleStyle}>에어제타 최종 변환 이미지 / 등록기호</div>
+              <div style={hlMappingHelpStyle}>
+                이미지로 편성표를 확인하고, 편명별 등록기호를 직접 입력해 Schedule Lite와 초기화면에 반영합니다.
+              </div>
+            </div>
+            <div style={hlMappingCountStyle}>저장 대상 {hlMappingCount}건</div>
+          </div>
+
+          <input
+            ref={hlImageInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleHlImageChange}
+            style={{ display: "none" }}
+          />
+
+          <div style={hlMappingButtonRowStyle}>
+            <button type="button" onClick={() => hlImageInputRef.current?.click()} style={hlMappingButtonStyle}>
+              이미지 등록
+            </button>
+            <button type="button" onClick={handleClearHlImage} style={hlMappingSecondaryButtonStyle}>
+              이미지 삭제
+            </button>
+          </div>
+
+          {hlImageDataUrl ? (
+            <img src={hlImageDataUrl} alt="에어제타 최종 변환 이미지" style={hlImagePreviewStyle} />
+          ) : (
+            <div style={hlImagePlaceholderStyle}>등록된 최종 변환 이미지가 없습니다.</div>
+          )}
+
+          <textarea
+            value={hlMappingText}
+            onChange={(event) => setHlMappingText(event.target.value.toUpperCase())}
+            placeholder={"예: KJ247 HL7420\nKJ958 HL7423\nKJ795 HL7419"}
+            style={hlMappingTextareaStyle}
+          />
+
+          <div style={hlMappingButtonRowStyle}>
+            <button type="button" onClick={() => void handleSaveHlMapping()} style={hlMappingSaveButtonStyle}>
+              등록기호 저장
+            </button>
+          </div>
+
+          {hlMappingStatus ? <div style={hlMappingStatusStyle}>{hlMappingStatus}</div> : null}
+        </section>
+
         {fixed && (
           <div style={{ marginTop: 6, color: "#facc15", fontSize: 14 }}>
             Schedule Flight 관리 중 · D로 상세 확인
@@ -2227,6 +2429,7 @@ export default function FlightsPage() {
                   <th style={thStyle}>선택</th>
                   <th style={thStyle}>현황</th>
                   <th style={thStyle}>편명</th>
+                  <th style={thStyle}>등록기호</th>
                   <th style={thStyle}>출발지코드</th>
                   <th style={thStyle}>출발지공항명</th>
                   <th style={thStyle}>도착지코드</th>
@@ -2242,7 +2445,7 @@ export default function FlightsPage() {
               <tbody>
                 {rows.length === 0 && (
                   <tr>
-                    <td style={tdStyle} colSpan={13}>
+                    <td style={tdStyle} colSpan={14}>
                       조회 결과가 없습니다.
                     </td>
                   </tr>
@@ -2316,6 +2519,7 @@ export default function FlightsPage() {
                         {getComputedStatus(r)}
                       </td>
                       <td style={tdStyle}>{getFlightDisplay(r)}</td>
+                      <td style={tdStyle}>{getRegistrationNo(r)}</td>
                       <td style={tdStyle}>{r.departureCode || "-"}</td>
                       <td style={tdStyle}>{r.departureName || "-"}</td>
                       <td style={tdStyle}>{r.arrivalCode || "-"}</td>
@@ -2443,6 +2647,115 @@ const selectInputStyle: CSSProperties = {
   color: "white",
   fontSize: 14,
   minWidth: 78,
+};
+
+const hlMappingCardStyle: CSSProperties = {
+  marginTop: 18,
+  padding: 14,
+  borderRadius: 14,
+  border: "1px solid rgba(96, 165, 250, 0.28)",
+  background: "rgba(15, 23, 42, 0.72)",
+};
+
+const hlMappingHeaderStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+};
+
+const hlMappingTitleStyle: CSSProperties = {
+  color: "#e5edf7",
+  fontSize: 16,
+  fontWeight: 900,
+};
+
+const hlMappingHelpStyle: CSSProperties = {
+  marginTop: 4,
+  color: "#93c5fd",
+  fontSize: 13,
+  lineHeight: 1.45,
+};
+
+const hlMappingCountStyle: CSSProperties = {
+  padding: "4px 8px",
+  borderRadius: 999,
+  background: "rgba(37, 99, 235, 0.18)",
+  color: "#bfdbfe",
+  fontSize: 12,
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+
+const hlMappingButtonRowStyle: CSSProperties = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  marginTop: 12,
+};
+
+const hlMappingButtonStyle: CSSProperties = {
+  padding: "9px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(147, 197, 253, 0.34)",
+  background: "#1d4ed8",
+  color: "#ffffff",
+  fontWeight: 850,
+  cursor: "pointer",
+};
+
+const hlMappingSecondaryButtonStyle: CSSProperties = {
+  ...hlMappingButtonStyle,
+  background: "#0f172a",
+  color: "#dbeafe",
+};
+
+const hlMappingSaveButtonStyle: CSSProperties = {
+  ...hlMappingButtonStyle,
+  background: "#16a34a",
+  border: "none",
+};
+
+const hlImagePreviewStyle: CSSProperties = {
+  width: "100%",
+  maxHeight: 360,
+  objectFit: "contain",
+  marginTop: 12,
+  borderRadius: 12,
+  border: "1px solid rgba(148, 163, 184, 0.22)",
+  background: "#020617",
+};
+
+const hlImagePlaceholderStyle: CSSProperties = {
+  marginTop: 12,
+  padding: 14,
+  borderRadius: 12,
+  border: "1px dashed rgba(148, 163, 184, 0.35)",
+  color: "#94a3b8",
+  fontSize: 13,
+};
+
+const hlMappingTextareaStyle: CSSProperties = {
+  width: "100%",
+  minHeight: 130,
+  marginTop: 12,
+  padding: 12,
+  borderRadius: 12,
+  border: "1px solid rgba(148, 163, 184, 0.28)",
+  background: "#020617",
+  color: "#e5edf7",
+  fontSize: 14,
+  lineHeight: 1.5,
+  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+  resize: "vertical",
+};
+
+const hlMappingStatusStyle: CSSProperties = {
+  marginTop: 10,
+  color: "#bbf7d0",
+  fontSize: 13,
+  fontWeight: 800,
 };
 
 const scheduleSaveGuideStyle: CSSProperties = {
