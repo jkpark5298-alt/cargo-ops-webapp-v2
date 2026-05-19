@@ -216,7 +216,27 @@ function getFlightNo(row: FlightRow) {
 }
 
 function getRegistrationNo(row?: FlightRow) {
-  return row?.fid || "";
+  const maybeRow = row as
+    | {
+        hlnbr?: string;
+        registrationNo?: string;
+        aircraftRegNo?: string;
+        fid?: string;
+      }
+    | undefined;
+
+  const hlnbr =
+    maybeRow?.hlnbr ||
+    maybeRow?.registrationNo ||
+    maybeRow?.aircraftRegNo ||
+    "";
+
+  if (/^HL\d{3,5}$/i.test(hlnbr)) return hlnbr.toUpperCase();
+
+  const fid = maybeRow?.fid || "";
+  if (/^HL\d{3,5}$/i.test(fid)) return fid.toUpperCase();
+
+  return "";
 }
 
 function getRouteDisplay(row?: FlightRow) {
