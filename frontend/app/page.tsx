@@ -66,6 +66,27 @@ type BackendScheduleChange = {
   flight?: string;
   route?: string;
   changes?: string[];
+  title?: string;
+  description?: string;
+  message?: string;
+  detail?: string;
+  changeText?: string;
+  previous?: string;
+  current?: string;
+  before?: string;
+  after?: string;
+  oldValue?: string;
+  newValue?: string;
+  oldTime?: string;
+  newTime?: string;
+  beforeTime?: string;
+  afterTime?: string;
+  gate?: string;
+  oldGate?: string;
+  newGate?: string;
+  status?: string;
+  oldStatus?: string;
+  newStatus?: string;
 };
 
 type BackendScheduleCheckResult = {
@@ -970,37 +991,151 @@ export default function HomePage() {
   };
 
 
+
+  const normalizeAlertText = (value?: string) => {
+    return String(value || "")
+      .replace(/\s+/g, " ")
+      .replace(/\s*·\s*/g, " · ")
+      .trim();
+  };
+
+  const normalizeAlertRoute = (value?: string) => {
+    return String(value || "")
+      .replace(/\s+/g, "")
+      .replace(/-/g, "→")
+      .replace(/>/g, "→")
+      .toUpperCase()
+      .trim();
+  };
+
+  const pickAlertText = (value: Record<string, unknown>, keys: string[]) => {
+    for (const key of keys) {
+      const raw = value[key];
+      if (raw === undefined || raw === null) continue;
+      const text = normalizeAlertText(String(raw));
+      if (text) return text;
+    }
+    return "";
+  };
+
+  const buildValueChangeText = (label: string, beforeValue: string, afterValue: string) => {
+    if (beforeValue && afterValue && beforeValue !== afterValue) {
+      return `${label} ${beforeValue} → ${afterValue}`;
+    }
+    if (afterValue) return `${label} ${afterValue}`;
+    return "";
+  };
+
+  const getReadableChangeKind = (changeText: string) => {
+    if (/착륙|도착|상태|remark|REMARK/i.test(changeText)) return "상태 변경";
+    if (/게이트|gate/i.test(changeText)) return "게이트 변경";
+    if (/터미널|terminal/i.test(changeText)) return "터미널 변경";
+    if (/운항시각|시간|예정|estimated|schedule/i.test(changeText)) return "운항시각 변경";
+    return "운항 정보 변경";
+  };
+
+  const buildDetailedAlertDescription = (
+    change: BackendScheduleChange | Record<string, unknown>,
+    sourceLabel = "API 확인",
+  ) => {
+    const value = change as Record<string, unknown>;
+    const route = normalizeAlertRoute(
+      String(value.route || value.routeText || value.segment || ""),
+    );
+
+    const changes = Array.isArray(value.changes)
+      ? value.changes.map((item) => normalizeAlertText(String(item))).filter(Boolean)
+      : [];
+
+    const directText = pickAlertText(value, [
+      "description",
+      "message",
+      "detail",
+      "changeText",
+      "change",
+      "reason",
+      "statusText",
+    ]);
+
+    const oldTime = pickAlertText(value, ["oldTime", "beforeTime", "previousTime", "oldEta", "beforeEta", "oldScheduleTime"]);
+    const newTime = pickAlertText(value, ["newTime", "afterTime", "currentTime", "newEta", "afterEta", "newScheduleTime"]);
+    const oldGate = pickAlertText(value, ["oldGate", "beforeGate", "previousGate"]);
+    const newGate = pickAlertText(value, ["newGate", "afterGate", "currentGate", "gate", "gatenumber"]);
+    const oldStatus = pickAlertText(value, ["oldStatus", "beforeStatus", "previousStatus"]);
+    const newStatus = pickAlertText(value, ["newStatus", "afterStatus", "currentStatus", "status", "remark"]);
+    const oldValue = pickAlertText(value, ["oldValue", "before", "previous"]);
+    const newValue = pickAlertText(value, ["newValue", "after", "current"]);
+
+    const detailParts = [
+      ...changes,
+      directText,
+      buildValueChangeText("기존/변경", oldTime || oldValue, newTime || newValue),
+      buildValueChangeText("게이트", oldGate, newGate),
+      buildValueChangeText("상태", oldStatus, newStatus),
+    ]
+      .map(normalizeAlertText)
+      .filter(Boolean);
+
+    const uniqueDetailParts = Array.from(new Set(detailParts));
+    const changeSummary = uniqueDetailParts.length
+      ? uniqueDetailParts.join(" · ")
+      : "운항 정보 변경";
+
+    return [route, changeSummary, sourceLabel]
+      .map(normalizeAlertText)
+      .filter(Boolean)
+      .join(" · ");
+  };
+
+  const buildDetailedAlertTitle = (change: BackendScheduleChange | Record<string, unknown>) => {
+    const value = change as Record<string, unknown>;
+    const flight = normalizeAlertText(String(value.flight || value.flightId || value.flightNo || "Schedule Flight"));
+    const rawText = buildDetailedAlertDescription(value, "");
+    const kind = getReadableChangeKind(rawText);
+
+    return `${flight} ${kind}`;
+  };
+
   const mapServerNotificationHistory = (rawItems: unknown): FlightAlertHistoryItem[] => {
     const items = Array.isArray(rawItems) ? rawItems : [];
 
     return items.slice(0, 20).map((item, index) => {
       const value = item as Record<string, unknown>;
+      const flight =
+        String(value.flight || value.flightId || value.flightNo || "").trim();
       const title =
-        String(value.title || value.flight || value.flightId || value.flightNo || "Schedule Flight");
-      const route = value.route ? String(value.route) : "";
-      const description =
-        String(
-          value.description ||
+        String(value.title || "").trim() ||
+        buildDetailedAlertTitle(value);
+      const route = normalizeAlertRoute(String(value.route || value.routeText || ""));
+      const description = buildDetailedAlertDescription(
+        {
+          ...value,
+          route: route || value.route,
+          description:
+            value.description ||
             value.message ||
             value.detail ||
             value.changeText ||
             value.status ||
-            "서버에 저장된 알림 이력",
-        );
+            "",
+        },
+        String(value.sourceLabel || value.source || "서버 알림"),
+      );
       const checkedAt =
         String(value.checkedAt || value.createdAt || value.savedAt || value.timestamp || value.time || "");
       const roomName =
         String(value.roomName || value.room || value.source || "서버 알림 이력");
 
       return {
-        key: `server-${checkedAt || Date.now()}-${index}-${title}`,
-        title: route ? `${title} ${route}` : title,
+        key: `server-${checkedAt || Date.now()}-${index}-${flight || title}`,
+        title: title || (route ? `${flight} ${route}` : flight) || "Schedule Flight 변경",
         description,
         checkedAt: checkedAt || getCurrentTimeLabel(),
         roomName,
       };
     });
   };
+
 
   const mergeFlightAlertHistoryItems = (
     incomingItems: FlightAlertHistoryItem[],
@@ -1126,13 +1261,20 @@ export default function HomePage() {
     const checkedAt = getCurrentTimeLabel();
     const historyItems: FlightAlertHistoryItem[] = changes.slice(0, 10).map((item, index) => {
       const flight = item.flight || "Schedule Flight";
-      const route = item.route || "";
-      const descriptions = Array.isArray(item.changes) ? item.changes : [];
+      const route = normalizeAlertRoute(item.route || "");
+      const title = buildDetailedAlertTitle(item);
+      const description = buildDetailedAlertDescription(
+        {
+          ...item,
+          route,
+        },
+        sourceLabel,
+      );
 
       return {
         key: `backend-${Date.now()}-${index}-${flight}`,
-        title: route ? `${flight} ${route}` : flight,
-        description: `${sourceLabel} · ${descriptions.slice(0, 3).join(" · ") || "운항 정보 변경"}`,
+        title: title || (route ? `${flight} ${route}` : flight),
+        description,
         checkedAt,
         roomName: latestRoom?.name || "Schedule Flight",
       };
@@ -1144,6 +1286,7 @@ export default function HomePage() {
     setFlightAlertDetailsVisible(false);
     saveFlightAlertHistory(nextHistory);
   };
+
 
   const handleRevealServerFlightAlertHistory = async () => {
     setFlightAlertDetailsVisible(true);

@@ -65,11 +65,11 @@ export function FlightAlertHistoryCard({
       {hasRecentChanges && !detailsVisible ? (
         <div style={compactSummaryStyle}>
           <div style={compactSummaryTitleStyle}>
-            {latestItem ? compactAlertTitle(latestItem.title) : `미확인 ${visibleCount}건`}
+            {latestItem ? formatAlertTitle(latestItem.title) : `미확인 ${visibleCount}건`}
           </div>
           <div style={compactSummaryDescStyle}>
             {latestItem
-              ? compactAlertDescription(latestItem.description)
+              ? formatAlertDescription(latestItem.description)
               : "최근 알림 확인을 눌러 세부 내용을 확인하세요."}
           </div>
           <div style={compactSummaryMetaStyle}>눌러서 세부 목록 확인</div>
@@ -82,8 +82,8 @@ export function FlightAlertHistoryCard({
             <div key={`${item.key}-${item.checkedAt}-${index}`} style={flightAlertHistoryItemStyle}>
               <div style={flightAlertHistoryItemHeaderStyle}>
                 <div>
-                  <div style={flightAlertItemTitleStyle}>{compactAlertTitle(item.title)}</div>
-                  <div style={flightAlertItemDescStyle}>{compactAlertDescription(item.description)}</div>
+                  <div style={flightAlertItemTitleStyle}>{formatAlertTitle(item.title)}</div>
+                  <div style={flightAlertItemDescStyle}>{formatAlertDescription(item.description)}</div>
                 </div>
                 <button
                   type="button"
@@ -183,8 +183,8 @@ const compactSummaryTitleStyle: CSSProperties = {
 
 const compactSummaryDescStyle: CSSProperties = {
   color: "#fde68a",
-  fontSize: 12,
-  lineHeight: 1.35,
+  fontSize: 13,
+  lineHeight: 1.45,
   fontWeight: 850,
   marginTop: 4,
 };
@@ -226,8 +226,8 @@ const flightAlertItemTitleStyle: CSSProperties = {
 
 const flightAlertItemDescStyle: CSSProperties = {
   color: "#fde68a",
-  fontSize: 12,
-  lineHeight: 1.35,
+  fontSize: 13,
+  lineHeight: 1.45,
   fontWeight: 800,
 };
 
@@ -290,54 +290,56 @@ const deleteItemButtonStyle: CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-function compactAlertTitle(value?: string) {
+function formatAlertTitle(value?: string) {
   const raw = (value || "출도착 변경").trim();
   const flight = raw.match(/\b[A-Z]{2}\d{2,4}\b/)?.[0];
 
-  if (flight) {
-    if (raw.includes("시간") || raw.includes("운항시각") || raw.includes("도착예정") || raw.includes("출발예정")) {
-      return `${flight} 시간 변경`;
-    }
-    if (raw.includes("게이트")) return `${flight} 게이트 변경`;
-    if (raw.includes("상태") || raw.includes("REMARK") || raw.includes("Remark")) return `${flight} 상태 변경`;
-    return raw.includes("변경") ? `${flight} 변경` : flight;
+  if (!flight) {
+    return raw
+      .replace("Schedule Flight 변경 감지", "Schedule 변경")
+      .replace("서버에 저장된 알림 이력", "서버 알림");
   }
 
-  return raw
-    .replace("Schedule Flight 변경 감지", "Schedule 변경")
-    .replace("서버에 저장된 알림 이력", "서버 알림")
-    .slice(0, 28);
+  if (raw.includes("운항시각") || raw.includes("시간") || raw.includes("도착예정") || raw.includes("출발예정")) {
+    return `${flight} 운항시각 변경`;
+  }
+  if (raw.includes("게이트")) return `${flight} 게이트 변경`;
+  if (raw.includes("터미널")) return `${flight} 터미널 변경`;
+  if (raw.includes("상태") || raw.includes("착륙") || raw.includes("도착") || raw.includes("REMARK") || raw.includes("Remark")) {
+    return `${flight} 상태 변경`;
+  }
+
+  return raw.includes("변경") ? raw : `${flight} 운항 정보 변경`;
 }
 
-function compactAlertDescription(value?: string) {
+function formatAlertDescription(value?: string) {
   const raw = (value || "운항 정보 변경").trim();
+
   const parts = raw
     .split(" · ")
     .map((part) => part.trim())
     .filter(Boolean)
-    .filter((part) => !part.includes("API 즉시 확인"))
-    .filter((part) => !part.includes("수동 변경 확인"))
-    .filter((part) => !part.includes("푸시 자동 확인"))
-    .filter((part) => !part.includes("앱 자동 확인"))
     .filter((part) => !part.includes("Schedule Lite 저장 알림"));
 
-  const route = raw.match(/[A-Z]{3}→[A-Z]{3}/)?.[0];
-  const changeText =
-    parts.find((part) => part.includes("운항시각")) ||
-    parts.find((part) => part.includes("도착예정")) ||
-    parts.find((part) => part.includes("출발예정")) ||
-    parts.find((part) => part.includes("게이트")) ||
-    parts.find((part) => part.includes("터미널")) ||
-    parts.find((part) => part.includes("상태")) ||
-    parts[0] ||
-    "운항 정보 변경";
+  const cleanedParts = parts.map((part) =>
+    part
+      .replace("API 즉시 확인", "API 확인")
+      .replace("푸시 자동 확인", "자동 확인")
+      .replace("앱 자동 확인", "앱 확인")
+      .replace("수동 변경 확인", "수동 확인")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
 
-  const shortChange = changeText
-    .replace(/'.*?→.*?$/g, "변경")
-    .replace(/\s+/g, " ")
-    .slice(0, 34);
+  const route = raw.match(/[A-Z]{3}\s*→\s*[A-Z]{3}/)?.[0]?.replace(/\s+/g, "");
+  const uniqueParts = Array.from(new Set(cleanedParts));
+  const usefulParts = uniqueParts.length ? uniqueParts : ["운항 정보 변경"];
 
-  return route ? `${route} · ${shortChange}` : shortChange;
+  if (route && !usefulParts.some((part) => part.replace(/\s+/g, "").includes(route))) {
+    return [route, ...usefulParts].join(" · ");
+  }
+
+  return usefulParts.join(" · ");
 }
 
 function compactServerStatus(value: string) {
@@ -345,7 +347,7 @@ function compactServerStatus(value: string) {
     .replace("서버 미처리 이력", "서버 이력")
     .replace("출도착 알림 이력에 자동 표시", "자동 표시")
     .replace("출도착 알림 이력에 자동 반영했습니다.", "자동 반영")
-    .slice(0, 64);
+    ;
 }
 
 function compactRoomName(value?: string) {
