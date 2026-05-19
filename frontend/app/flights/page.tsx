@@ -111,7 +111,7 @@ function removeEmptyScheduleRooms(rooms: MonitorRoom[]) {
 }
 
 function mergeLatestScheduleRoom(rooms: MonitorRoom[], latestRoom: MonitorRoom | null) {
-  const localRooms = removeEmptyScheduleRooms(rooms).filter((room) => !room.fixed);
+  const localRooms = removeEmptyScheduleRooms(rooms).filter((room) => !isScheduleFlightRoom(room));
   if (!isActiveScheduleRoom(latestRoom)) return localRooms;
   return [latestRoom as MonitorRoom, ...localRooms];
 }
@@ -364,6 +364,9 @@ function getRegistrationNo(row: FlightRow) {
 
   if (/^HL\d{3,5}$/i.test(registrationNo)) return registrationNo.toUpperCase();
 
+  const storedRegistrationNo = getStoredHlNumberForFlight(getFlightDisplay(row));
+  if (/^HL\d{3,5}$/i.test(storedRegistrationNo)) return storedRegistrationNo.toUpperCase();
+
   const fid = maybeRow.fid || "";
   if (/^HL\d{3,5}$/i.test(fid)) return fid.toUpperCase();
 
@@ -484,6 +487,22 @@ function normalizeHlFlightKey(value: string) {
   return normalized;
 }
 
+function getStoredHlNumberForFlight(flight: string) {
+  if (typeof window === "undefined") return "";
+
+  try {
+    const raw = window.localStorage.getItem(HL_MAPPING_STORAGE_KEY);
+    if (!raw) return "";
+
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    const mappedHl = parsed[normalizeHlFlightKey(flight)] || "";
+
+    return normalizeHlNumber(mappedHl);
+  } catch {
+    return "";
+  }
+}
+
 function normalizeHlNumber(value: string) {
   return value.replace(/\s+/g, "").toUpperCase();
 }
@@ -587,7 +606,10 @@ function copyRegistrationFromRows(targetRows: FlightRow[], sourceRows: FlightRow
 
   return targetRows.map((row) => {
     const flight = getFlightKeyFromRow(row);
-    const registrationNo = registrationMap.get(flight);
+    const registrationNo =
+      registrationMap.get(flight) ||
+      getStoredHlNumberForFlight(getFlightDisplay(row));
+
     return registrationNo ? applyRegistrationNoToRow(row, registrationNo) : row;
   });
 }
@@ -1678,7 +1700,10 @@ export default function FlightsPage() {
       return;
     }
 
-    const selectedRowsWithHl = applyHlMappingToRows(selectedScheduleRows, hlNumberMap);
+    const selectedRowsWithHl = copyRegistrationFromRows(
+      applyHlMappingToRows(selectedScheduleRows, hlNumberMap),
+      selectedScheduleRows,
+    );
     const selectedFlights = getFlightsFromRowsInOrder(selectedRowsWithHl);
     if (selectedFlights.length === 0) {
       setError("선택한 결과에서 편명을 확인하지 못했습니다.");
@@ -1705,7 +1730,7 @@ export default function FlightsPage() {
       endDateTime: baseScheduleRoom?.endDateTime || endDateTime,
       fixed: true,
       lastFetchedAt: new Date().toISOString(),
-      rows: mergedRows,
+      rows: copyRegistrationFromRows(mergedRows, selectedRowsWithHl),
     });
 
     setError(

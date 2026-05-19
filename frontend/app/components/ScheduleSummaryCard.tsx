@@ -12,6 +12,34 @@ type ScheduleSummaryCardProps = {
   onRefreshLatestSchedule: () => void;
 };
 
+const HL_MAPPING_STORAGE_KEY = "cargo_ops_hl_number_mapping_v1";
+
+function normalizeHlFlightKey(value: string) {
+  const normalized = value.replace(/\s+/g, "").toUpperCase();
+  if (/^\d{3,4}$/.test(normalized)) return `KJ${normalized}`;
+  return normalized;
+}
+
+function normalizeHlNumber(value: string) {
+  return value.replace(/\s+/g, "").toUpperCase();
+}
+
+function getStoredHlNumberForFlight(flight: string) {
+  if (typeof window === "undefined") return "";
+
+  try {
+    const raw = window.localStorage.getItem(HL_MAPPING_STORAGE_KEY);
+    if (!raw) return "";
+
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    const mappedHl = parsed[normalizeHlFlightKey(flight)] || "";
+
+    return normalizeHlNumber(mappedHl);
+  } catch {
+    return "";
+  }
+}
+
 export function ScheduleSummaryCard({
   latestRoom,
   syncCheckedAt,
@@ -232,6 +260,9 @@ function getRegistrationNo(row?: FlightRow) {
     "";
 
   if (/^HL\d{3,5}$/i.test(hlnbr)) return hlnbr.toUpperCase();
+
+  const storedRegistrationNo = row ? getStoredHlNumberForFlight(getFlightNo(row)) : "";
+  if (/^HL\d{3,5}$/i.test(storedRegistrationNo)) return storedRegistrationNo.toUpperCase();
 
   const fid = maybeRow?.fid || "";
   if (/^HL\d{3,5}$/i.test(fid)) return fid.toUpperCase();
