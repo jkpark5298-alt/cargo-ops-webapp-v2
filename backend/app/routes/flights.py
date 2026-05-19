@@ -62,6 +62,59 @@ def _format_alert_time(value: Any) -> str:
     return raw
 
 
+
+def _compact_change_label(change: Any) -> str:
+    text = str(change or "").strip()
+    if not text:
+        return "운항 정보 변경"
+
+    field = text.split(":", 1)[0].strip()
+    normalized = field.replace(" ", "")
+
+    if "운항시각" in normalized or "스케줄" in normalized or "시간" in normalized:
+        return "운항시각 변경"
+    if "도착" in normalized and "예정" in normalized:
+        return "도착예정 변경"
+    if "출발" in normalized and "예정" in normalized:
+        return "출발예정 변경"
+    if "게이트" in normalized:
+        return "게이트 변경"
+    if "터미널" in normalized:
+        return "터미널 변경"
+    if "remark" in normalized.lower() or "상태" in normalized or "운항상태" in normalized:
+        return "상태 변경"
+    if "도착" in normalized:
+        return "도착 변경"
+    if "출발" in normalized:
+        return "출발 변경"
+
+    return field or "운항 정보 변경"
+
+
+def _build_compact_schedule_push(changed_items: List[Dict[str, Any]]) -> Dict[str, str]:
+    first = changed_items[0] if changed_items else {}
+    flight = str(first.get("flight") or "Schedule").strip()
+    route = str(first.get("route") or "").strip()
+    changes = first.get("changes") if isinstance(first.get("changes"), list) else []
+    change_label = _compact_change_label(changes[0] if changes else "")
+
+    extra_count = max(0, len(changed_items) - 1)
+
+    if extra_count > 0:
+        title = f"Schedule 변경 {len(changed_items)}건"
+        body = f"{flight} 외 {extra_count}건 · {change_label}"
+        if route:
+            body = f"{flight} {route} 외 {extra_count}건 · {change_label}"
+    else:
+        title = f"{flight} 변경"
+        body = f"{route} · {change_label}" if route else change_label
+
+    return {
+        "title": title[:48],
+        "body": body[:92],
+        "url": "/",
+    }
+
 def _get_schedule_time_value(row: Dict[str, Any]) -> Any:
     return row.get("formattedScheduleTime") or row.get("scheduleDateTime")
 
@@ -895,22 +948,7 @@ async def _run_schedule_change_check(push_on_change: bool = True) -> Dict[str, A
         )
 
     if changed_items and push_on_change:
-        first = changed_items[0]
-        extra_count = len(changed_items) - 1
-        body_lines = [
-            f"{first['flight']} {first['route']}",
-            first["changes"][0] if first.get("changes") else "운항 정보 변경",
-            f"확인 {_format_alert_time(room.get('lastFetchedAt'))}",
-        ]
-
-        if extra_count > 0:
-            body_lines.append(f"외 {extra_count}건")
-
-        payload = {
-            "title": "Schedule Flight 변경 감지",
-            "body": "\n".join(body_lines),
-            "url": "/",
-        }
+        payload = _build_compact_schedule_push(changed_items)
 
         for item in _read_push_subscriptions():
             subscription = item.get("subscription") or {}
@@ -1249,21 +1287,7 @@ async def check_push_and_save_latest_schedule(payload: LatestScheduleRequest) ->
     errors: List[str] = []
 
     if changed_items:
-        first = changed_items[0]
-        extra_count = len(changed_items) - 1
-        body_lines = [
-            f"{first['flight']} {first['route']}",
-            *first["changes"][:3],
-        ]
-
-        if extra_count > 0:
-            body_lines.append(f"외 {extra_count}건 변경")
-
-        message = {
-            "title": "Schedule Flight 운항 정보",
-            "body": "\n".join(body_lines),
-            "url": "/",
-        }
+        message = _build_compact_schedule_push(changed_items)
 
         for item in _read_push_subscriptions():
             subscription = item.get("subscription") or {}
