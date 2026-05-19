@@ -1728,9 +1728,13 @@ export default function HomePage() {
     const dailyImages = IMAGE_SLOTS.flatMap((slot) =>
       getImagesBySlot(images, slot.key).map((image) => ({
         slotKey: slot.key,
+        type: image.type,
         propertyName: IMAGE_SLOT_PROPERTY_NAME[slot.key],
         label: image.label,
         savedAt: image.savedAt,
+        capturedAt: image.capturedAt,
+        locationText: image.locationText,
+        memo: image.memo || "",
         dataUrl: image.dataUrl,
       })),
     );
@@ -1885,9 +1889,13 @@ export default function HomePage() {
       image: issueImage
         ? {
             slotKey: ISSUE_IMAGE_SLOT.key,
+            type: issueImage.type,
             propertyName: IMAGE_SLOT_PROPERTY_NAME[ISSUE_IMAGE_SLOT.key],
             label: issueImage.label,
             savedAt: issueImage.savedAt,
+            capturedAt: issueImage.capturedAt,
+            locationText: issueImage.locationText,
+            memo: issueImage.memo || "",
             dataUrl: issueImage.dataUrl,
           }
         : null,
