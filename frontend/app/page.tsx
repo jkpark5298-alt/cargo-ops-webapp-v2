@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import {
   useEffect,
@@ -2079,9 +2079,9 @@ export default function HomePage() {
         <div style={eyebrowStyle}>CARGO OPS</div>
         <h1 style={titleStyle}>KJ 화물기 출도착 모니터링</h1>
         <div style={datePillStyle}>
-          {todayText}, API 사용율 : {formatHeaderUsageRate(Math.max(incheonApiUsage?.departureRate || 0, incheonApiUsage?.arrivalRate || 0))}
+          <span>{todayText}</span>
           <span style={datePillSubStyle}>
-            (출발 {formatHeaderUsageRate(incheonApiUsage?.departureRate)}, 도착 {formatHeaderUsageRate(incheonApiUsage?.arrivalRate)})
+            API 사용율 : {formatHeaderUsageRate(Math.max(incheonApiUsage?.departureRate || 0, incheonApiUsage?.arrivalRate || 0))} (출발 {formatHeaderUsageRate(incheonApiUsage?.departureRate)}, 도착 {formatHeaderUsageRate(incheonApiUsage?.arrivalRate)})
             {incheonApiUsage?.warning ? " ⚠️" : ""}
           </span>
         </div>
@@ -2361,21 +2361,26 @@ const titleStyle: CSSProperties = {
 };
 const datePillStyle: CSSProperties = {
   display: "inline-flex",
-  alignItems: "center",
+  flexDirection: "column",
+  alignItems: "flex-start",
+  gap: 3,
   marginTop: 10,
-  padding: "7px 12px",
-  borderRadius: 999,
+  padding: "9px 16px",
+  borderRadius: 22,
   background: "rgba(37, 99, 235, 0.18)",
   border: "1px solid rgba(147, 197, 253, 0.28)",
   color: "#dbeafe",
-  fontSize: 14,
-  fontWeight: 800,
+  fontSize: 15,
+  fontWeight: 900,
+  lineHeight: 1.35,
+  whiteSpace: "normal",
+  wordBreak: "keep-all",
 };
 const datePillSubStyle: CSSProperties = {
-  marginLeft: 6,
   color: "#bfdbfe",
-  fontSize: 13,
+  fontSize: 14,
   fontWeight: 850,
+  lineHeight: 1.35,
 };
 
 const descriptionStyle: CSSProperties = {
