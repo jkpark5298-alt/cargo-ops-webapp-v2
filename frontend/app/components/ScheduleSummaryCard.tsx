@@ -94,19 +94,8 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function getScheduleSummaryTitle(room: MonitorRoom | null) {
-  if (!room) return "최근 Schedule Flight";
-
-  const rawName = room.name || "";
-  const dateMatch = rawName.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
-
-  if (dateMatch) {
-    const [, year, month, day, hour, minute] = dateMatch;
-    return `최근 Schedule Flight('${year.slice(2)}/${month}/${day} ${hour}:${minute})`;
-  }
-
-  const rangeStart = formatCompactSlashDateTime(room.startDateTime);
-  return rangeStart !== "-" ? `최근 Schedule Flight(${rangeStart})` : "최근 Schedule Flight";
+function getScheduleSummaryTitle(_room: MonitorRoom | null) {
+  return "Scheduled Flight";
 }
 
 function formatApiLookupTime(value?: string) {
@@ -399,12 +388,12 @@ const cardLabelStyle: CSSProperties = {
 };
 
 const cardTitleStyle: CSSProperties = {
-  margin: "0 0 8px",
-  color: "#cbd5e1",
-  fontSize: 14,
-  lineHeight: 1.35,
+  margin: "4px 0 8px",
+  color: "#ef4444",
+  fontSize: 22,
+  lineHeight: 1.15,
   fontWeight: 950,
-  letterSpacing: 0.6,
+  letterSpacing: 0,
 };
 
 const summaryTopInfoStyle: CSSProperties = {
