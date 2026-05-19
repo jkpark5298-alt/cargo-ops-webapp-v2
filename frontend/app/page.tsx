@@ -123,7 +123,7 @@ const IMAGE_SLOT_PROPERTY_NAME: Record<ImageSlotKey, string> = {
 
 const BACKEND_URL = getApiBaseUrl();
 
-const APP_VERSION = "v1.0.0";
+const APP_VERSION = "v1.0.1";
 const APP_VERSION_DATE = "2026.05.19";
 
 type HourlyWeather = {
