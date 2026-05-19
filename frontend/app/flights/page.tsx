@@ -658,7 +658,7 @@ function FixedResultsTable({
       >
         <thead>
           <tr style={{ background: "#18263f" }}>
-            <th style={thStyle}>관리</th>
+            <th style={thStyle}>선택</th>
             <th style={thStyle}>편명</th>
             <th style={thStyle}>구분</th>
             <th style={thStyle}>출발</th>
@@ -721,7 +721,7 @@ function FixedResultsTable({
                         type="button"
                         onClick={() => onToggleSelect(row, idx)}
                         disabled={finalCompleted}
-                        title={finalCompleted ? `${getRefreshExcludeReason(row)}으로 저장 제외` : "Schedule Flight에 추가 선택"}
+                        title={finalCompleted ? `${getRefreshExcludeReason(row)}으로 저장 제외` : selected ? "저장 선택 해제" : "저장할 항공편 선택"}
                         style={{
                           width: 30,
                           height: 30,
@@ -1464,7 +1464,7 @@ export default function FlightsPage() {
       setError(
         missingFlights.length > 0
           ? `조회 결과가 없는 편명은 Schedule Flight에 저장할 수 없습니다: ${missingFlights.join(", ")}`
-          : "Schedule Flight로 추가/저장할 편명을 먼저 + 선택하세요.",
+          : "결과 행의 +를 눌러 저장할 항공편을 선택하세요.",
       );
       return;
     }
@@ -1500,8 +1500,8 @@ export default function FlightsPage() {
 
     setError(
       baseScheduleRoom
-        ? "선택한 편명을 기존 Schedule Flight에 병합 저장 중입니다."
-        : "선택한 Schedule Flight를 최신 기준으로 저장 중입니다.",
+        ? "선택 편명을 Schedule Flight에 저장 중입니다."
+        : "선택한 Schedule Flight를 저장 중입니다.",
     );
 
     let finalRoom = baseRoom;
@@ -1523,8 +1523,8 @@ export default function FlightsPage() {
         missingFlights.length > 0
           ? `저장 완료. 조회 결과가 없는 편명은 제외했습니다: ${missingFlights.join(", ")}`
           : baseScheduleRoom
-            ? "선택한 편명을 기존 Schedule Flight에 추가하고 초기화면/Schedule Lite 기준에 반영했습니다."
-            : "선택한 Schedule Flight를 저장하고 초기화면/Schedule Lite 기준으로 반영했습니다.",
+            ? "저장 완료 · 초기화면/Schedule Lite 반영"
+            : "저장 완료 · 초기화면/Schedule Lite 반영",
       );
     } catch (syncError) {
       setError(
@@ -1985,12 +1985,8 @@ export default function FlightsPage() {
         )}
 
         {isSelectedFixedRoom && (
-          <div style={{ marginTop: 14, color: "#93c5fd", fontSize: 14, lineHeight: 1.6 }}>
-            Schedule Flight 저장방 선택 중입니다. 추가 편명을 조회해도 기존 편명 정보는 바로 지우지 않습니다.
-            <br />
-            추가할 결과 행의 <b style={{ color: "#facc15" }}>+</b>를 선택한 뒤 <b>선택한 Schedule Flight 저장</b>을 누르면 기존 정보에 병합됩니다.
-            <br />
-            조회 결과가 없는 편명은 저장되지 않으며, 경고 메시지로 제외 안내가 표시됩니다.
+          <div style={scheduleSaveGuideStyle}>
+            기존 Schedule Flight에 추가 저장합니다. 결과 행의 <b style={{ color: "#facc15" }}>+</b> 선택 후 저장하세요.
           </div>
         )}
 
@@ -2017,13 +2013,15 @@ export default function FlightsPage() {
             disabled={selectedScheduleRows.length === 0}
             style={selectedScheduleRows.length > 0 ? saveScheduleBtn : disabledBtn}
           >
-            선택한 Schedule Flight 저장
+            {selectedScheduleRows.length > 0
+              ? `선택 ${selectedScheduleRows.length}건 저장`
+              : "저장할 항공편 선택"}
           </button>
         </div>
 
         {fixed && (
           <div style={{ marginTop: 6, color: "#facc15", fontSize: 14 }}>
-            Schedule Flight 관리 상태: 기본 6개 정보만 표시되며, D를 눌러 상세 정보를 확인합니다.
+            Schedule Flight 관리 중 · D로 상세 확인
           </div>
         )}
 
@@ -2053,12 +2051,10 @@ export default function FlightsPage() {
         </div>
 
         {rows.length > 0 && (
-          <div style={{ marginTop: 12, color: "#cbd5e1", fontSize: 14 }}>
-            Schedule Flight 선택: {selectedScheduleRows.length}건
-            <div style={{ marginTop: 8, color: "#93c5fd", fontSize: 13, lineHeight: 1.6 }}>
-              API 재조회 대상 {refreshActiveRows.length}건 · 확정 제외 {refreshExcludedRows.length}건
-              <br />
-              remark가 도착 또는 결항일 때만 다음 API 호출에서 제외합니다. 출발, 착륙, 지연, 게이트 변경은 계속 재조회합니다.
+          <div style={scheduleSaveStatusStyle}>
+            저장 선택 {selectedScheduleRows.length}건
+            <div style={scheduleSaveStatusSubStyle}>
+              재조회 {refreshActiveRows.length}건 · 제외 {refreshExcludedRows.length}건
             </div>
           </div>
         )}
@@ -2447,6 +2443,35 @@ const selectInputStyle: CSSProperties = {
   color: "white",
   fontSize: 14,
   minWidth: 78,
+};
+
+const scheduleSaveGuideStyle: CSSProperties = {
+  marginTop: 12,
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(250, 204, 21, 0.28)",
+  background: "rgba(250, 204, 21, 0.08)",
+  color: "#fde68a",
+  fontSize: 13,
+  lineHeight: 1.5,
+};
+
+const scheduleSaveStatusStyle: CSSProperties = {
+  marginTop: 12,
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid #22314e",
+  background: "#081427",
+  color: "#e5edf7",
+  fontSize: 14,
+  fontWeight: 800,
+};
+
+const scheduleSaveStatusSubStyle: CSSProperties = {
+  marginTop: 4,
+  color: "#93c5fd",
+  fontSize: 13,
+  fontWeight: 700,
 };
 
 const modeBtn: CSSProperties = {
