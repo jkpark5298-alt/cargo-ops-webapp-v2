@@ -72,7 +72,7 @@ export function FlightAlertHistoryCard({
               ? compactAlertDescription(latestItem.description)
               : "최근 알림 확인을 눌러 세부 내용을 확인하세요."}
           </div>
-          <div style={compactSummaryMetaStyle}>최근 알림 확인을 누르면 세부 목록이 열립니다.</div>
+          <div style={compactSummaryMetaStyle}>눌러서 세부 목록 확인</div>
         </div>
       ) : null}
 
@@ -105,7 +105,7 @@ export function FlightAlertHistoryCard({
       {serverStatus ? <div style={serverStatusStyle}>{compactServerStatus(serverStatus)}</div> : null}
 
       {!hasRecentChanges ? (
-        <div style={flightAlertMetaStyle}>새 출도착 변경 알림이 없습니다.</div>
+        <div style={flightAlertMetaStyle}>새 변경 알림이 없습니다.</div>
       ) : null}
     </section>
   );
@@ -114,17 +114,17 @@ export function FlightAlertHistoryCard({
 const flightAlertHistoryCardStyle: CSSProperties = {
   background: "linear-gradient(145deg, #0b1120, #111827)",
   border: "1px solid #1e3a8a",
-  borderRadius: 22,
-  padding: 16,
-  boxShadow: "0 18px 45px rgba(0,0,0,0.22)",
+  borderRadius: 18,
+  padding: 14,
+  boxShadow: "0 12px 30px rgba(0,0,0,0.20)",
 };
 
 const flightAlertTopStyle: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  gap: 12,
+  gap: 7,
   alignItems: "flex-start",
-  marginBottom: 12,
+  marginBottom: 8,
 };
 
 const cardLabelStyle: CSSProperties = {
@@ -138,13 +138,13 @@ const cardLabelStyle: CSSProperties = {
 const flightAlertTitleStyle: CSSProperties = {
   margin: "4px 0 0",
   color: "#f8fafc",
-  fontSize: 22,
+  fontSize: 20,
   lineHeight: 1.15,
   fontWeight: 950,
 };
 
 const activeBadgeStyle: CSSProperties = {
-  padding: "7px 10px",
+  padding: "5px 9px",
   borderRadius: 999,
   background: "#b45309",
   color: "#fffbeb",
@@ -161,30 +161,30 @@ const idleBadgeStyle: CSSProperties = {
 
 const flightAlertMetaStyle: CSSProperties = {
   color: "#94a3b8",
-  fontSize: 13,
+  fontSize: 12,
   lineHeight: 1.5,
-  marginTop: 10,
+  marginTop: 8,
 };
 
 const compactSummaryStyle: CSSProperties = {
   border: "1px solid rgba(250, 204, 21, 0.28)",
   background: "rgba(250, 204, 21, 0.08)",
   borderRadius: 14,
-  padding: "12px 14px",
-  marginBottom: 10,
+  padding: "8px 10px",
+  marginBottom: 8,
 };
 
 const compactSummaryTitleStyle: CSSProperties = {
   color: "#fef3c7",
-  fontSize: 15,
+  fontSize: 14,
   fontWeight: 950,
   lineHeight: 1.3,
 };
 
 const compactSummaryDescStyle: CSSProperties = {
   color: "#fde68a",
-  fontSize: 13,
-  lineHeight: 1.45,
+  fontSize: 12,
+  lineHeight: 1.35,
   fontWeight: 850,
   marginTop: 4,
 };
@@ -194,20 +194,20 @@ const compactSummaryMetaStyle: CSSProperties = {
   fontSize: 11,
   lineHeight: 1.4,
   fontWeight: 800,
-  marginTop: 6,
+  marginTop: 4,
 };
 
 const flightAlertListStyle: CSSProperties = {
   display: "grid",
-  gap: 8,
-  marginBottom: 10,
+  gap: 7,
+  marginBottom: 8,
 };
 
 const flightAlertHistoryItemStyle: CSSProperties = {
   border: "1px solid rgba(59, 130, 246, 0.22)",
   background: "rgba(30, 64, 175, 0.16)",
   borderRadius: 14,
-  padding: "10px 12px",
+  padding: "8px 10px",
 };
 
 const flightAlertHistoryItemHeaderStyle: CSSProperties = {
@@ -227,7 +227,7 @@ const flightAlertItemTitleStyle: CSSProperties = {
 const flightAlertItemDescStyle: CSSProperties = {
   color: "#fde68a",
   fontSize: 12,
-  lineHeight: 1.45,
+  lineHeight: 1.35,
   fontWeight: 800,
 };
 
@@ -235,24 +235,24 @@ const flightAlertHistoryMetaStyle: CSSProperties = {
   color: "#93c5fd",
   fontSize: 11,
   lineHeight: 1.4,
-  marginTop: 6,
+  marginTop: 4,
   fontWeight: 800,
 };
 
 const serverActionRowStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
-  gap: 8,
-  marginBottom: 10,
+  gap: 7,
+  marginBottom: 8,
 };
 
 const serverButtonStyle: CSSProperties = {
-  minHeight: 44,
+  minHeight: 40,
   border: "1px solid rgba(59, 130, 246, 0.45)",
-  borderRadius: 12,
+  borderRadius: 11,
   color: "#dbeafe",
   background: "#1d4ed8",
-  fontSize: 13,
+  fontSize: 12,
   fontWeight: 900,
   cursor: "pointer",
 };
@@ -274,7 +274,7 @@ const serverStatusStyle: CSSProperties = {
   color: "#93c5fd",
   fontSize: 11,
   fontWeight: 800,
-  lineHeight: 1.45,
+  lineHeight: 1.35,
   marginTop: 8,
 };
 

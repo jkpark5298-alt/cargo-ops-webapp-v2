@@ -36,7 +36,7 @@ export function PwaNotificationCard({
       <div style={cardLabelStyle}>PWA 알림</div>
       <h2 style={cardTitleStyle}>아이폰 알림</h2>
       <p style={cardDescriptionStyle}>
-        홈 화면 앱에서 Schedule Flight 변경 알림을 받을 수 있습니다.
+        홈 화면 앱에서 변경 알림을 받습니다.
       </p>
 
       <div style={infoBoxStyle}>
@@ -45,7 +45,7 @@ export function PwaNotificationCard({
           <span style={infoValueStyle}>{permissionLabel}</span>
         </div>
         <div style={infoHintStyle}>
-          {statusMessage || "알림 권한과 구독 상태를 확인합니다."}
+          {statusMessage || "알림 권한/구독을 확인합니다."}
         </div>
       </div>
 
@@ -91,15 +91,15 @@ export function PwaNotificationCard({
 
 const cardStyle: CSSProperties = {
   border: "1px solid rgba(56, 189, 248, 0.38)",
-  borderRadius: 20,
-  padding: 16,
+  borderRadius: 18,
+  padding: 14,
   background: "linear-gradient(135deg, rgba(14, 165, 233, 0.16), rgba(15, 23, 42, 0.92))",
-  boxShadow: "0 18px 50px rgba(2, 6, 23, 0.34)",
+  boxShadow: "0 12px 34px rgba(2, 6, 23, 0.30)",
 };
 
 const cardLabelStyle: CSSProperties = {
   color: "#7dd3fc",
-  fontSize: 13,
+  fontSize: 12,
   fontWeight: 950,
   letterSpacing: 0.6,
   textTransform: "uppercase",
@@ -107,36 +107,36 @@ const cardLabelStyle: CSSProperties = {
 
 const cardTitleStyle: CSSProperties = {
   color: "#f8fafc",
-  fontSize: 21,
+  fontSize: 19,
   fontWeight: 950,
-  margin: "8px 0 8px",
+  margin: "6px 0 6px",
 };
 
 const cardDescriptionStyle: CSSProperties = {
   color: "#cbd5e1",
-  fontSize: 15,
-  lineHeight: 1.55,
+  fontSize: 14,
+  lineHeight: 1.45,
   margin: 0,
 };
 
 const infoBoxStyle: CSSProperties = {
-  marginTop: 14,
+  marginTop: 8,
   border: "1px solid rgba(148, 163, 184, 0.2)",
-  borderRadius: 14,
-  padding: 12,
+  borderRadius: 12,
+  padding: 10,
   background: "rgba(2, 6, 23, 0.34)",
 };
 
 const infoRowStyle: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  gap: 12,
+  gap: 8,
   alignItems: "center",
 };
 
 const infoLabelStyle: CSSProperties = {
   color: "#94a3b8",
-  fontSize: 13,
+  fontSize: 12,
   fontWeight: 800,
 };
 
@@ -148,25 +148,25 @@ const infoValueStyle: CSSProperties = {
 
 const infoHintStyle: CSSProperties = {
   color: "#cbd5e1",
-  fontSize: 13,
+  fontSize: 12,
   lineHeight: 1.5,
-  marginTop: 10,
+  marginTop: 8,
 };
 
 const buttonStackStyle: CSSProperties = {
   display: "grid",
-  gap: 10,
-  marginTop: 14,
+  gap: 8,
+  marginTop: 8,
 };
 
 const primaryButtonStyle: CSSProperties = {
   width: "100%",
-  minHeight: 52,
+  minHeight: 44,
   border: "none",
-  borderRadius: 16,
+  borderRadius: 13,
   color: "#ffffff",
   background: "#0284c7",
-  fontSize: 17,
+  fontSize: 15,
   fontWeight: 950,
   cursor: "pointer",
 };
@@ -203,10 +203,10 @@ const disabledButtonStyle: CSSProperties = {
 
 const autoStatusStyle: CSSProperties = {
   color: "#bfdbfe",
-  fontSize: 13,
+  fontSize: 12,
   lineHeight: 1.5,
-  marginTop: 12,
-  padding: 12,
+  marginTop: 8,
+  padding: 10,
   border: "1px solid rgba(96, 165, 250, 0.24)",
   borderRadius: 12,
   background: "rgba(15, 23, 42, 0.44)",
@@ -216,5 +216,5 @@ const helpTextStyle: CSSProperties = {
   color: "#94a3b8",
   fontSize: 12,
   lineHeight: 1.5,
-  marginTop: 10,
+  marginTop: 8,
 };

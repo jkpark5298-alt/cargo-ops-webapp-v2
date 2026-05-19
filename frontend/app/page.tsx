@@ -2288,7 +2288,7 @@ const pageStyle: CSSProperties = {
     "radial-gradient(circle at top right, rgba(37, 99, 235, 0.26), transparent 32%), linear-gradient(180deg, #061121 0%, #07152b 52%, #020817 100%)",
   color: "#f8fafc",
   padding:
-    "max(22px, env(safe-area-inset-top)) 16px max(28px, env(safe-area-inset-bottom))",
+    "max(14px, env(safe-area-inset-top)) 12px max(20px, env(safe-area-inset-bottom))",
   fontFamily:
     '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif',
 };
@@ -2296,18 +2296,18 @@ const heroStyle: CSSProperties = {
   width: "100%",
   maxWidth: 520,
   margin: "0 auto",
-  padding: "18px 0 12px",
+  padding: "12px 0 8px",
 };
 const eyebrowStyle: CSSProperties = {
   color: "#9fb3c8",
   fontSize: 13,
   fontWeight: 900,
   letterSpacing: "0.22em",
-  marginBottom: 14,
+  marginBottom: 6,
 };
 const titleStyle: CSSProperties = {
   margin: 0,
-  fontSize: "clamp(30px, 9vw, 42px)",
+  fontSize: "clamp(28px, 8vw, 38px)",
   lineHeight: 1.08,
   letterSpacing: "-0.06em",
   fontWeight: 950,
@@ -2316,38 +2316,38 @@ const titleStyle: CSSProperties = {
 const datePillStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
-  marginTop: 14,
-  padding: "9px 14px",
+  marginTop: 10,
+  padding: "7px 12px",
   borderRadius: 999,
   background: "rgba(37, 99, 235, 0.18)",
   border: "1px solid rgba(147, 197, 253, 0.28)",
   color: "#dbeafe",
-  fontSize: 15,
+  fontSize: 14,
   fontWeight: 800,
 };
 const descriptionStyle: CSSProperties = {
-  margin: "18px 0 0",
+  margin: "12px 0 0",
   color: "#b8c5d8",
-  fontSize: 16,
-  lineHeight: 1.65,
+  fontSize: 14,
+  lineHeight: 1.5,
   wordBreak: "keep-all",
 };
 const stackStyle: CSSProperties = {
   width: "100%",
   maxWidth: 520,
-  margin: "18px auto 0",
+  margin: "12px auto 0",
   display: "flex",
   flexDirection: "column",
-  gap: 14,
+  gap: 8,
 };
 const cardStyle: CSSProperties = {
   width: "100%",
   boxSizing: "border-box",
-  padding: 18,
-  borderRadius: 24,
+  padding: 12,
+  borderRadius: 20,
   background: "rgba(8, 20, 39, 0.84)",
   border: "1px solid rgba(148, 163, 184, 0.22)",
-  boxShadow: "0 18px 45px rgba(0, 0, 0, 0.24)",
+  boxShadow: "0 12px 32px rgba(0, 0, 0, 0.22)",
   overflow: "hidden",
 };
 const cardLabelStyle: CSSProperties = {
@@ -2356,36 +2356,36 @@ const cardLabelStyle: CSSProperties = {
   letterSpacing: "0.12em",
   fontWeight: 900,
   textTransform: "uppercase",
-  marginBottom: 8,
+  marginBottom: 6,
 };
 const cardTitleStyle: CSSProperties = {
   margin: 0,
-  fontSize: 24,
+  fontSize: 21,
   lineHeight: 1.25,
   letterSpacing: "-0.04em",
   fontWeight: 900,
   wordBreak: "keep-all",
 };
 const cardDescriptionStyle: CSSProperties = {
-  margin: "12px 0 16px",
+  margin: "10px 0 12px",
   color: "#b8c5d8",
-  fontSize: 15,
-  lineHeight: 1.6,
+  fontSize: 14,
+  lineHeight: 1.45,
   wordBreak: "keep-all",
 };
 const primaryButtonStyle: CSSProperties = {
   width: "100%",
-  minHeight: 52,
+  minHeight: 46,
   border: "none",
-  borderRadius: 16,
+  borderRadius: 14,
   color: "white",
-  fontSize: 17,
+  fontSize: 15,
   fontWeight: 900,
   cursor: "pointer",
 };
 const secondaryButtonStyle: CSSProperties = {
   ...primaryButtonStyle,
-  marginTop: 16,
+  marginTop: 10,
   background: "#2563eb",
 };
 const greenButtonStyle: CSSProperties = {
@@ -2404,20 +2404,20 @@ const darkButtonStyle: CSSProperties = {
 const buttonStackStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: 10,
+  gap: 8,
 };
 const infoListStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: 10,
-  marginTop: 14,
+  gap: 8,
+  marginTop: 10,
 };
 const infoRowStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "86px 1fr",
-  gap: 10,
+  gap: 8,
   alignItems: "start",
-  padding: "10px 0",
+  padding: "7px 0",
   borderBottom: "1px solid rgba(148, 163, 184, 0.14)",
 };
 const infoLabelStyle: CSSProperties = {
@@ -2435,25 +2435,25 @@ const infoValueStyle: CSSProperties = {
 const imageListStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: 10,
-  marginTop: 14,
+  gap: 8,
+  marginTop: 10,
 };
 const imagePreviewButtonStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "76px 1fr",
-  gap: 12,
+  gap: 10,
   alignItems: "center",
   width: "100%",
-  padding: 10,
-  borderRadius: 16,
+  padding: 8,
+  borderRadius: 14,
   background: "rgba(15, 23, 42, 0.92)",
   border: "1px solid rgba(148, 163, 184, 0.2)",
   color: "white",
   textAlign: "left",
 };
 const imagePreviewStyle: CSSProperties = {
-  width: 76,
-  height: 76,
+  width: 64,
+  height: 64,
   objectFit: "cover",
   borderRadius: 12,
   background: "#111827",
@@ -2472,11 +2472,11 @@ const imageDateStyle: CSSProperties = {
 };
 const noteStyle: CSSProperties = {
   width: "100%",
-  minHeight: 130,
+  minHeight: 108,
   boxSizing: "border-box",
-  margin: "14px 0 12px",
-  padding: 14,
-  borderRadius: 16,
+  margin: "10px 0 10px",
+  padding: 12,
+  borderRadius: 14,
   border: "1px solid rgba(148, 163, 184, 0.28)",
   background: "#020817",
   color: "white",
@@ -2487,15 +2487,15 @@ const noteStyle: CSSProperties = {
 const imageSlotListStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: 14,
-  marginTop: 14,
+  gap: 8,
+  marginTop: 10,
 };
 
 const imageSlotCardStyle: CSSProperties = {
   border: "1px solid #26374f",
   borderRadius: 18,
   background: "#071426",
-  padding: 14,
+  padding: 12,
 };
 
 const imageSlotTitleStyle: CSSProperties = {
@@ -2515,7 +2515,7 @@ const imageSlotDescStyle: CSSProperties = {
 const imageSlotSavedStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: 10,
+  gap: 8,
 };
 
 const imageSlotActionRowStyle: CSSProperties = {
@@ -2545,12 +2545,12 @@ const miniDangerButtonStyle: CSSProperties = {
 const statusToggleStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
-  gap: 10,
-  margin: "12px 0 16px",
+  gap: 8,
+  margin: "10px 0 12px",
 };
 
 const statusButtonStyle: CSSProperties = {
-  padding: "12px 12px",
+  padding: "10px 10px",
   borderRadius: 14,
   border: "1px solid #334155",
   background: "#0f172a",
@@ -2590,7 +2590,7 @@ const fieldLabelStyle: CSSProperties = {
 const inputStyle: CSSProperties = {
   width: "100%",
   boxSizing: "border-box",
-  padding: "12px 12px",
+  padding: "10px 10px",
   borderRadius: 12,
   border: "1px solid #334155",
   background: "#020617",
@@ -2612,7 +2612,7 @@ const formGridStyle: CSSProperties = {
 
 const orangeButtonStyle: CSSProperties = {
   width: "100%",
-  padding: "13px 14px",
+  padding: "11px 12px",
   borderRadius: 14,
   border: "none",
   background: "#f97316",
@@ -2623,10 +2623,10 @@ const orangeButtonStyle: CSSProperties = {
 };
 
 const notionSavedBoxStyle: CSSProperties = {
-  marginTop: 14,
+  marginTop: 10,
   border: "1px solid #14532d",
   background: "#052e16",
-  borderRadius: 16,
+  borderRadius: 14,
   padding: 12,
 };
 
@@ -2639,7 +2639,7 @@ const notionSavedTextStyle: CSSProperties = {
 
 const resetButtonStyle: CSSProperties = {
   width: "100%",
-  padding: "13px 14px",
+  padding: "11px 12px",
   borderRadius: 14,
   border: "1px solid #475569",
   background: "#1e293b",
@@ -2650,10 +2650,10 @@ const resetButtonStyle: CSSProperties = {
 };
 
 const notionIssueSavedBoxStyle: CSSProperties = {
-  marginTop: 14,
+  marginTop: 10,
   border: "1px solid #9a3412",
   background: "#431407",
-  borderRadius: 16,
+  borderRadius: 14,
   padding: 12,
 };
 
@@ -2666,7 +2666,7 @@ const notionIssueSavedTextStyle: CSSProperties = {
 
 const dangerButtonStyle: CSSProperties = {
   width: "100%",
-  padding: "13px 14px",
+  padding: "11px 12px",
   borderRadius: 14,
   border: "none",
   background: "#dc2626",
@@ -2677,7 +2677,7 @@ const dangerButtonStyle: CSSProperties = {
 };
 
 const noticeStyle: CSSProperties = {
-  padding: 14,
+  padding: 12,
   borderRadius: 18,
   background: "rgba(250, 204, 21, 0.12)",
   border: "1px solid rgba(250, 204, 21, 0.26)",
@@ -2687,7 +2687,7 @@ const noticeStyle: CSSProperties = {
 };
 const footerStyle: CSSProperties = {
   maxWidth: 520,
-  margin: "24px auto 0",
+  margin: "16px auto 0",
   padding: "8px 0",
   color: "#64748b",
   textAlign: "center",
