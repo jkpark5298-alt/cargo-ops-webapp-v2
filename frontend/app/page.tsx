@@ -326,6 +326,11 @@ function formatDateForTitle(date: Date) {
 
 const DAILY_WORK_DATE_STORAGE_KEY = "cargo_ops_daily_work_date_v1";
 
+function formatHeaderUsageRate(value?: number) {
+  if (typeof value !== "number" || Number.isNaN(value)) return "-";
+  return `${value.toFixed(value >= 10 ? 1 : 2)}%`;
+}
+
 function getTodayDateInputValue() {
   const now = new Date();
   const yyyy = now.getFullYear();
@@ -2073,7 +2078,13 @@ export default function HomePage() {
       <section style={heroStyle}>
         <div style={eyebrowStyle}>CARGO OPS</div>
         <h1 style={titleStyle}>KJ 화물기 출도착 모니터링</h1>
-        <div style={datePillStyle}>{todayText}</div>
+        <div style={datePillStyle}>
+          {todayText}, API 사용율 : {formatHeaderUsageRate(Math.max(incheonApiUsage?.departureRate || 0, incheonApiUsage?.arrivalRate || 0))}
+          <span style={datePillSubStyle}>
+            (출발 {formatHeaderUsageRate(incheonApiUsage?.departureRate)}, 도착 {formatHeaderUsageRate(incheonApiUsage?.arrivalRate)})
+            {incheonApiUsage?.warning ? " ⚠️" : ""}
+          </span>
+        </div>
         <WeatherCard
           weather={weather}
           weatherLoading={weatherLoading}
@@ -2100,7 +2111,6 @@ export default function HomePage() {
           syncCheckedAt={scheduleSyncCheckedAt}
           apiSyncStatus={scheduleApiSyncStatus}
           apiSyncLoading={scheduleApiSyncLoading}
-          incheonApiUsage={incheonApiUsage}
           onOpenScheduleFlight={openScheduleFlight}
           onRefreshLatestSchedule={handleRefreshLatestSchedule}
         />
@@ -2361,6 +2371,13 @@ const datePillStyle: CSSProperties = {
   fontSize: 14,
   fontWeight: 800,
 };
+const datePillSubStyle: CSSProperties = {
+  marginLeft: 6,
+  color: "#bfdbfe",
+  fontSize: 13,
+  fontWeight: 850,
+};
+
 const descriptionStyle: CSSProperties = {
   margin: "12px 0 0",
   color: "#b8c5d8",
