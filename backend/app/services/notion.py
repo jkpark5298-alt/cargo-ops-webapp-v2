@@ -87,7 +87,7 @@ def _image_memo_property_name(image: dict[str, Any]) -> str | None:
     property_name = image.get("propertyName")
 
     if image_type == "daily-schedule" or property_name == "업무일정 이미지":
-        return "업무 일정 메모"
+        return "업무일정 메모"
     if image_type == "aircraft-check" or property_name == "화물기 CHECK 이미지":
         return "화물기 CHECK 메모"
     if image_type == "inspection-result" or property_name == "점검 대상 결과 이미지":
