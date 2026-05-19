@@ -7,6 +7,9 @@ import asyncio
 import json
 import os
 import re
+import urllib.error
+import urllib.parse
+import urllib.request
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -38,6 +41,12 @@ INCHEON_API_USAGE_FILE = Path(
 INCHEON_API_DEPARTURE_DAILY_LIMIT = int(os.getenv("INCHEON_API_DEPARTURE_DAILY_LIMIT", "100000"))
 INCHEON_API_ARRIVAL_DAILY_LIMIT = int(os.getenv("INCHEON_API_ARRIVAL_DAILY_LIMIT", "100000"))
 INCHEON_API_WARNING_RATE = float(os.getenv("INCHEON_API_WARNING_RATE", "90"))
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_SERVICE_ROLE_KEY = (
+    os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    or os.getenv("SUPABASE_SERVICE_KEY")
+    or ""
+)
 
 AUTO_PUSH_DEFAULT_INTERVAL_MINUTES = int(os.getenv("AUTO_PUSH_INTERVAL_MINUTES", "30"))
 AUTO_PUSH_STARTED = False
@@ -367,6 +376,110 @@ def _usage_date_key() -> str:
     return _now_kst().date().isoformat()
 
 
+def _supabase_usage_enabled() -> bool:
+    return bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
+
+
+def _supabase_headers() -> Dict[str, str]:
+    return {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+
+def _supabase_request(method: str, path: str, payload: Optional[Dict[str, Any]] = None) -> Any:
+    if not _supabase_usage_enabled():
+        raise RuntimeError("Supabase usage storage is not configured.")
+
+    body = None
+    if payload is not None:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+    request = urllib.request.Request(
+        f"{SUPABASE_URL}{path}",
+        data=body,
+        headers=_supabase_headers(),
+        method=method,
+    )
+
+    with urllib.request.urlopen(request, timeout=8) as response:
+        raw = response.read().decode("utf-8")
+        if not raw:
+            return None
+        return json.loads(raw)
+
+
+def _read_incheon_api_usage_from_supabase(day_key: str) -> Optional[Dict[str, Any]]:
+    if not _supabase_usage_enabled():
+        return None
+
+    query = urllib.parse.urlencode(
+        {
+            "usage_date": f"eq.{day_key}",
+            "select": "usage_date,departure_count,arrival_count,last_called_at",
+            "limit": "1",
+        }
+    )
+
+    try:
+        rows = _supabase_request(
+            "GET",
+            f"/rest/v1/incheon_api_usage_daily?{query}",
+        )
+    except Exception:
+        return None
+
+    if not isinstance(rows, list) or not rows:
+        return _empty_incheon_api_usage(day_key)
+
+    row = rows[0] if isinstance(rows[0], dict) else {}
+
+    return {
+        "date": str(row.get("usage_date") or day_key),
+        "departure": int(row.get("departure_count") or 0),
+        "arrival": int(row.get("arrival_count") or 0),
+        "departureLimit": INCHEON_API_DEPARTURE_DAILY_LIMIT,
+        "arrivalLimit": INCHEON_API_ARRIVAL_DAILY_LIMIT,
+        "lastCalledAt": str(row.get("last_called_at") or ""),
+    }
+
+
+def _increment_incheon_api_usage_in_supabase(
+    day_key: str,
+    departure_delta: int,
+    arrival_delta: int,
+) -> Optional[Dict[str, Any]]:
+    if not _supabase_usage_enabled():
+        return None
+
+    try:
+        result = _supabase_request(
+            "POST",
+            "/rest/v1/rpc/increment_incheon_api_usage",
+            {
+                "p_usage_date": day_key,
+                "p_departure_delta": departure_delta,
+                "p_arrival_delta": arrival_delta,
+            },
+        )
+    except Exception:
+        return None
+
+    if not isinstance(result, dict):
+        return _read_incheon_api_usage_from_supabase(day_key)
+
+    return {
+        "date": str(result.get("date") or day_key),
+        "departure": int(result.get("departure") or 0),
+        "arrival": int(result.get("arrival") or 0),
+        "departureLimit": INCHEON_API_DEPARTURE_DAILY_LIMIT,
+        "arrivalLimit": INCHEON_API_ARRIVAL_DAILY_LIMIT,
+        "lastCalledAt": str(result.get("lastCalledAt") or result.get("last_called_at") or ""),
+    }
+
+
 def _read_incheon_api_usage_all() -> Dict[str, Any]:
     try:
         if not INCHEON_API_USAGE_FILE.exists():
@@ -424,6 +537,11 @@ def _build_incheon_api_usage_response(usage: Dict[str, Any]) -> Dict[str, Any]:
 
 def _get_today_incheon_api_usage() -> Dict[str, Any]:
     day_key = _usage_date_key()
+
+    supabase_usage = _read_incheon_api_usage_from_supabase(day_key)
+    if supabase_usage is not None:
+        return _build_incheon_api_usage_response(supabase_usage)
+
     data = _read_incheon_api_usage_all()
     raw_usage = data.get(day_key)
     usage = raw_usage if isinstance(raw_usage, dict) else _empty_incheon_api_usage(day_key)
@@ -450,6 +568,14 @@ def _record_incheon_api_usage_for_rows(rows: List[Dict[str, Any]]) -> Dict[str, 
         return _get_today_incheon_api_usage()
 
     day_key = _usage_date_key()
+    supabase_usage = _increment_incheon_api_usage_in_supabase(
+        day_key,
+        departure_count,
+        arrival_count,
+    )
+    if supabase_usage is not None:
+        return _build_incheon_api_usage_response(supabase_usage)
+
     data = _read_incheon_api_usage_all()
     raw_usage = data.get(day_key)
     usage = raw_usage if isinstance(raw_usage, dict) else _empty_incheon_api_usage(day_key)
