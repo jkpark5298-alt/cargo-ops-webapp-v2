@@ -2049,15 +2049,6 @@ export default function HomePage() {
       </section>
 
       <section style={stackStyle}>
-        <ScheduleSummaryCard
-          latestRoom={latestRoom}
-          syncCheckedAt={scheduleSyncCheckedAt}
-          apiSyncStatus={scheduleApiSyncStatus}
-          apiSyncLoading={scheduleApiSyncLoading}
-          onOpenScheduleFlight={openScheduleFlight}
-          onRefreshLatestSchedule={handleRefreshLatestSchedule}
-        />
-
         <FlightAlertHistoryCard
           historyItems={flightAlertHistory}
           serverLoading={serverFlightAlertLoading}
@@ -2069,10 +2060,19 @@ export default function HomePage() {
           onLoadServerHistory={handleRevealServerFlightAlertHistory}
         />
 
+        <ScheduleSummaryCard
+          latestRoom={latestRoom}
+          syncCheckedAt={scheduleSyncCheckedAt}
+          apiSyncStatus={scheduleApiSyncStatus}
+          apiSyncLoading={scheduleApiSyncLoading}
+          onOpenScheduleFlight={openScheduleFlight}
+          onRefreshLatestSchedule={handleRefreshLatestSchedule}
+        />
+
         <ActionCard
           label="오늘 KJ 화물기 조회"
-          title="오늘 KJ 화물기 조회"
-          description="편명 직접 조회는 유지하고, KJ 전체 조회에서 Schedule Flight를 선택 저장합니다."
+          title="편명조회"
+          description="개별 편명 확인과 KJ 전체 조회를 진행합니다. Schedule Lite는 위 카드에서 바로 열 수 있습니다."
           buttonLabel="편명조회 열기"
           onClick={openFlights}
           accent="#2563eb"

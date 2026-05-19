@@ -33,10 +33,10 @@ export function PwaNotificationCard({
 }: PwaNotificationCardProps) {
   return (
     <section style={cardStyle}>
-      <div style={cardLabelStyle}>PWA 알림 준비</div>
-      <h2 style={cardTitleStyle}>아이폰 홈 화면 알림</h2>
+      <div style={cardLabelStyle}>PWA 알림</div>
+      <h2 style={cardTitleStyle}>아이폰 알림</h2>
       <p style={cardDescriptionStyle}>
-        아이폰 Safari에서 공유 버튼 → 홈 화면에 추가 후 실행하면, 향후 Schedule Flight 변경 알림을 받을 준비를 할 수 있습니다.
+        홈 화면 앱에서 Schedule Flight 변경 알림을 받을 수 있습니다.
       </p>
 
       <div style={infoBoxStyle}>
@@ -45,45 +45,45 @@ export function PwaNotificationCard({
           <span style={infoValueStyle}>{permissionLabel}</span>
         </div>
         <div style={infoHintStyle}>
-          {statusMessage || "1차 단계에서는 알림 권한과 구독 정보 저장까지만 준비합니다."}
+          {statusMessage || "알림 권한과 구독 상태를 확인합니다."}
         </div>
       </div>
 
       <div style={buttonStackStyle}>
         <button onClick={onEnable} disabled={loading} style={loading ? disabledButtonStyle : primaryButtonStyle}>
-          {loading ? "알림 준비 중..." : "알림 허용 준비"}
+          {loading ? "준비 중..." : "알림 허용"}
         </button>
         <button
           onClick={onSendTest}
           disabled={testLoading || permissionLabel !== "허용됨"}
           style={testLoading || permissionLabel !== "허용됨" ? disabledButtonStyle : secondaryButtonStyle}
         >
-          {testLoading ? "테스트 발송 중..." : "테스트 알림 보내기"}
+          {testLoading ? "발송 중..." : "테스트 알림"}
         </button>
         <button
           onClick={onCheckSchedule}
           disabled={checkLoading || permissionLabel !== "허용됨"}
           style={checkLoading || permissionLabel !== "허용됨" ? disabledButtonStyle : accentButtonStyle}
         >
-          {checkLoading ? "변경 확인 중..." : "Schedule Flight 변경 확인"}
+          {checkLoading ? "확인 중..." : "변경 즉시 확인"}
         </button>
         <button
           onClick={onToggleAuto}
           disabled={autoLoading || permissionLabel !== "허용됨"}
           style={autoLoading || permissionLabel !== "허용됨" ? disabledButtonStyle : successButtonStyle}
         >
-          {autoLoading ? "자동 상태 확인 중..." : "자동 변경 확인 상태 새로고침"}
+          {autoLoading ? "확인 중..." : "자동 상태 새로고침"}
         </button>
       </div>
 
       <div style={autoStatusStyle}>
         자동 확인 상태: {autoEnabled ? "자동 적용 중" : "일시 중지"}
         <br />
-        {autoStatusMessage || "기본 30분 간격으로 변경 여부를 확인합니다."}
+        {autoStatusMessage || "평상시 30분, 집중 시간대 5분 간격으로 확인합니다."}
       </div>
 
       <div style={helpTextStyle}>
-        자동 확인은 Schedule Flight 기준으로 자동 적용됩니다. 평상시 30분, 출발/도착 집중 시간대는 5분 간격으로 변경을 확인합니다.
+        자동 확인은 Schedule Flight 기준으로 적용됩니다.
       </div>
     </section>
   );
@@ -92,7 +92,7 @@ export function PwaNotificationCard({
 const cardStyle: CSSProperties = {
   border: "1px solid rgba(56, 189, 248, 0.38)",
   borderRadius: 20,
-  padding: 18,
+  padding: 16,
   background: "linear-gradient(135deg, rgba(14, 165, 233, 0.16), rgba(15, 23, 42, 0.92))",
   boxShadow: "0 18px 50px rgba(2, 6, 23, 0.34)",
 };
@@ -107,7 +107,7 @@ const cardLabelStyle: CSSProperties = {
 
 const cardTitleStyle: CSSProperties = {
   color: "#f8fafc",
-  fontSize: 22,
+  fontSize: 21,
   fontWeight: 950,
   margin: "8px 0 8px",
 };
@@ -161,7 +161,7 @@ const buttonStackStyle: CSSProperties = {
 
 const primaryButtonStyle: CSSProperties = {
   width: "100%",
-  minHeight: 56,
+  minHeight: 52,
   border: "none",
   borderRadius: 16,
   color: "#ffffff",
