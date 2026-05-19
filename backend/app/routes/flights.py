@@ -32,6 +32,13 @@ AUTO_PUSH_STATUS_FILE = Path(
 NOTIFICATION_HISTORY_FILE = Path(
     os.getenv("NOTIFICATION_HISTORY_FILE", "/tmp/cargo_ops_notification_history.json")
 )
+INCHEON_API_USAGE_FILE = Path(
+    os.getenv("INCHEON_API_USAGE_FILE", "/tmp/cargo_ops_incheon_api_usage.json")
+)
+INCHEON_API_DEPARTURE_DAILY_LIMIT = int(os.getenv("INCHEON_API_DEPARTURE_DAILY_LIMIT", "100000"))
+INCHEON_API_ARRIVAL_DAILY_LIMIT = int(os.getenv("INCHEON_API_ARRIVAL_DAILY_LIMIT", "100000"))
+INCHEON_API_WARNING_RATE = float(os.getenv("INCHEON_API_WARNING_RATE", "90"))
+
 AUTO_PUSH_DEFAULT_INTERVAL_MINUTES = int(os.getenv("AUTO_PUSH_INTERVAL_MINUTES", "30"))
 AUTO_PUSH_STARTED = False
 
@@ -354,6 +361,110 @@ def _update_auto_push_status(**updates: Any) -> Dict[str, Any]:
     status = _read_auto_push_status()
     status.update(updates)
     return _write_auto_push_status(status)
+
+
+def _usage_date_key() -> str:
+    return _now_kst().date().isoformat()
+
+
+def _read_incheon_api_usage_all() -> Dict[str, Any]:
+    try:
+        if not INCHEON_API_USAGE_FILE.exists():
+            return {}
+
+        data = json.loads(INCHEON_API_USAGE_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_incheon_api_usage_all(data: Dict[str, Any]) -> None:
+    INCHEON_API_USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    INCHEON_API_USAGE_FILE.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _empty_incheon_api_usage(day_key: Optional[str] = None) -> Dict[str, Any]:
+    return {
+        "date": day_key or _usage_date_key(),
+        "departure": 0,
+        "arrival": 0,
+        "departureLimit": INCHEON_API_DEPARTURE_DAILY_LIMIT,
+        "arrivalLimit": INCHEON_API_ARRIVAL_DAILY_LIMIT,
+        "departureRate": 0,
+        "arrivalRate": 0,
+        "warning": False,
+        "lastCalledAt": "",
+    }
+
+
+def _build_incheon_api_usage_response(usage: Dict[str, Any]) -> Dict[str, Any]:
+    departure = int(usage.get("departure") or 0)
+    arrival = int(usage.get("arrival") or 0)
+    departure_limit = int(usage.get("departureLimit") or INCHEON_API_DEPARTURE_DAILY_LIMIT)
+    arrival_limit = int(usage.get("arrivalLimit") or INCHEON_API_ARRIVAL_DAILY_LIMIT)
+    departure_rate = round((departure / departure_limit) * 100, 2) if departure_limit > 0 else 0
+    arrival_rate = round((arrival / arrival_limit) * 100, 2) if arrival_limit > 0 else 0
+
+    return {
+        "date": str(usage.get("date") or _usage_date_key()),
+        "departure": departure,
+        "arrival": arrival,
+        "departureLimit": departure_limit,
+        "arrivalLimit": arrival_limit,
+        "departureRate": departure_rate,
+        "arrivalRate": arrival_rate,
+        "warning": departure_rate >= INCHEON_API_WARNING_RATE or arrival_rate >= INCHEON_API_WARNING_RATE,
+        "warningRate": INCHEON_API_WARNING_RATE,
+        "lastCalledAt": str(usage.get("lastCalledAt") or ""),
+    }
+
+
+def _get_today_incheon_api_usage() -> Dict[str, Any]:
+    day_key = _usage_date_key()
+    data = _read_incheon_api_usage_all()
+    raw_usage = data.get(day_key)
+    usage = raw_usage if isinstance(raw_usage, dict) else _empty_incheon_api_usage(day_key)
+    usage["date"] = day_key
+    usage["departureLimit"] = INCHEON_API_DEPARTURE_DAILY_LIMIT
+    usage["arrivalLimit"] = INCHEON_API_ARRIVAL_DAILY_LIMIT
+    return _build_incheon_api_usage_response(usage)
+
+
+def _record_incheon_api_usage_for_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    departure_count = 0
+    arrival_count = 0
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+
+        if _is_departure_row(row):
+            departure_count += 1
+        elif _is_arrival_row(row):
+            arrival_count += 1
+
+    if departure_count == 0 and arrival_count == 0:
+        return _get_today_incheon_api_usage()
+
+    day_key = _usage_date_key()
+    data = _read_incheon_api_usage_all()
+    raw_usage = data.get(day_key)
+    usage = raw_usage if isinstance(raw_usage, dict) else _empty_incheon_api_usage(day_key)
+
+    usage["date"] = day_key
+    usage["departure"] = int(usage.get("departure") or 0) + departure_count
+    usage["arrival"] = int(usage.get("arrival") or 0) + arrival_count
+    usage["departureLimit"] = INCHEON_API_DEPARTURE_DAILY_LIMIT
+    usage["arrivalLimit"] = INCHEON_API_ARRIVAL_DAILY_LIMIT
+    usage["lastCalledAt"] = _now_kst_iso()
+
+    data[day_key] = usage
+    _write_incheon_api_usage_all(data)
+
+    return _build_incheon_api_usage_response(usage)
 
 
 def _normalize_flight_code(value: str) -> str:
@@ -893,6 +1004,7 @@ async def _run_schedule_change_check(push_on_change: bool = True) -> Dict[str, A
                 if _row_matches_time_range(row, start_dt, end_dt)
             ]
 
+            _record_incheon_api_usage_for_rows(filtered_rows)
             fresh_rows.extend(filtered_rows)
 
     except IncheonApiQuotaExceededError:
@@ -1162,6 +1274,15 @@ async def _run_auto_push_tick_if_due(source: str = "health") -> Dict[str, Any]:
 
     return tick_result
 
+
+
+@router.get("/incheon-api-usage")
+async def get_incheon_api_usage() -> Dict[str, Any]:
+    usage = _get_today_incheon_api_usage()
+    return {
+        "success": True,
+        **usage,
+    }
 
 
 @router.get("/health")
@@ -1444,6 +1565,8 @@ async def search_all_kj_flights(payload: FlightRangeRequest) -> Dict[str, Any]:
             if _row_matches_time_range(row, start_dt, end_dt)
         ]
 
+        _record_incheon_api_usage_for_rows(filtered_rows)
+
     except IncheonApiQuotaExceededError:
         raise HTTPException(status_code=429, detail="한도 초과로 조회 불가")
 
@@ -1492,6 +1615,7 @@ async def search_flights(payload: FlightQueryRequest) -> Dict[str, Any]:
                 if _row_matches_time_range(row, start_dt, end_dt)
             ]
 
+            _record_incheon_api_usage_for_rows(filtered_rows)
             all_rows.extend(filtered_rows)
 
     except IncheonApiQuotaExceededError:

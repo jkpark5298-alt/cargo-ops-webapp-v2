@@ -76,6 +76,13 @@ type BackendScheduleCheckResult = {
   changes?: BackendScheduleChange[];
 };
 
+type IncheonApiUsage = {
+  departureRate: number;
+  arrivalRate: number;
+  warning: boolean;
+  lastCalledAt?: string;
+};
+
 type ImageSlotKey =
   | "daily-schedule"
   | "aircraft-check"
@@ -760,6 +767,7 @@ export default function HomePage() {
   const [scheduleSyncCheckedAt, setScheduleSyncCheckedAt] = useState("");
   const [scheduleApiSyncStatus, setScheduleApiSyncStatus] = useState("");
   const [scheduleApiSyncLoading, setScheduleApiSyncLoading] = useState(false);
+  const [incheonApiUsage, setIncheonApiUsage] = useState<IncheonApiUsage | null>(null);
   const [isDailySaving, setIsDailySaving] = useState(false);
   const [isIssueSaving, setIsIssueSaving] = useState(false);
   const [weather, setWeather] = useState<WeatherInfo>(DEFAULT_WEATHER);
@@ -818,6 +826,7 @@ export default function HomePage() {
     setAlertCheckedAt(savedSnapshot?.savedAt || getCurrentTimeLabel());
 
     void fetchWeather();
+    void fetchIncheonApiUsage();
     void checkScheduleApiAndSync(false, true);
     void fetchAutoPushStatus();
     void handleLoadServerFlightAlertHistory(false);
@@ -1238,6 +1247,7 @@ export default function HomePage() {
       const result = json as BackendScheduleCheckResult;
       appendBackendFlightAlertHistory(result, "API 즉시 확인");
       await syncLatestScheduleFromServer(false);
+      await fetchIncheonApiUsage();
 
       if (showNotice) {
         const changed = result.changed ?? 0;
@@ -1478,10 +1488,12 @@ export default function HomePage() {
           `Schedule Flight 변경 ${changed}건 감지. 푸시 발송 성공 ${sent}건 / 실패 ${failed}건`,
         );
         await syncLatestScheduleFromServer(false);
+        await fetchIncheonApiUsage();
         await handleLoadServerFlightAlertHistory(false);
       } else {
         setPwaStatusMessage(`Schedule Flight 변경 없음. 재조회 대상 ${checked}건 확인 완료`);
         await syncLatestScheduleFromServer(false);
+        await fetchIncheonApiUsage();
         await handleLoadServerFlightAlertHistory(false);
       }
     } catch (error) {
@@ -1504,6 +1516,26 @@ export default function HomePage() {
     }
   };
 
+
+  async function fetchIncheonApiUsage() {
+    try {
+      const res = await fetch(`${BACKEND_URL}/flights/incheon-api-usage`, {
+        cache: "no-store",
+      });
+      const json = await res.json();
+
+      if (!res.ok || json.success === false) return;
+
+      setIncheonApiUsage({
+        departureRate: Number(json.departureRate || 0),
+        arrivalRate: Number(json.arrivalRate || 0),
+        warning: Boolean(json.warning),
+        lastCalledAt: json.lastCalledAt,
+      });
+    } catch {
+      // 사용량 조회 실패 시 화면만 조용히 유지합니다.
+    }
+  }
 
   async function fetchWeather() {
     setWeatherLoading(true);
@@ -2068,6 +2100,7 @@ export default function HomePage() {
           syncCheckedAt={scheduleSyncCheckedAt}
           apiSyncStatus={scheduleApiSyncStatus}
           apiSyncLoading={scheduleApiSyncLoading}
+          incheonApiUsage={incheonApiUsage}
           onOpenScheduleFlight={openScheduleFlight}
           onRefreshLatestSchedule={handleRefreshLatestSchedule}
         />

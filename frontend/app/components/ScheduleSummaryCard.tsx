@@ -3,11 +3,19 @@
 import type { CSSProperties } from "react";
 import type { FlightRow, MonitorRoom } from "../page";
 
+type IncheonApiUsage = {
+  departureRate: number;
+  arrivalRate: number;
+  warning: boolean;
+  lastCalledAt?: string;
+};
+
 type ScheduleSummaryCardProps = {
   latestRoom: MonitorRoom | null;
   syncCheckedAt: string;
   apiSyncStatus: string;
   apiSyncLoading: boolean;
+  incheonApiUsage?: IncheonApiUsage | null;
   onOpenScheduleFlight: () => void;
   onRefreshLatestSchedule: () => void;
 };
@@ -17,6 +25,7 @@ export function ScheduleSummaryCard({
   syncCheckedAt,
   apiSyncStatus,
   apiSyncLoading,
+  incheonApiUsage,
   onOpenScheduleFlight,
   onRefreshLatestSchedule,
 }: ScheduleSummaryCardProps) {
@@ -31,6 +40,11 @@ export function ScheduleSummaryCard({
 
       <div style={apiLookupTimeStyle}>
         마지막 API 확인 {formatApiLookupTime(latestRoom?.lastFetchedAt)}
+      </div>
+
+      <div style={incheonUsageStyle(incheonApiUsage?.warning)}>
+        인천공항 API 사용률 · 출발 {formatUsageRate(incheonApiUsage?.departureRate)} · 도착 {formatUsageRate(incheonApiUsage?.arrivalRate)}
+        {incheonApiUsage?.warning ? " ⚠️" : ""}
       </div>
 
       <div style={infoListStyle}>
@@ -92,6 +106,11 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       <span style={infoValueStyle}>{value}</span>
     </div>
   );
+}
+
+function formatUsageRate(value?: number) {
+  if (typeof value !== "number" || Number.isNaN(value)) return "-";
+  return `${value.toFixed(value >= 10 ? 1 : 2)}%`;
 }
 
 function getScheduleSummaryTitle(_room: MonitorRoom | null) {
@@ -418,6 +437,15 @@ const apiLookupTimeStyle: CSSProperties = {
   fontWeight: 850,
   letterSpacing: 0.2,
 };
+
+const incheonUsageStyle = (warning?: boolean): CSSProperties => ({
+  marginTop: -4,
+  marginBottom: 10,
+  color: warning ? "#fca5a5" : "#94a3b8",
+  fontSize: 12,
+  fontWeight: 900,
+  lineHeight: 1.35,
+});
 
 const infoListStyle: CSSProperties = {
   display: "flex",
