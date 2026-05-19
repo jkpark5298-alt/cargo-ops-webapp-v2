@@ -34,6 +34,9 @@ type FlightRow = {
   gateChanged?: boolean;
   sourceType?: string;
   fid?: string;
+  hlnbr?: string;
+  registrationNo?: string;
+  aircraftRegNo?: string;
 };
 
 type MonitorRoom = {
@@ -353,13 +356,18 @@ function getRegistrationNo(row: FlightRow) {
     fid?: string;
   };
 
-  return (
+  const registrationNo =
     maybeRow.hlnbr ||
     maybeRow.registrationNo ||
     maybeRow.aircraftRegNo ||
-    (/^HL\d{3,5}$/i.test(maybeRow.fid || "") ? maybeRow.fid : "") ||
-    "-"
-  );
+    "";
+
+  if (/^HL\d{3,5}$/i.test(registrationNo)) return registrationNo.toUpperCase();
+
+  const fid = maybeRow.fid || "";
+  if (/^HL\d{3,5}$/i.test(fid)) return fid.toUpperCase();
+
+  return "-";
 }
 
 function getFlightDisplay(row: FlightRow) {
@@ -551,6 +559,36 @@ function applyHlMappingToRows(rows: FlightRow[], mapping: Record<string, string>
           aircraftRegNo: mappedHl,
         }
       : row;
+  });
+}
+
+function applyRegistrationNoToRow(row: FlightRow, registrationNo: string) {
+  const normalizedRegistrationNo = normalizeHlNumber(registrationNo);
+  if (!/^HL\d{3,5}$/i.test(normalizedRegistrationNo)) return row;
+
+  return {
+    ...row,
+    hlnbr: normalizedRegistrationNo,
+    registrationNo: normalizedRegistrationNo,
+    aircraftRegNo: normalizedRegistrationNo,
+  };
+}
+
+function copyRegistrationFromRows(targetRows: FlightRow[], sourceRows: FlightRow[]) {
+  const registrationMap = new Map<string, string>();
+
+  sourceRows.forEach((row) => {
+    const flight = getFlightKeyFromRow(row);
+    const registrationNo = getRegistrationNo(row);
+    if (flight && /^HL\d{3,5}$/i.test(registrationNo)) {
+      registrationMap.set(flight, registrationNo.toUpperCase());
+    }
+  });
+
+  return targetRows.map((row) => {
+    const flight = getFlightKeyFromRow(row);
+    const registrationNo = registrationMap.get(flight);
+    return registrationNo ? applyRegistrationNoToRow(row, registrationNo) : row;
   });
 }
 
@@ -1398,7 +1436,8 @@ export default function FlightsPage() {
 
       if (keepScheduleContext && selectedRoom) {
         const mergedInput = mergeFlightsInput(selectedRoom.flightsInput, flights.join(", "));
-        const mergedRows = mergeScheduleRowsByFlight(previousScheduleRows, nextRows);
+        const nextRowsWithRegistration = copyRegistrationFromRows(nextRows, previousScheduleRows);
+        const mergedRows = mergeScheduleRowsByFlight(previousScheduleRows, nextRowsWithRegistration);
         const updatedRoom: MonitorRoom = {
           ...selectedRoom,
           flightsInput: mergedInput,
@@ -1683,7 +1722,9 @@ export default function FlightsPage() {
         ...baseRoom,
         ...serverRoom,
         fixed: true,
-        rows: Array.isArray(serverRoom.rows) ? serverRoom.rows : baseRoom.rows,
+        rows: Array.isArray(serverRoom.rows)
+          ? copyRegistrationFromRows(serverRoom.rows, baseRoom.rows)
+          : baseRoom.rows,
         flightsInput: serverRoom.flightsInput || baseRoom.flightsInput,
         startDateTime: serverRoom.startDateTime || baseRoom.startDateTime,
         endDateTime: serverRoom.endDateTime || baseRoom.endDateTime,
@@ -1742,7 +1783,7 @@ export default function FlightsPage() {
         endDateTime,
         fixed: true,
         lastFetchedAt: lastFetchedAt || new Date().toISOString(),
-        rows,
+        rows: copyRegistrationFromRows(applyHlMappingToRows(rows, hlNumberMap), rows),
       });
 
       const nextRooms = mergeLatestScheduleRoom(rooms, updatedScheduleRoom);
@@ -1758,7 +1799,9 @@ export default function FlightsPage() {
           ...updatedScheduleRoom,
           ...serverRoom,
           fixed: true,
-          rows: Array.isArray(serverRoom.rows) ? serverRoom.rows : updatedScheduleRoom.rows,
+          rows: Array.isArray(serverRoom.rows)
+            ? copyRegistrationFromRows(serverRoom.rows, updatedScheduleRoom.rows)
+            : updatedScheduleRoom.rows,
           flightsInput: serverRoom.flightsInput || updatedScheduleRoom.flightsInput,
           startDateTime: serverRoom.startDateTime || updatedScheduleRoom.startDateTime,
           endDateTime: serverRoom.endDateTime || updatedScheduleRoom.endDateTime,

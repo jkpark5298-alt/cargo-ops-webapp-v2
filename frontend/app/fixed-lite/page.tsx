@@ -35,6 +35,9 @@ type FlightRow = {
   gateChanged?: boolean;
   sourceType?: string;
   fid?: string;
+  hlnbr?: string;
+  registrationNo?: string;
+  aircraftRegNo?: string;
 };
 
 type MonitorRoom = {
@@ -55,6 +58,7 @@ type WidgetSummaryItem = {
   arrivalCode: string;
   displayTime: string;
   gate: string;
+  registrationNo?: string;
   excludeReason?: string;
 };
 
@@ -203,6 +207,53 @@ function normalizeFlightKey(value: string) {
 
 function getFlightKeyFromRow(row: FlightRow) {
   return normalizeFlightKey(row.flightId || row.flightNo || "");
+}
+
+function getRegistrationNo(row?: FlightRow) {
+  if (!row) return "";
+
+  const registrationNo =
+    row.hlnbr ||
+    row.registrationNo ||
+    row.aircraftRegNo ||
+    "";
+
+  if (/^HL\d{3,5}$/i.test(registrationNo)) return registrationNo.toUpperCase();
+
+  const fid = row.fid || "";
+  if (/^HL\d{3,5}$/i.test(fid)) return fid.toUpperCase();
+
+  return "";
+}
+
+function applyRegistrationNoToRow(row: FlightRow, registrationNo: string) {
+  const normalizedRegistrationNo = registrationNo.replace(/\s+/g, "").toUpperCase();
+  if (!/^HL\d{3,5}$/i.test(normalizedRegistrationNo)) return row;
+
+  return {
+    ...row,
+    hlnbr: normalizedRegistrationNo,
+    registrationNo: normalizedRegistrationNo,
+    aircraftRegNo: normalizedRegistrationNo,
+  };
+}
+
+function copyRegistrationFromRows(targetRows: FlightRow[], sourceRows: FlightRow[]) {
+  const registrationMap = new Map<string, string>();
+
+  sourceRows.forEach((row) => {
+    const flight = getFlightKeyFromRow(row);
+    const registrationNo = getRegistrationNo(row);
+    if (flight && registrationNo) {
+      registrationMap.set(flight, registrationNo);
+    }
+  });
+
+  return targetRows.map((row) => {
+    const flight = getFlightKeyFromRow(row);
+    const registrationNo = registrationMap.get(flight);
+    return registrationNo ? applyRegistrationNoToRow(row, registrationNo) : row;
+  });
 }
 
 function removeFlightFromScheduleRoom(room: MonitorRoom, targetFlight: string): MonitorRoom {
@@ -412,6 +463,7 @@ function formatDisplayItemFromRow(flight: string, row: FlightRow): WidgetSummary
           "-"
       ) || "-",
     gate: row.gatenumber || "-",
+    registrationNo: getRegistrationNo(row),
   };
 }
 
@@ -423,6 +475,7 @@ function formatFallbackDisplayItem(flight: string): WidgetSummaryItem {
     arrivalCode: "-",
     displayTime: "-",
     gate: "-",
+    registrationNo: "",
   };
 }
 
@@ -733,7 +786,10 @@ export default function FixedLitePage() {
         }
 
         refreshIntervalMinutes = json.refreshIntervalMinutes || DEFAULT_REFRESH_MINUTES;
-        const refreshedRows = Array.isArray(json.data) ? json.data : [];
+        const refreshedRows = copyRegistrationFromRows(
+          Array.isArray(json.data) ? json.data : [],
+          room.rows || [],
+        );
         const refreshedFlightSet = new Set(
           refreshedRows
             .map((row) => row.flightId || row.flightNo || "")
@@ -776,7 +832,9 @@ export default function FixedLitePage() {
           ...updatedRoom,
           ...serverRoom,
           fixed: true,
-          rows: Array.isArray(serverRoom.rows) ? serverRoom.rows : updatedRoom.rows,
+          rows: Array.isArray(serverRoom.rows)
+            ? copyRegistrationFromRows(serverRoom.rows, updatedRoom.rows)
+            : updatedRoom.rows,
           flightsInput: serverRoom.flightsInput || updatedRoom.flightsInput,
           startDateTime: serverRoom.startDateTime || updatedRoom.startDateTime,
           endDateTime: serverRoom.endDateTime || updatedRoom.endDateTime,
@@ -1098,6 +1156,9 @@ export default function FixedLitePage() {
                         }}
                       >
                         {item.flight}
+                        {item.registrationNo ? (
+                          <span style={flightCardRegistrationStyle}> · {item.registrationNo}</span>
+                        ) : null}
                       </div>
 
                       <div
@@ -1264,6 +1325,14 @@ const infoLabelStyle: CSSProperties = {
 const infoValueStyle: CSSProperties = {
   fontWeight: 800,
   fontSize: 15,
+};
+
+const flightCardRegistrationStyle: CSSProperties = {
+  color: "#bfdbfe",
+  fontSize: 13,
+  fontWeight: 900,
+  letterSpacing: 0,
+  whiteSpace: "nowrap",
 };
 
 const focusBadgeStyle: CSSProperties = {
