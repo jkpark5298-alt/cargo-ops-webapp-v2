@@ -346,7 +346,20 @@ function getChangedDateTime(row: FlightRow) {
 }
 
 function getRegistrationNo(row: FlightRow) {
-  return row.fid || "-";
+  const maybeRow = row as FlightRow & {
+    hlnbr?: string;
+    registrationNo?: string;
+    aircraftRegNo?: string;
+    fid?: string;
+  };
+
+  return (
+    maybeRow.hlnbr ||
+    maybeRow.registrationNo ||
+    maybeRow.aircraftRegNo ||
+    (/^HL\d{3,5}$/i.test(maybeRow.fid || "") ? maybeRow.fid : "") ||
+    "-"
+  );
 }
 
 function getFlightDisplay(row: FlightRow) {
@@ -530,7 +543,14 @@ function getMappedHlNumber(row: FlightRow, mapping: Record<string, string>) {
 function applyHlMappingToRows(rows: FlightRow[], mapping: Record<string, string>) {
   return rows.map((row) => {
     const mappedHl = getMappedHlNumber(row, mapping);
-    return mappedHl ? { ...row, fid: mappedHl } : row;
+    return mappedHl
+      ? {
+          ...row,
+          hlnbr: mappedHl,
+          registrationNo: mappedHl,
+          aircraftRegNo: mappedHl,
+        }
+      : row;
   });
 }
 
