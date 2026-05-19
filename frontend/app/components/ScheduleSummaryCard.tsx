@@ -264,9 +264,11 @@ function formatFlightTimeNoYear(value?: string) {
   if (!value) return "-";
 
   const normalized = value.replace("T", " ").trim();
+  const match = normalized.match(/^(\d{4})[/-](\d{2})[/-](\d{2})\s+(\d{2}):(\d{2})/);
 
-  if (/^\d{4}[/-]\d{2}[/-]\d{2}/.test(normalized)) {
-    return normalized.slice(5, 16);
+  if (match) {
+    const [, year, month, day, hour, minute] = match;
+    return `'${year.slice(2)}/${month}/${day} ${hour}:${minute}`;
   }
 
   return normalized;
