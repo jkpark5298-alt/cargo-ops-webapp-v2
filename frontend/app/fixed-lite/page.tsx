@@ -128,7 +128,18 @@ async function loadLatestScheduleFromServer() {
   }
 
   const room = (json.room || null) as MonitorRoom | null;
-  return isActiveScheduleRoom(room) ? room : null;
+
+  if (!isActiveScheduleRoom(room)) return null;
+
+  const activeRoom = room as MonitorRoom;
+
+  return {
+    ...activeRoom,
+    rows: copyRegistrationFromRows(
+      Array.isArray(activeRoom.rows) ? activeRoom.rows : [],
+      [],
+    ),
+  };
 }
 
 async function saveLatestScheduleToServer(room: MonitorRoom) {
@@ -145,7 +156,11 @@ async function saveLatestScheduleToServer(room: MonitorRoom) {
     throw new Error(json.detail || json.message || "Schedule Flight 서버 저장 실패");
   }
 
-  return (json.room || room) as MonitorRoom;
+  const savedRoom = (json.room || room) as MonitorRoom;
+  return {
+    ...savedRoom,
+    rows: copyRegistrationFromRows(Array.isArray(savedRoom.rows) ? savedRoom.rows : [], room.rows || []),
+  } as MonitorRoom;
 }
 
 

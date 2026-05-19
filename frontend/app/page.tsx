@@ -53,6 +53,7 @@ import {
 import { getApiBaseUrl } from "./lib/api-config";
 
 const STORAGE_KEY = "cargo_ops_monitor_rooms_v6";
+const HL_MAPPING_STORAGE_KEY = "cargo_ops_hl_number_mapping_v1";
 
 type DailyNotionRecord = {
   pageId: string;
@@ -251,18 +252,113 @@ function isActiveScheduleRoom(room?: MonitorRoom | null) {
   return Boolean(flightsInput || rows.length > 0);
 }
 
+function isScheduleFlightRoom(room?: MonitorRoom | null) {
+  if (!room) return false;
+
+  return Boolean(
+    room.fixed ||
+      room.name?.startsWith("Schedule_") ||
+      room.name?.includes("Schedule Flight")
+  );
+}
+
+function normalizeFlightKey(value: string) {
+  return value.replace(/\s+/g, "").toUpperCase();
+}
+
+function normalizeHlFlightKey(value: string) {
+  const normalized = normalizeFlightKey(value);
+  if (/^\d{3,4}$/.test(normalized)) return `KJ${normalized}`;
+  return normalized;
+}
+
+function normalizeHlNumber(value: string) {
+  return value.replace(/\s+/g, "").toUpperCase();
+}
+
+function getFlightKeyFromRow(row: FlightRow) {
+  return normalizeFlightKey(row.flightId || row.flightNo || "");
+}
+
+function getStoredHlNumberForFlight(flight: string) {
+  if (typeof window === "undefined") return "";
+
+  try {
+    const raw = window.localStorage.getItem(HL_MAPPING_STORAGE_KEY);
+    if (!raw) return "";
+
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    const mappedHl = parsed[normalizeHlFlightKey(flight)] || "";
+
+    return normalizeHlNumber(mappedHl);
+  } catch {
+    return "";
+  }
+}
+
+function getRegistrationNoFromRow(row?: FlightRow) {
+  if (!row) return "";
+
+  const registrationNo =
+    row.hlnbr ||
+    row.registrationNo ||
+    row.aircraftRegNo ||
+    "";
+
+  if (/^HL\d{3,5}$/i.test(registrationNo)) return registrationNo.toUpperCase();
+
+  const storedRegistrationNo = getStoredHlNumberForFlight(row.flightId || row.flightNo || "");
+  if (/^HL\d{3,5}$/i.test(storedRegistrationNo)) return storedRegistrationNo.toUpperCase();
+
+  const fid = row.fid || "";
+  if (/^HL\d{3,5}$/i.test(fid)) return fid.toUpperCase();
+
+  return "";
+}
+
+function applyRegistrationNoToRow(row: FlightRow, registrationNo: string) {
+  const normalizedRegistrationNo = normalizeHlNumber(registrationNo);
+  if (!/^HL\d{3,5}$/i.test(normalizedRegistrationNo)) return row;
+
+  return {
+    ...row,
+    hlnbr: normalizedRegistrationNo,
+    registrationNo: normalizedRegistrationNo,
+    aircraftRegNo: normalizedRegistrationNo,
+  };
+}
+
+function restoreRegistrationNumbersToRows(rows: FlightRow[]) {
+  return rows.map((row) => {
+    const registrationNo = getRegistrationNoFromRow(row);
+    return registrationNo ? applyRegistrationNoToRow(row, registrationNo) : row;
+  });
+}
+
+function restoreRegistrationNumbersToRoom(room?: MonitorRoom | null) {
+  if (!room) return null;
+
+  return {
+    ...room,
+    rows: restoreRegistrationNumbersToRows(Array.isArray(room.rows) ? room.rows : []),
+  };
+}
+
 function removeEmptyScheduleRooms(rooms: MonitorRoom[]) {
   return rooms.filter((room) => !room.fixed || isActiveScheduleRoom(room));
 }
 
 function mergeLatestScheduleRoom(rooms: MonitorRoom[], latestRoom: MonitorRoom | null) {
-  const localRooms = removeEmptyScheduleRooms(rooms).filter((room) => !room.fixed);
-  if (!isActiveScheduleRoom(latestRoom)) return localRooms;
-  return [latestRoom as MonitorRoom, ...localRooms];
+  const localRooms = removeEmptyScheduleRooms(rooms).filter((room) => !isScheduleFlightRoom(room));
+  const restoredLatestRoom = restoreRegistrationNumbersToRoom(latestRoom);
+  if (!isActiveScheduleRoom(restoredLatestRoom)) return localRooms;
+  return [restoredLatestRoom as MonitorRoom, ...localRooms];
 }
 
 function getLocalLatestScheduleRoom() {
-  return loadRooms().find((room) => room.fixed && isActiveScheduleRoom(room)) || null;
+  return restoreRegistrationNumbersToRoom(
+    loadRooms().find((room) => isScheduleFlightRoom(room) && isActiveScheduleRoom(room)) || null
+  );
 }
 
 function getCurrentSyncLabel() {
@@ -290,7 +386,7 @@ async function saveLatestScheduleToServer(room: MonitorRoom) {
     throw new Error(json.detail || json.message || "Schedule Flight 서버 저장 실패");
   }
 
-  return json.room as MonitorRoom;
+  return restoreRegistrationNumbersToRoom((json.room || room) as MonitorRoom) as MonitorRoom;
 }
 
 function getImageBySlot(images: SavedImage[], slotKey: ImageSlotKey) {
@@ -1171,9 +1267,10 @@ export default function HomePage() {
         throw new Error(json.detail || json.message || "Schedule Flight 동기화 실패");
       }
 
-      const serverRoom = isActiveScheduleRoom(json.room as MonitorRoom | null)
+      const rawServerRoom = isActiveScheduleRoom(json.room as MonitorRoom | null)
         ? (json.room as MonitorRoom)
         : null;
+      const serverRoom = restoreRegistrationNumbersToRoom(rawServerRoom);
 
       const nextRooms = mergeLatestScheduleRoom(loadRooms(), serverRoom);
       setRooms(nextRooms);
