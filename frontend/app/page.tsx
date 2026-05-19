@@ -123,6 +123,9 @@ const IMAGE_SLOT_PROPERTY_NAME: Record<ImageSlotKey, string> = {
 
 const BACKEND_URL = getApiBaseUrl();
 
+const APP_VERSION = "v1.0.0";
+const APP_VERSION_DATE = "2026.05.19";
+
 type HourlyWeather = {
   time?: string;
   condition?: string;
@@ -2173,7 +2176,7 @@ export default function HomePage() {
         onSaveImageMemo={handleSaveImageMemo}
       />
 
-      <footer style={footerStyle}>by jkpark</footer>
+      <footer style={footerStyle}>by jkpark · {APP_VERSION} · {APP_VERSION_DATE}</footer>
     </main>
   );
 }
