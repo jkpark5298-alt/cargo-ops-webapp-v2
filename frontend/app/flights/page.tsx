@@ -1867,12 +1867,9 @@ export default function FlightsPage() {
       <main style={{ flex: 1, padding: 40 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
           <h2 style={{ fontSize: 28, marginBottom: 20 }}>✈️ 편명 조회</h2>
-          <button onClick={() => router.push("/")} style={homeButtonStyle}>
-            초기화면으로
-          </button>
         </div>
 
-        <div style={{ display: "flex", gap: 10, marginTop: 20, flexWrap: "wrap" }}>
+        <div style={queryButtonRowStyle}>
           <button
             onClick={switchToManualMode}
             style={queryMode === "manual" ? modeActiveBtn : modeBtn}
@@ -1884,6 +1881,9 @@ export default function FlightsPage() {
             style={queryMode === "kj-all" ? modeActiveBtn : modeBtn}
           >
             KJ 전체 조회
+          </button>
+          <button onClick={() => router.push("/")} style={homeButtonStyle}>
+            초기화면
           </button>
         </div>
 
@@ -2358,6 +2358,16 @@ export default function FlightsPage() {
     </div>
   );
 }
+
+const queryButtonRowStyle: CSSProperties = {
+  display: "flex",
+  gap: 10,
+  marginTop: 20,
+  flexWrap: "nowrap",
+  alignItems: "center",
+  overflowX: "auto",
+  paddingBottom: 2,
+};
 
 const homeButtonStyle: CSSProperties = {
   padding: "10px 14px",
