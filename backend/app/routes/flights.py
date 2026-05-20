@@ -79,6 +79,79 @@ def _format_alert_time(value: Any) -> str:
 
 
 
+def _format_history_checked_time(value: Any) -> str:
+    parsed = _parse_kst_iso(value)
+    if parsed is not None:
+        return f"{parsed.month:02d}/{parsed.day:02d} {parsed.hour:02d}:{parsed.minute:02d}"
+
+    raw = str(value or "").replace("T", " ").replace("Z", "").strip()
+    match = re.search(r"(\d{2})[-/.](\d{2})\s+(\d{2}):(\d{2})", raw)
+    if match:
+        month, day, hour, minute = match.groups()
+        return f"{month}/{day} {hour}:{minute}"
+
+    return raw
+
+
+def _extract_clock_text(value: Any) -> str:
+    text = str(value or "").replace("T", " ").replace("Z", "").strip()
+    match = re.search(r"(\d{2}):(\d{2})", text)
+    if match:
+        hour, minute = match.groups()
+        return f"{hour}:{minute}"
+    return text
+
+
+def _format_route_compact(route: Any) -> str:
+    return str(route or "").replace(" ", "").replace("-", "→").replace(">", "→").upper().strip()
+
+
+def _format_route_spaced(route: Any) -> str:
+    compact = _format_route_compact(route)
+    return compact.replace("→", " → ") if compact else ""
+
+
+def _extract_time_change(change: Any) -> Optional[tuple[str, str]]:
+    text = str(change or "").strip()
+    if "운항시각" not in text and "시간" not in text and "예정" not in text:
+        return None
+
+    match = re.search(r"(?:운항시각|시간|예정)\s+(.+?)\s*(?:→|->|=>|←|<-|>)\s*(.+)$", text)
+    if not match:
+        return None
+
+    before, after = match.groups()
+    before = before.strip(" '")
+    after = after.strip(" '")
+
+    return before, after
+
+
+def _format_push_body_from_change(change: Any) -> str:
+    time_change = _extract_time_change(change)
+    if time_change:
+        before, after = time_change
+        after_text = _format_alert_time(after)
+        before_text = _extract_clock_text(before)
+        return f"{after_text} ← {before_text}"
+
+    text = str(change or "운항 정보 변경").strip()
+    text = text.replace("->", "→").replace("=>", "→")
+    return text
+
+
+def _format_history_change_line(change: Any) -> str:
+    time_change = _extract_time_change(change)
+    if time_change:
+        before, after = time_change
+        return f"운항시각 {_extract_clock_text(before)} → {_extract_clock_text(after)}"
+
+    text = str(change or "운항 정보 변경").strip()
+    text = text.replace("신규 정보", "상태")
+    text = re.sub(r"\s+", " ", text)
+    return text
+
+
 def _compact_change_label(change: Any) -> str:
     text = str(change or "").strip()
     if not text:
@@ -110,26 +183,24 @@ def _compact_change_label(change: Any) -> str:
 def _build_compact_schedule_push(changed_items: List[Dict[str, Any]]) -> Dict[str, str]:
     first = changed_items[0] if changed_items else {}
     flight = str(first.get("flight") or "Schedule").strip()
-    route = str(first.get("route") or "").strip()
+    route = _format_route_compact(first.get("route") or "")
     changes = first.get("changes") if isinstance(first.get("changes"), list) else []
-    change_label = _compact_change_label(changes[0] if changes else "")
-
+    first_change = changes[0] if changes else "운항 정보 변경"
     extra_count = max(0, len(changed_items) - 1)
 
     if extra_count > 0:
-        title = f"Schedule 변경 {len(changed_items)}건"
-        body = f"{flight} 외 {extra_count}건 · {change_label}"
-        if route:
-            body = f"{flight} {route} 외 {extra_count}건 · {change_label}"
+        title = f"{flight} 변경 {route}".strip()
+        body = f"{_format_push_body_from_change(first_change)} 외 {extra_count}건"
     else:
-        title = f"{flight} 변경"
-        body = f"{route} · {change_label}" if route else change_label
+        title = f"{flight} 변경 {route}".strip()
+        body = _format_push_body_from_change(first_change)
 
     return {
         "title": title[:48],
         "body": body[:92],
         "url": "/",
     }
+
 
 def _get_schedule_time_value(row: Dict[str, Any]) -> Any:
     return row.get("formattedScheduleTime") or row.get("scheduleDateTime")
@@ -280,22 +351,31 @@ def _append_notification_history(
         return _read_notification_history()
 
     checked_at = _now_kst_iso()
-    room_name = str((room or {}).get("name") or "Schedule Flight")
     new_items: List[Dict[str, Any]] = []
 
     for index, item in enumerate(changed_items[:20]):
         flight = str(item.get("flight") or "Schedule Flight")
-        route = str(item.get("route") or "")
+        route = _format_route_spaced(item.get("route") or "")
         changes = item.get("changes") if isinstance(item.get("changes"), list) else []
-        description = " · ".join(str(change) for change in changes[:4]) or "운항 정보 변경"
+        change_lines = [_format_history_change_line(change) for change in changes[:3]]
+        change_lines = [line for line in change_lines if line]
+
+        description_lines = []
+        if route:
+            description_lines.append(route)
+        description_lines.extend(change_lines or ["운항 정보 변경"])
+        description_lines.append(f"발생 {_format_history_checked_time(checked_at)}")
 
         new_items.append(
             {
                 "key": f"server-{checked_at}-{index}-{flight}",
-                "title": f"{flight} {route}".strip(),
-                "description": f"{source} · {description}",
+                "flight": flight,
+                "route": route,
+                "changes": changes,
+                "title": f"{flight} 운항 정보 변경",
+                "description": "\n".join(description_lines),
                 "checkedAt": checked_at.replace("T", " "),
-                "roomName": room_name,
+                "roomName": "서버 알림",
             }
         )
 

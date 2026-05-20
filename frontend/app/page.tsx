@@ -1107,19 +1107,19 @@ export default function HomePage() {
         String(value.title || "").trim() ||
         buildDetailedAlertTitle(value);
       const route = normalizeAlertRoute(String(value.route || value.routeText || ""));
-      const description = buildDetailedAlertDescription(
+      const description = String(
+        value.description ||
+          value.message ||
+          value.detail ||
+          value.changeText ||
+          value.status ||
+          "",
+      ).trim() || buildDetailedAlertDescription(
         {
           ...value,
           route: route || value.route,
-          description:
-            value.description ||
-            value.message ||
-            value.detail ||
-            value.changeText ||
-            value.status ||
-            "",
         },
-        String(value.sourceLabel || value.source || "서버 알림"),
+        "",
       );
       const checkedAt =
         String(value.checkedAt || value.createdAt || value.savedAt || value.timestamp || value.time || "");
