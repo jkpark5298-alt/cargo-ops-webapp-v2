@@ -25,16 +25,6 @@ type ZoomTouchState =
   | { mode: "pan"; startX: number; startY: number; startPanX: number; startPanY: number }
   | { mode: "pinch"; startDistance: number; startScale: number; startPanX: number; startPanY: number; centerX: number; centerY: number };
 
-type TextPositionOption = "top" | "middle" | "bottom";
-type TextSizeOption = "small" | "medium" | "large";
-type TextColorOption = "white" | "yellow" | "red";
-
-type TextAnnotationOptions = {
-  position: TextPositionOption;
-  size: TextSizeOption;
-  color: TextColorOption;
-};
-
 type ImageViewerModalProps = {
   image: ImageViewerImage | null;
   title?: string;
@@ -74,9 +64,6 @@ export function ImageViewerModal({
   const lastTapRef = useRef(0);
 
   const [memo, setMemo] = useState("");
-  const [textPosition, setTextPosition] = useState<TextPositionOption>("bottom");
-  const [textSize, setTextSize] = useState<TextSizeOption>("medium");
-  const [textColor, setTextColor] = useState<TextColorOption>("white");
   const [photoMemo, setPhotoMemo] = useState("");
   const [isCropMode, setIsCropMode] = useState(false);
   const [cropRect, setCropRect] = useState<CropRect>(defaultCropRect);
@@ -272,11 +259,7 @@ export function ImageViewerModal({
 
     try {
       setIsSaving(true);
-      const dataUrl = await drawMemoOnImage(image.dataUrl, cleanMemo, {
-        position: textPosition,
-        size: textSize,
-        color: textColor,
-      });
+      const dataUrl = await drawMemoOnImage(image.dataUrl, cleanMemo);
       onSaveAnnotatedImage(dataUrl, "글씨 저장");
       setMemo("");
     } catch {
@@ -492,68 +475,6 @@ export function ImageViewerModal({
               placeholder="예: 게이트 C01 → C02 변경, 점검 완료, 이상 없음"
               style={memoInputStyle}
             />
-
-            <div style={textOptionSectionStyle}>
-              <div>
-                <div style={textOptionLabelStyle}>글씨 위치</div>
-                <div style={textOptionGridStyle}>
-                  {[
-                    ["top", "상단"],
-                    ["middle", "가운데"],
-                    ["bottom", "하단"],
-                  ].map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setTextPosition(value as TextPositionOption)}
-                      style={textPosition === value ? selectedOptionButtonStyle : optionButtonStyle}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div style={textOptionLabelStyle}>글씨 크기</div>
-                <div style={textOptionGridStyle}>
-                  {[
-                    ["small", "작게"],
-                    ["medium", "보통"],
-                    ["large", "크게"],
-                  ].map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setTextSize(value as TextSizeOption)}
-                      style={textSize === value ? selectedOptionButtonStyle : optionButtonStyle}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div style={textOptionLabelStyle}>글씨 색상</div>
-                <div style={textOptionGridStyle}>
-                  {[
-                    ["white", "흰색"],
-                    ["yellow", "노란색"],
-                    ["red", "빨간색"],
-                  ].map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setTextColor(value as TextColorOption)}
-                      style={textColor === value ? selectedOptionButtonStyle : optionButtonStyle}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
             <button
               type="button"
               onClick={saveMemoOnImage}
@@ -562,7 +483,7 @@ export function ImageViewerModal({
             >
               {isSaving ? "수정본 저장 중..." : "글씨 넣고 수정본 저장"}
             </button>
-            <div style={hintStyle}>선택한 위치/크기/색상으로 글씨가 사진에 박스 형태로 들어갑니다.</div>
+            <div style={hintStyle}>입력한 글씨는 사진 하단에 박스 형태로 들어갑니다.</div>
           </div>
         </div>
 
@@ -585,73 +506,31 @@ export function ImageViewerModal({
   );
 }
 
-function drawMemoOnImage(
-  dataUrl: string,
-  memo: string,
-  options: TextAnnotationOptions,
-): Promise<string> {
+function drawMemoOnImage(dataUrl: string, memo: string): Promise<string> {
   return withImageCanvas(dataUrl, ({ image, canvas, ctx, canvasWidth, canvasHeight }) => {
     ctx.drawImage(image, 0, 0, canvasWidth, canvasHeight);
 
     const padding = Math.max(18, Math.round(canvasWidth * 0.035));
-    const baseFontSize = Math.max(26, Math.round(canvasWidth * 0.045));
-    const fontSize =
-      options.size === "small"
-        ? Math.round(baseFontSize * 0.82)
-        : options.size === "large"
-          ? Math.round(baseFontSize * 1.22)
-          : baseFontSize;
+    const fontSize = Math.max(26, Math.round(canvasWidth * 0.045));
     const lineHeight = Math.round(fontSize * 1.35);
     const maxTextWidth = canvasWidth - padding * 2;
 
-    ctx.font = `800 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-    const lines = wrapText(ctx, memo, maxTextWidth).slice(0, 5);
+    ctx.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    const lines = wrapText(ctx, memo, maxTextWidth).slice(0, 4);
     const boxHeight = padding * 2 + lines.length * lineHeight;
-    const boxTop = getTextBoxTop(options.position, canvasHeight, boxHeight, padding);
+    const boxTop = Math.max(0, canvasHeight - boxHeight);
 
-    ctx.fillStyle = getTextBoxBackground(options.color);
+    ctx.fillStyle = "rgba(2, 6, 23, 0.78)";
     ctx.fillRect(0, boxTop, canvasWidth, boxHeight);
-    ctx.fillStyle = getTextColor(options.color);
+    ctx.fillStyle = "#ffffff";
     ctx.textBaseline = "top";
-    ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
-    ctx.shadowBlur = Math.max(2, Math.round(fontSize * 0.08));
-    ctx.shadowOffsetX = Math.max(1, Math.round(fontSize * 0.025));
-    ctx.shadowOffsetY = Math.max(1, Math.round(fontSize * 0.025));
 
     lines.forEach((line, index) => {
       ctx.fillText(line, padding, boxTop + padding + index * lineHeight, maxTextWidth);
     });
 
-    ctx.shadowColor = "transparent";
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
-
     return canvas.toDataURL("image/jpeg", 0.86);
   });
-}
-
-function getTextBoxTop(
-  position: TextPositionOption,
-  canvasHeight: number,
-  boxHeight: number,
-  padding: number,
-) {
-  if (position === "top") return 0;
-  if (position === "middle") return Math.max(0, Math.round((canvasHeight - boxHeight) / 2));
-  return Math.max(0, canvasHeight - boxHeight - Math.round(padding * 0.25));
-}
-
-function getTextColor(color: TextColorOption) {
-  if (color === "yellow") return "#fde047";
-  if (color === "red") return "#fca5a5";
-  return "#ffffff";
-}
-
-function getTextBoxBackground(color: TextColorOption) {
-  if (color === "yellow") return "rgba(66, 32, 6, 0.82)";
-  if (color === "red") return "rgba(69, 10, 10, 0.84)";
-  return "rgba(2, 6, 23, 0.78)";
 }
 
 function cropImageByRect(dataUrl: string, rect: CropRect): Promise<string> {
@@ -1055,25 +934,6 @@ const baseButtonStyle: CSSProperties = {
 const primaryButtonStyle: CSSProperties = {
   ...baseButtonStyle,
   background: "#1d4ed8",
-};
-
-const textOptionSectionStyle: CSSProperties = {
-  display: "grid",
-  gap: 10,
-  marginTop: 10,
-};
-
-const textOptionLabelStyle: CSSProperties = {
-  color: "#bfdbfe",
-  fontSize: 12,
-  fontWeight: 950,
-  marginBottom: 6,
-};
-
-const textOptionGridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-  gap: 6,
 };
 
 const annotateButtonStyle: CSSProperties = {
