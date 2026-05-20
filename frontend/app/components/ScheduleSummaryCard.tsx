@@ -71,18 +71,16 @@ function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
         items.map((item) => (
           <div key={`${item.flight}-${item.route}`} style={flightRouteRowStyle}>
             <div style={flightRoutePrimaryLineStyle}>
-              <span style={flightRouteNoStyle}>
-                {item.flight}
-                {item.registrationNo ? <span style={flightRouteHlStyle}> · {item.registrationNo}</span> : null}
-              </span>
+              <span style={flightRouteNoStyle}>{item.flight}</span>
+              <span style={flightRouteValueStyle}>{formatRouteInline(item.route)}</span>
+              {item.registrationNo ? <span style={flightRouteHlStyle}>{item.registrationNo}</span> : null}
             </div>
-            <div style={flightRouteSecondaryLineStyle}>
-              <span style={flightRouteValueStyle}>{item.route}</span>
-              <span style={getFlightRouteMetaStyle(item.status)}>
+            <div style={getFlightRouteMetaStyle(item.status)}>
+              {item.status && item.status !== "-" ? (
                 <span style={getStatusBadgeStyle(item.status)}>{item.status}</span>
-                <span> · {item.time}</span>
-                {item.gate ? <span> · G{item.gate}</span> : null}
-              </span>
+              ) : null}
+              {item.time && item.time !== "-" ? <span>{item.status && item.status !== "-" ? " · " : ""}{item.time}</span> : null}
+              {item.gate ? <span> · G{item.gate}</span> : null}
             </div>
           </div>
         ))
@@ -252,6 +250,10 @@ function getRouteDisplay(row?: FlightRow) {
   if (departure && arrival) return `${departure}→${arrival}`;
   if (departure) return `${departure}→-`;
   return `-→${arrival}`;
+}
+
+function formatRouteInline(value: string) {
+  return value.replace(/\s*→\s*/g, " → ");
 }
 
 function getDirectionLabel(row?: FlightRow) {
@@ -492,24 +494,19 @@ const flightRouteOnlyBlockStyle: CSSProperties = {
 
 const flightRouteRowStyle: CSSProperties = {
   display: "grid",
-  gap: 4,
-  padding: "2px 0",
+  gap: 5,
+  padding: "4px 0",
   color: "#f8fafc",
   fontWeight: 900,
-  lineHeight: 1.35,
+  lineHeight: 1.32,
 };
 
 const flightRoutePrimaryLineStyle: CSSProperties = {
   display: "flex",
-  alignItems: "center",
-  minWidth: 0,
-};
-
-const flightRouteSecondaryLineStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 10,
+  alignItems: "baseline",
+  flexWrap: "wrap",
+  columnGap: 10,
+  rowGap: 2,
   minWidth: 0,
 };
 
@@ -524,9 +521,10 @@ const flightRouteNoStyle: CSSProperties = {
 const flightRouteHlStyle: CSSProperties = {
   display: "inline-block",
   color: "#bfdbfe",
-  fontSize: 16,
-  fontWeight: 900,
+  fontSize: 18,
+  fontWeight: 950,
   letterSpacing: 0,
+  whiteSpace: "nowrap",
 };
 
 const flightRouteValueStyle: CSSProperties = {
@@ -538,13 +536,14 @@ const flightRouteValueStyle: CSSProperties = {
 };
 
 const flightRouteMetaStyle: CSSProperties = {
-  color: "#93c5fd",
+  color: "#fde68a",
   fontSize: 16,
-  fontWeight: 900,
-  textAlign: "right",
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
+  fontWeight: 950,
+  lineHeight: 1.35,
+  whiteSpace: "normal",
+  overflow: "visible",
+  textOverflow: "clip",
+  wordBreak: "keep-all",
 };
 
 const apiGuideStyle: CSSProperties = {
