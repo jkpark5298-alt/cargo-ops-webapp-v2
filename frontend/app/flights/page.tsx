@@ -2522,7 +2522,16 @@ export default function FlightsPage() {
                         {getComputedStatus(r)}
                       </td>
                       <td style={tdStyle}>{getFlightDisplay(r)}</td>
-                      <td style={tdStyle}>{getRegistrationNo(r)}</td>
+                      <td style={tdStyle}>
+                        <input
+                          value={getEditableHlValue(r, hlNumberMap, hlInlineDrafts)}
+                          onChange={(event) =>
+                            handleHlInlineDraftChange(getFlightKeyFromRow(r), event.target.value.toUpperCase())
+                          }
+                          placeholder="7423"
+                          style={hlInlineInputStyle}
+                        />
+                      </td>
                       <td style={tdStyle}>{r.departureCode || "-"}</td>
                       <td style={tdStyle}>{r.departureName || "-"}</td>
                       <td style={tdStyle}>{r.arrivalCode || "-"}</td>
@@ -2541,7 +2550,7 @@ export default function FlightsPage() {
           </div>
         )}
 
-        {fixed && rows.length > 0 && (
+        {rows.length > 0 && (
           <div style={hlInlineSaveRowStyle}>
             <button type="button" onClick={() => void handleSaveInlineHlMapping()} style={hlMappingSaveButtonStyle}>
               등록기호 저장
