@@ -359,11 +359,10 @@ function buildAlertDescriptionLines(value?: string, checkedAt?: string): AlertDe
   const lines: AlertDescriptionLine[] = [];
 
   if (statusChange) {
-    const statusTimeLabel = getStatusTimeLabel(statusChange, route);
-    const timePart = statusTimeText ? ` / ${statusTimeLabel} ${statusTimeText}` : "";
+    const timePart = statusTimeText ? `, 시간 ${statusTimeText}` : "";
 
     lines.push({
-      text: `상태: ${statusChange}${timePart}`,
+      text: `${statusChange}${timePart}`,
       highlight: true,
     });
     lines.push({ text: buildAlertMetaLine(expectedText, occurredText) });
