@@ -66,11 +66,11 @@ export function FlightAlertHistoryCard({
       {hasRecentChanges && !detailsVisible ? (
         <div style={compactSummaryStyle}>
           <div style={compactSummaryTitleStyle}>
-            {latestItem ? formatAlertTitle(latestItem.title) : `미확인 ${visibleCount}건`}
+            {latestItem ? formatAlertTitle(latestItem.title, latestItem.description) : `미확인 ${visibleCount}건`}
           </div>
           <div style={compactSummaryDescStyle}>
             {latestItem
-              ? formatAlertDescription(latestItem.description)
+              ? formatAlertDescription(latestItem.description, latestItem.checkedAt)
               : "최근 알림 확인을 눌러 세부 내용을 확인하세요."}
           </div>
           <div style={compactSummaryMetaStyle}>눌러서 세부 목록 확인</div>
@@ -83,8 +83,8 @@ export function FlightAlertHistoryCard({
             <div key={`${item.key}-${item.checkedAt}-${index}`} style={flightAlertHistoryItemStyle}>
               <div style={flightAlertHistoryItemHeaderStyle}>
                 <div>
-                  <div style={flightAlertItemTitleStyle}>{formatAlertTitle(item.title)}</div>
-                  <div style={flightAlertItemDescStyle}>{formatAlertDescription(item.description)}</div>
+                  <div style={flightAlertItemTitleStyle}>{formatAlertTitle(item.title, item.description)}</div>
+                  <div style={flightAlertItemDescStyle}>{formatAlertDescription(item.description, item.checkedAt)}</div>
                 </div>
                 <button
                   type="button"
@@ -94,9 +94,6 @@ export function FlightAlertHistoryCard({
                 >
                   삭제
                 </button>
-              </div>
-              <div style={flightAlertHistoryMetaStyle}>
-                발생 {formatHistoryTime(item.checkedAt)}
               </div>
             </div>
           ))}
@@ -234,14 +231,6 @@ const flightAlertItemDescStyle: CSSProperties = {
   whiteSpace: "pre-line",
 };
 
-const flightAlertHistoryMetaStyle: CSSProperties = {
-  color: "#93c5fd",
-  fontSize: 11,
-  lineHeight: 1.4,
-  marginTop: 4,
-  fontWeight: 800,
-};
-
 const serverActionRowStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
@@ -293,9 +282,12 @@ const deleteItemButtonStyle: CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-function formatAlertTitle(value?: string) {
+
+function formatAlertTitle(value?: string, description?: string) {
   const raw = (value || "출도착 변경").trim();
-  const flight = raw.match(/\b[A-Z]{2}\d{2,4}\b/)?.[0];
+  const combined = `${raw} ${description || ""}`;
+  const flight = combined.match(/\b[A-Z]{2}\d{2,4}\b/)?.[0];
+  const route = extractAlertRoute(combined);
 
   if (!flight) {
     return raw
@@ -303,23 +295,60 @@ function formatAlertTitle(value?: string) {
       .replace("서버에 저장된 알림 이력", "서버 알림");
   }
 
-  if (raw.includes("운항시각") || raw.includes("시간") || raw.includes("도착예정") || raw.includes("출발예정")) {
-    return `${flight} 운항시각 변경`;
-  }
-  if (raw.includes("게이트")) return `${flight} 게이트 변경`;
-  if (raw.includes("터미널")) return `${flight} 터미널 변경`;
-  if (raw.includes("상태") || raw.includes("착륙") || raw.includes("도착") || raw.includes("REMARK") || raw.includes("Remark")) {
-    return `${flight} 상태 변경`;
-  }
-
-  return raw.includes("변경") ? raw : `${flight} 운항 정보 변경`;
+  return route ? `${flight} 운항 정보 변경 : ${route}` : `${flight} 운항 정보 변경`;
 }
 
-function formatAlertDescription(value?: string) {
+function formatAlertDescription(value?: string, checkedAt?: string) {
   const raw = (value || "운항 정보 변경").trim();
+  const route = extractAlertRoute(raw);
+  const timeChange = extractAlertTimeChange(raw, checkedAt);
+  const statusChange = extractAlertLabeledChange(raw, "상태");
+  const gateChange = extractAlertLabeledChange(raw, "게이트");
+  const terminalChange = extractAlertLabeledChange(raw, "터미널");
 
-  const lines = raw
-    .split(/\n+/)
+  const lines: string[] = [];
+
+  if (timeChange) {
+    const scheduleSuffix = timeChange.scheduleText ? ` (스케줄 ${timeChange.scheduleText})` : "";
+    lines.push(`운항시각 ${timeChange.fullChangeText}${scheduleSuffix}`);
+  } else if (statusChange) {
+    lines.push(`상태 ${statusChange}`);
+  } else if (gateChange) {
+    lines.push(`게이트 ${gateChange}`);
+  } else if (terminalChange) {
+    lines.push(`터미널 ${terminalChange}`);
+  } else {
+    const cleanedParts = splitAlertParts(raw)
+      .filter((part) => !route || part.replace(/\s+/g, "") !== route.replace(/\s+/g, ""))
+      .filter((part) => !/^발생\b/.test(part))
+      .filter((part) => !/^스케줄\b/.test(part))
+      .filter((part) => !/^API\s*확인/.test(part))
+      .filter((part) => !part.includes("서버 알림"))
+      .filter((part) => !part.includes("자동 확인"))
+      .filter((part) => !part.includes("Schedule Lite"))
+      .map((part) =>
+        part
+          .replace("API 즉시 확인", "API 확인")
+          .replace("수동 변경 확인", "수동 확인")
+          .replace(/\s+/g, " ")
+          .trim(),
+      )
+      .filter(Boolean);
+
+    lines.push(...Array.from(new Set(cleanedParts)).slice(0, 2));
+  }
+
+  const occurredText = formatHistoryTime(checkedAt, true);
+  if (occurredText !== "-") {
+    lines.push(`발생 ${occurredText}`);
+  }
+
+  return Array.from(new Set(lines.filter(Boolean))).join("\n") || "운항 정보 변경";
+}
+
+function splitAlertParts(value: string) {
+  return value
+    .split(/\n+| · /)
     .map((line) => line.trim())
     .filter(Boolean)
     .filter((line) => !/^Schedule_/.test(line))
@@ -327,38 +356,106 @@ function formatAlertDescription(value?: string) {
     .filter((line) => !line.includes("푸시 자동 확인"))
     .filter((line) => !line.includes("앱 자동 확인"))
     .filter((line) => !line.includes("서버 알림"));
+}
 
-  if (lines.length > 1) {
-    return lines.join("\n");
+function extractAlertRoute(value: string) {
+  return value
+    .match(/[A-Z]{3}\s*→\s*[A-Z]{3}/)?.[0]
+    ?.replace(/\s+/g, " ")
+    .trim() || "";
+}
+
+function extractAlertLabeledChange(value: string, label: string) {
+  const normalized = value.replace(/\s+/g, " ");
+  const match = normalized.match(new RegExp(`${label}\\s+([^·\\n]+?\\s*→\\s*[^·\\n]+)`));
+  return match?.[1]?.trim() || "";
+}
+
+type ParsedAlertTime = {
+  year?: string;
+  month?: string;
+  day?: string;
+  time: string;
+};
+
+function parseAlertTime(value: string): ParsedAlertTime | null {
+  const raw = value.trim().replace(/^'/, "");
+  const fullMatch = raw.match(/^(\d{2,4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}:\d{2})$/);
+  if (fullMatch) {
+    let [, year, month, day, time] = fullMatch;
+    if (year.length === 4) year = year.slice(2);
+    return {
+      year: year.padStart(2, "0"),
+      month: month.padStart(2, "0"),
+      day: day.padStart(2, "0"),
+      time: normalizeClockTime(time),
+    };
   }
 
-  const parts = raw
-    .split(" · ")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .filter((part) => !/^Schedule_/.test(part))
-    .filter((part) => !part.includes("Schedule Lite 저장 알림"))
-    .filter((part) => !part.includes("푸시 자동 확인"))
-    .filter((part) => !part.includes("앱 자동 확인"))
-    .filter((part) => !part.includes("서버 알림"));
-
-  const cleanedParts = parts.map((part) =>
-    part
-      .replace("API 즉시 확인", "API 확인")
-      .replace("수동 변경 확인", "수동 확인")
-      .replace(/\s+/g, " ")
-      .trim(),
-  );
-
-  const route = raw.match(/[A-Z]{3}\s*→\s*[A-Z]{3}/)?.[0]?.replace(/\s+/g, " ");
-  const uniqueParts = Array.from(new Set(cleanedParts));
-  const usefulParts = uniqueParts.length ? uniqueParts : ["운항 정보 변경"];
-
-  if (route && !usefulParts.some((part) => part.replace(/\s+/g, "").includes(route.replace(/\s+/g, "")))) {
-    return [route, ...usefulParts].join("\n");
+  const timeMatch = raw.match(/^(\d{1,2}:\d{2})$/);
+  if (timeMatch) {
+    return { time: normalizeClockTime(timeMatch[1]) };
   }
 
-  return usefulParts.join("\n");
+  return null;
+}
+
+function normalizeClockTime(value: string) {
+  const [hour, minute] = value.split(":");
+  return `${hour.padStart(2, "0")}:${minute}`;
+}
+
+function getAlertDatePartsFromCheckedAt(value?: string) {
+  const formatted = formatHistoryTime(value, false);
+  const match = formatted.match(/^(\d{2})\/(\d{2})\s+(\d{2}):(\d{2})/);
+
+  if (!match) return null;
+
+  const [, month, day] = match;
+  const currentYear = new Date().getFullYear().toString().slice(2);
+
+  return {
+    year: currentYear,
+    month,
+    day,
+  };
+}
+
+function extractAlertTimeChange(value: string, checkedAt?: string) {
+  const normalized = value
+    .replace(/\s+/g, " ")
+    .replace(/←/g, "→")
+    .trim();
+
+  const match =
+    normalized.match(/운항(?:시각)?\s*'?((?:\d{2,4}[/-]\d{1,2}[/-]\d{1,2}\s+)?\d{1,2}:\d{2})\s*→\s*'?((?:\d{2,4}[/-]\d{1,2}[/-]\d{1,2}\s+)?\d{1,2}:\d{2})/) ||
+    normalized.match(/'?((?:\d{2,4}[/-]\d{1,2}[/-]\d{1,2}\s+)?\d{1,2}:\d{2})\s*→\s*'?((?:\d{2,4}[/-]\d{1,2}[/-]\d{1,2}\s+)?\d{1,2}:\d{2})/);
+
+  if (!match) return null;
+
+  const before = parseAlertTime(match[1]);
+  const after = parseAlertTime(match[2]);
+
+  if (!before || !after) return null;
+
+  const fallbackDate = getAlertDatePartsFromCheckedAt(checkedAt);
+  const year = before.year || after.year || fallbackDate?.year || new Date().getFullYear().toString().slice(2);
+  const month = before.month || after.month || fallbackDate?.month || "";
+  const day = before.day || after.day || fallbackDate?.day || "";
+
+  const fullDate = month && day ? `'${year}/${month}/${day}` : "";
+  const fullChangeText = fullDate
+    ? `${fullDate} ${before.time} → ${after.time}`
+    : `${before.time} → ${after.time}`;
+
+  const scheduleText =
+    (after.month && after.day ? `${after.month}/${after.day}` : month && day ? `${month}/${day}` : "") +
+    (after.time ? ` ${after.time}` : "");
+
+  return {
+    fullChangeText,
+    scheduleText: scheduleText.trim(),
+  };
 }
 
 function compactServerStatus(value: string) {
@@ -376,16 +473,58 @@ function compactRoomName(value?: string) {
     .slice(0, 18);
 }
 
-function formatHistoryTime(value?: string) {
+
+function formatHistoryTime(value?: string, withKst = false) {
   if (!value) return "-";
 
-  const raw = value.replace("T", " ").replace("Z", "").trim();
-  const match = raw.match(/^(\d{4})[-/.](\d{2})[-/.](\d{2})\s+(\d{2}):(\d{2})/);
+  const raw = String(value).trim();
+  const suffix = withKst ? " KST" : "";
+
+  const koreanMatch = raw.match(/^(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.\s*(오전|오후)\s*(\d{1,2}):(\d{2})/);
+  if (koreanMatch) {
+    const [, , month, day, ampm, rawHour, minute] = koreanMatch;
+    let hour = Number(rawHour);
+    if (ampm === "오후" && hour < 12) hour += 12;
+    if (ampm === "오전" && hour === 12) hour = 0;
+
+    return `${month.padStart(2, "0")}/${day.padStart(2, "0")} ${String(hour).padStart(2, "0")}:${minute}${suffix}`;
+  }
+
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(raw)) {
+    const date = new Date(raw);
+    if (!Number.isNaN(date.getTime())) {
+      const formatter = new Intl.DateTimeFormat("ko-KR", {
+        timeZone: "Asia/Seoul",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+
+      const parts = formatter.formatToParts(date).reduce<Record<string, string>>((acc, part) => {
+        if (part.type !== "literal") acc[part.type] = part.value;
+        return acc;
+      }, {});
+
+      return `${parts.month}/${parts.day} ${parts.hour}:${parts.minute}${suffix}`;
+    }
+  }
+
+  const normalized = raw.replace("T", " ").replace("Z", "").trim();
+  const match = normalized.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\s+(\d{1,2}):(\d{2})/);
 
   if (match) {
     const [, , month, day, hour, minute] = match;
-    return `${month}/${day} ${hour}:${minute}`;
+    return `${month.padStart(2, "0")}/${day.padStart(2, "0")} ${hour.padStart(2, "0")}:${minute}${suffix}`;
   }
 
-  return raw;
+  const shortMatch = normalized.match(/^(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})/);
+  if (shortMatch) {
+    const [, month, day, hour, minute] = shortMatch;
+    return `${month.padStart(2, "0")}/${day.padStart(2, "0")} ${hour.padStart(2, "0")}:${minute}${suffix}`;
+  }
+
+  return `${raw}${suffix}`;
 }
+
