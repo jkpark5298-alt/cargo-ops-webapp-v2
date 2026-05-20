@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import type { FlightAlertHistoryItem } from "../lib/flight-alerts";
 
 type FlightAlertHistoryCardProps = {
@@ -29,6 +29,12 @@ export function FlightAlertHistoryCard({
   const hasHistoryItems = historyItems.length > 0;
   const hasRecentChanges = visibleCount > 0 || newChangeCount > 0;
   const latestItem = historyItems[0];
+  const [showAllHistory, setShowAllHistory] = useState(false);
+  const defaultVisibleCount = 5;
+  const displayedHistoryItems = showAllHistory
+    ? historyItems
+    : historyItems.slice(0, defaultVisibleCount);
+  const hiddenHistoryCount = Math.max(0, historyItems.length - defaultVisibleCount);
 
   return (
     <section style={flightAlertHistoryCardStyle}>
@@ -79,7 +85,7 @@ export function FlightAlertHistoryCard({
 
       {hasHistoryItems && detailsVisible ? (
         <div style={flightAlertListStyle}>
-          {historyItems.slice(0, 5).map((item, index) => (
+          {displayedHistoryItems.map((item, index) => (
             <div key={`${item.key}-${item.checkedAt}-${index}`} style={flightAlertHistoryItemStyle}>
               <div style={flightAlertHistoryItemHeaderStyle}>
                 <div>
@@ -97,6 +103,18 @@ export function FlightAlertHistoryCard({
               </div>
             </div>
           ))}
+
+          {historyItems.length > defaultVisibleCount ? (
+            <button
+              type="button"
+              onClick={() => setShowAllHistory((current) => !current)}
+              style={showAllButtonStyle}
+            >
+              {showAllHistory
+                ? `최근 ${defaultVisibleCount}건만 보기`
+                : `전체 이력 보기 (${historyItems.length}건 · 숨김 ${hiddenHistoryCount}건)`}
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -235,6 +253,17 @@ const alertHighlightLineStyle: CSSProperties = {
   color: "#fca5a5",
   fontSize: 17,
   fontWeight: 950,
+};
+
+const showAllButtonStyle: CSSProperties = {
+  minHeight: 38,
+  border: "1px solid rgba(96, 165, 250, 0.45)",
+  borderRadius: 12,
+  color: "#dbeafe",
+  background: "rgba(30, 64, 175, 0.58)",
+  fontSize: 13,
+  fontWeight: 950,
+  cursor: "pointer",
 };
 
 const serverActionRowStyle: CSSProperties = {
