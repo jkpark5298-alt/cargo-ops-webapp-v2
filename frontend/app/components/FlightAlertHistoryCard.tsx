@@ -331,6 +331,16 @@ function formatAlertDescription(value?: string, checkedAt?: string) {
     .join("\n");
 }
 
+function getStatusTimeLabel(statusChange: string) {
+  const after = statusChange.split("→").pop()?.trim() || "";
+
+  if (after.includes("출발")) return "출발 시간";
+  if (after.includes("도착")) return "도착 시간";
+  if (after.includes("착륙")) return "착륙 시간";
+
+  return "시간";
+}
+
 function buildAlertDescriptionLines(value?: string, checkedAt?: string): AlertDescriptionLine[] {
   const raw = (value || "운항 정보 변경").trim();
   const route = extractAlertRoute(raw);
@@ -338,7 +348,11 @@ function buildAlertDescriptionLines(value?: string, checkedAt?: string): AlertDe
   const statusChange = extractAlertStatusChange(raw);
   const gateChange = extractAlertLabeledChange(raw, "게이트");
   const terminalChange = extractAlertLabeledChange(raw, "터미널");
-  const statusTimeText = extractAlertDateTimeByLabel(raw, "시간");
+  const statusTimeText =
+    extractAlertDateTimeByLabel(raw, "출발 시간") ||
+    extractAlertDateTimeByLabel(raw, "도착 시간") ||
+    extractAlertDateTimeByLabel(raw, "착륙 시간") ||
+    extractAlertDateTimeByLabel(raw, "시간");
   const expectedText =
     extractAlertDateTimeByLabel(raw, "예정") ||
     extractAlertDateTimeByLabel(raw, "스케줄") ||
@@ -349,7 +363,9 @@ function buildAlertDescriptionLines(value?: string, checkedAt?: string): AlertDe
   const lines: AlertDescriptionLine[] = [];
 
   if (statusChange) {
-    const timePart = statusTimeText ? ` / 시간 ${statusTimeText}` : "";
+    const statusTimeLabel = getStatusTimeLabel(statusChange);
+    const timePart = statusTimeText ? ` / ${statusTimeLabel} ${statusTimeText}` : "";
+
     lines.push({
       text: `상태: ${statusChange}${timePart}`,
       highlight: true,
@@ -415,18 +431,28 @@ function buildAlertMetaLine(expectedText: string, occurredText: string) {
 
 function extractAlertStatusChange(value: string) {
   const normalized = value.replace(/\s+/g, " ").trim();
-  const match = normalized.match(/상태\s*:?\s*(.+?)\s*→\s*(.+?)(?=\s*\/?\s*(?:시간|예정|스케줄|발생|API|서버)\b|$)/);
+  const match = normalized.match(/상태\s*:?\s*(.+?)\s*→\s*(.+?)(?=\s*\/?\s*(?:시간|출발\s*시간|도착\s*시간|예정|스케줄|발생|API|서버)\b|$)/);
   if (!match) return "";
 
-  const before = match[1].replace(/[:：]/g, "").trim() || "-";
-  const after = match[2].replace(/[:：]/g, "").trim() || "-";
+  const before = match[1]
+    .replace(/[:：]/g, "")
+    .replace(/\b(?:시간|예정|스케줄|발생)\b.*$/g, "")
+    .trim() || "-";
+
+  const after = match[2]
+    .replace(/[:：]/g, "")
+    .replace(/\b(?:시간|예정|스케줄|발생)\b.*$/g, "")
+    .trim() || "-";
 
   return `${before} → ${after}`;
 }
 
 function extractAlertDateTimeByLabel(value: string, label: string) {
   const normalized = value.replace(/\s+/g, " ").trim();
-  const pattern = new RegExp(`${label}\\s*[:：]?\\s+('?\\d{2,4}[/-]\\d{1,2}[/-]\\d{1,2}\\s+\\d{1,2}[: ]\\d{2}|\\d{1,2}/\\d{1,2}\\s+\\d{1,2}[: ]\\d{2}|\\d{1,2}[: ]\\d{2})`);
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(
+    `${escapedLabel}\\s*[:：]?\\s+('?\\d{2,4}[/-]\\d{1,2}[/-]\\d{1,2}\\s+(?:\\d{1,2}[: ]\\d{2}|\\d{3,4})|\\d{1,2}/\\d{1,2}\\s+(?:\\d{1,2}[: ]\\d{2}|\\d{3,4})|\\d{1,2}[: ]\\d{2}|\\d{3,4})`
+  );
   const match = normalized.match(pattern);
   if (!match) return "";
   return normalizeAlertDateTime(match[1]);
@@ -434,6 +460,15 @@ function extractAlertDateTimeByLabel(value: string, label: string) {
 
 function normalizeAlertDateTime(value: string) {
   const raw = value.trim().replace(/^'/, "").replace(/\s+/g, " ");
+
+  const fullCompactMatch = raw.match(/^(\d{2,4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{3,4})$/);
+  if (fullCompactMatch) {
+    let [, year, month, day, hhmm] = fullCompactMatch;
+    if (year.length === 4) year = year.slice(2);
+    hhmm = hhmm.padStart(4, "0");
+    return `'${year.padStart(2, "0")}/${month.padStart(2, "0")}/${day.padStart(2, "0")} ${hhmm.slice(0, 2)}:${hhmm.slice(2, 4)}`;
+  }
+
   const fullMatch = raw.match(/^(\d{2,4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2})[: ](\d{2})$/);
   if (fullMatch) {
     let [, year, month, day, hour, minute] = fullMatch;
@@ -441,11 +476,25 @@ function normalizeAlertDateTime(value: string) {
     return `'${year.padStart(2, "0")}/${month.padStart(2, "0")}/${day.padStart(2, "0")} ${hour.padStart(2, "0")}:${minute}`;
   }
 
+  const shortDateCompactMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\s+(\d{3,4})$/);
+  if (shortDateCompactMatch) {
+    const [, month, day, hhmmRaw] = shortDateCompactMatch;
+    const hhmm = hhmmRaw.padStart(4, "0");
+    const year = new Date().getFullYear().toString().slice(2);
+    return `'${year}/${month.padStart(2, "0")}/${day.padStart(2, "0")} ${hhmm.slice(0, 2)}:${hhmm.slice(2, 4)}`;
+  }
+
   const shortDateMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\s+(\d{1,2})[: ](\d{2})$/);
   if (shortDateMatch) {
     const [, month, day, hour, minute] = shortDateMatch;
     const year = new Date().getFullYear().toString().slice(2);
     return `'${year}/${month.padStart(2, "0")}/${day.padStart(2, "0")} ${hour.padStart(2, "0")}:${minute}`;
+  }
+
+  const compactTimeMatch = raw.match(/^(\d{3,4})$/);
+  if (compactTimeMatch) {
+    const hhmm = compactTimeMatch[1].padStart(4, "0");
+    return `${hhmm.slice(0, 2)}:${hhmm.slice(2, 4)}`;
   }
 
   const timeMatch = raw.match(/^(\d{1,2})[: ](\d{2})$/);
