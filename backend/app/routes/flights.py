@@ -586,8 +586,11 @@ def _empty_incheon_api_usage(day_key: Optional[str] = None) -> Dict[str, Any]:
         "arrival": 0,
         "departureLimit": INCHEON_API_DEPARTURE_DAILY_LIMIT,
         "arrivalLimit": INCHEON_API_ARRIVAL_DAILY_LIMIT,
+        "total": 0,
+        "totalLimit": max(INCHEON_API_DEPARTURE_DAILY_LIMIT, INCHEON_API_ARRIVAL_DAILY_LIMIT),
         "departureRate": 0,
         "arrivalRate": 0,
+        "totalRate": 0,
         "warning": False,
         "lastCalledAt": "",
     }
@@ -598,18 +601,24 @@ def _build_incheon_api_usage_response(usage: Dict[str, Any]) -> Dict[str, Any]:
     arrival = int(usage.get("arrival") or 0)
     departure_limit = int(usage.get("departureLimit") or INCHEON_API_DEPARTURE_DAILY_LIMIT)
     arrival_limit = int(usage.get("arrivalLimit") or INCHEON_API_ARRIVAL_DAILY_LIMIT)
+    total = departure + arrival
+    total_limit = max(departure_limit, arrival_limit)
     departure_rate = round((departure / departure_limit) * 100, 2) if departure_limit > 0 else 0
     arrival_rate = round((arrival / arrival_limit) * 100, 2) if arrival_limit > 0 else 0
+    total_rate = round((total / total_limit) * 100, 2) if total_limit > 0 else 0
 
     return {
         "date": str(usage.get("date") or _usage_date_key()),
         "departure": departure,
         "arrival": arrival,
+        "total": total,
         "departureLimit": departure_limit,
         "arrivalLimit": arrival_limit,
+        "totalLimit": total_limit,
         "departureRate": departure_rate,
         "arrivalRate": arrival_rate,
-        "warning": departure_rate >= INCHEON_API_WARNING_RATE or arrival_rate >= INCHEON_API_WARNING_RATE,
+        "totalRate": total_rate,
+        "warning": total_rate >= INCHEON_API_WARNING_RATE or departure_rate >= INCHEON_API_WARNING_RATE or arrival_rate >= INCHEON_API_WARNING_RATE,
         "warningRate": INCHEON_API_WARNING_RATE,
         "lastCalledAt": str(usage.get("lastCalledAt") or ""),
     }

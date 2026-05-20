@@ -98,8 +98,12 @@ type BackendScheduleCheckResult = {
 };
 
 type IncheonApiUsage = {
+  departure: number;
+  arrival: number;
+  total: number;
   departureRate: number;
   arrivalRate: number;
+  totalRate: number;
   warning: boolean;
   lastCalledAt?: string;
 };
@@ -354,6 +358,17 @@ const DAILY_WORK_DATE_STORAGE_KEY = "cargo_ops_daily_work_date_v1";
 function formatHeaderUsageRate(value?: number) {
   if (typeof value !== "number" || Number.isNaN(value)) return "-";
   return `${value.toFixed(value >= 10 ? 1 : 2)}%`;
+}
+
+function formatHeaderApiUsageText(usage?: IncheonApiUsage | null) {
+  if (!usage) return "API 사용율 : - (총 -건, 출발 -건, 도착 -건)";
+
+  const total = Number(usage.total || 0);
+  const departure = Number(usage.departure || 0);
+  const arrival = Number(usage.arrival || 0);
+  const totalRate = Number(usage.totalRate || 0);
+
+  return `API 사용율 : ${formatHeaderUsageRate(totalRate)} (총 ${total.toLocaleString()}건, 출발 ${departure.toLocaleString()}건, 도착 ${arrival.toLocaleString()}건)`;
 }
 
 function getTodayDateInputValue() {
@@ -1678,9 +1693,20 @@ export default function HomePage() {
 
       if (!res.ok || json.success === false) return;
 
+      const departure = Number(json.departure || 0);
+      const arrival = Number(json.arrival || 0);
+      const total = Number(json.total || departure + arrival);
+      const departureRate = Number(json.departureRate || 0);
+      const arrivalRate = Number(json.arrivalRate || 0);
+      const totalRate = Number(json.totalRate || departureRate + arrivalRate);
+
       setIncheonApiUsage({
-        departureRate: Number(json.departureRate || 0),
-        arrivalRate: Number(json.arrivalRate || 0),
+        departure,
+        arrival,
+        total,
+        departureRate,
+        arrivalRate,
+        totalRate,
         warning: Boolean(json.warning),
         lastCalledAt: json.lastCalledAt,
       });
@@ -2228,7 +2254,7 @@ export default function HomePage() {
         <div style={datePillStyle}>
           <span>{todayText}</span>
           <span style={datePillSubStyle}>
-            API 사용율 : {formatHeaderUsageRate(Math.max(incheonApiUsage?.departureRate || 0, incheonApiUsage?.arrivalRate || 0))} (출발 {formatHeaderUsageRate(incheonApiUsage?.departureRate)}, 도착 {formatHeaderUsageRate(incheonApiUsage?.arrivalRate)})
+            {formatHeaderApiUsageText(incheonApiUsage)}
             {incheonApiUsage?.warning ? " ⚠️" : ""}
           </span>
         </div>
