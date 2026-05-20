@@ -70,16 +70,20 @@ function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
       {items.length > 0 ? (
         items.map((item) => (
           <div key={`${item.flight}-${item.route}`} style={flightRouteRowStyle}>
-            <span style={flightRouteNoStyle}>
-              {item.flight}
-              {item.registrationNo ? <span style={flightRouteHlStyle}> · {item.registrationNo}</span> : null}
-            </span>
-            <span style={flightRouteValueStyle}>{item.route}</span>
-            <span style={getFlightRouteMetaStyle(item.status)}>
-              <span style={getStatusBadgeStyle(item.status)}>{item.status}</span>
-              <span> · {item.time}</span>
-              {item.gate ? <span> · G{item.gate}</span> : null}
-            </span>
+            <div style={flightRoutePrimaryLineStyle}>
+              <span style={flightRouteNoStyle}>
+                {item.flight}
+                {item.registrationNo ? <span style={flightRouteHlStyle}> · {item.registrationNo}</span> : null}
+              </span>
+            </div>
+            <div style={flightRouteSecondaryLineStyle}>
+              <span style={flightRouteValueStyle}>{item.route}</span>
+              <span style={getFlightRouteMetaStyle(item.status)}>
+                <span style={getStatusBadgeStyle(item.status)}>{item.status}</span>
+                <span> · {item.time}</span>
+                {item.gate ? <span> · G{item.gate}</span> : null}
+              </span>
+            </div>
           </div>
         ))
       ) : (
@@ -481,23 +485,38 @@ const infoValueStyle: CSSProperties = {
 
 const flightRouteOnlyBlockStyle: CSSProperties = {
   display: "grid",
-  gap: 8,
+  gap: 10,
   padding: "10px 0",
   borderBottom: "1px solid rgba(148, 163, 184, 0.14)",
 };
 
 const flightRouteRowStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "112px minmax(68px, 1fr) minmax(170px, auto)",
-  gap: 10,
-  alignItems: "center",
+  gap: 4,
+  padding: "2px 0",
   color: "#f8fafc",
-  fontSize: 15,
   fontWeight: 900,
   lineHeight: 1.35,
 };
 
+const flightRoutePrimaryLineStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  minWidth: 0,
+};
+
+const flightRouteSecondaryLineStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 10,
+  minWidth: 0,
+};
+
 const flightRouteNoStyle: CSSProperties = {
+  color: "#f8fafc",
+  fontSize: 18,
+  fontWeight: 950,
   letterSpacing: 0.5,
   whiteSpace: "nowrap",
 };
@@ -505,22 +524,27 @@ const flightRouteNoStyle: CSSProperties = {
 const flightRouteHlStyle: CSSProperties = {
   display: "inline-block",
   color: "#bfdbfe",
-  fontSize: 12,
+  fontSize: 16,
   fontWeight: 900,
   letterSpacing: 0,
 };
 
 const flightRouteValueStyle: CSSProperties = {
   color: "#dbeafe",
+  fontSize: 18,
+  fontWeight: 950,
   wordBreak: "keep-all",
+  whiteSpace: "nowrap",
 };
 
 const flightRouteMetaStyle: CSSProperties = {
   color: "#93c5fd",
-  fontSize: 11,
+  fontSize: 16,
   fontWeight: 900,
   textAlign: "right",
   whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
 };
 
 const apiGuideStyle: CSSProperties = {
