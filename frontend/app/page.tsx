@@ -315,7 +315,7 @@ async function saveLatestScheduleToServer(room: MonitorRoom) {
     throw new Error(json.detail || json.message || "Schedule Flight 서버 저장 실패");
   }
 
-  return json.room as MonitorRoom;
+  return mergeScheduleRegistrationIntoRoom((json.room || room) as MonitorRoom, room) as MonitorRoom;
 }
 
 function getImageBySlot(images: SavedImage[], slotKey: ImageSlotKey) {
@@ -469,6 +469,101 @@ function getFlightNo(row?: FlightRow) {
   return row.flightId || row.flightNo || "";
 }
 
+
+function getRegistrationNo(row?: FlightRow) {
+  const maybeRow = row as
+    | {
+        hlnbr?: string;
+        registrationNo?: string;
+        aircraftRegNo?: string;
+        fid?: string;
+      }
+    | undefined;
+
+  const hlnbr =
+    maybeRow?.hlnbr ||
+    maybeRow?.registrationNo ||
+    maybeRow?.aircraftRegNo ||
+    "";
+
+  if (/^HL\d{3,5}$/i.test(hlnbr)) return hlnbr.toUpperCase();
+
+  const fid = maybeRow?.fid || "";
+  if (/^HL\d{3,5}$/i.test(fid)) return fid.toUpperCase();
+
+  return "";
+}
+
+function getScheduleRegistrationKey(row?: FlightRow) {
+  if (!row) return "";
+  return [
+    getFlightNo(row).replace(/\s+/g, "").toUpperCase(),
+    row.scheduleDateTime || row.formattedScheduleTime || "",
+    row.departureCode || "",
+    row.arrivalCode || "",
+  ].join("|");
+}
+
+function buildScheduleRegistrationMap(rows?: FlightRow[]) {
+  const map = new Map<string, string>();
+  if (!Array.isArray(rows)) return map;
+
+  rows.forEach((row) => {
+    const registrationNo = getRegistrationNo(row);
+    if (!registrationNo) return;
+
+    const fullKey = getScheduleRegistrationKey(row);
+    if (fullKey) map.set(fullKey, registrationNo);
+
+    const flightKey = getFlightNo(row).replace(/\s+/g, "").toUpperCase();
+    if (flightKey && !map.has(flightKey)) map.set(flightKey, registrationNo);
+  });
+
+  return map;
+}
+
+function applyRegistrationMapToRows(rows: FlightRow[], registrationMap: Map<string, string>) {
+  return rows.map((row) => {
+    const existing = getRegistrationNo(row);
+    if (existing) {
+      return {
+        ...row,
+        hlnbr: existing,
+        registrationNo: existing,
+        aircraftRegNo: existing,
+      };
+    }
+
+    const fullKey = getScheduleRegistrationKey(row);
+    const flightKey = getFlightNo(row).replace(/\s+/g, "").toUpperCase();
+    const mapped = registrationMap.get(fullKey) || registrationMap.get(flightKey);
+
+    return mapped
+      ? {
+          ...row,
+          hlnbr: mapped,
+          registrationNo: mapped,
+          aircraftRegNo: mapped,
+        }
+      : row;
+  });
+}
+
+function mergeScheduleRegistrationIntoRoom(
+  incomingRoom: MonitorRoom | null,
+  previousRoom: MonitorRoom | null,
+) {
+  if (!incomingRoom) return incomingRoom;
+
+  const registrationMap = buildScheduleRegistrationMap(previousRoom?.rows);
+  const nextRows = applyRegistrationMapToRows(incomingRoom.rows || [], registrationMap);
+
+  return {
+    ...incomingRoom,
+    rows: nextRows,
+  };
+}
+
 function getRouteDisplay(row?: FlightRow) {
   if (!row) return "";
   const departure = row.departureCode || "";
@@ -515,10 +610,10 @@ function getHlnbrByFlight(room: MonitorRoom | null, flightInput: string) {
   };
 
   return (
-    rowWithMaybeHlnbr?.fid ||
-    rowWithMaybeHlnbr?.aircraftRegNo ||
-    rowWithMaybeHlnbr?.registrationNo ||
     rowWithMaybeHlnbr?.hlnbr ||
+    rowWithMaybeHlnbr?.registrationNo ||
+    rowWithMaybeHlnbr?.aircraftRegNo ||
+    rowWithMaybeHlnbr?.fid ||
     ""
   );
 }
@@ -1329,9 +1424,11 @@ export default function HomePage() {
         throw new Error(json.detail || json.message || "Schedule Flight 동기화 실패");
       }
 
-      const serverRoom = isActiveScheduleRoom(json.room as MonitorRoom | null)
+      const rawServerRoom = isActiveScheduleRoom(json.room as MonitorRoom | null)
         ? (json.room as MonitorRoom)
         : null;
+      const localLatestRoom = getLocalLatestScheduleRoom();
+      const serverRoom = mergeScheduleRegistrationIntoRoom(rawServerRoom, localLatestRoom);
 
       const nextRooms = mergeLatestScheduleRoom(loadRooms(), serverRoom);
       setRooms(nextRooms);

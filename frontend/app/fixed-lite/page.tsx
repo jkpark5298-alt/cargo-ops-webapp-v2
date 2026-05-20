@@ -35,6 +35,9 @@ type FlightRow = {
   gateChanged?: boolean;
   sourceType?: string;
   fid?: string;
+  aircraftRegNo?: string;
+  registrationNo?: string;
+  hlnbr?: string;
 };
 
 type MonitorRoom = {
@@ -55,6 +58,7 @@ type WidgetSummaryItem = {
   arrivalCode: string;
   displayTime: string;
   gate: string;
+  registrationNo?: string;
   excludeReason?: string;
 };
 
@@ -102,6 +106,106 @@ function mergeLatestScheduleRoom(rooms: MonitorRoom[], latestRoom: MonitorRoom |
   return [latestRoom as MonitorRoom, ...localRooms];
 }
 
+
+function getFlightNo(row?: FlightRow) {
+  if (!row) return "";
+  return row.flightId || row.flightNo || "";
+}
+
+function getRegistrationNo(row?: FlightRow) {
+  const maybeRow = row as
+    | {
+        hlnbr?: string;
+        registrationNo?: string;
+        aircraftRegNo?: string;
+        fid?: string;
+      }
+    | undefined;
+
+  const hlnbr =
+    maybeRow?.hlnbr ||
+    maybeRow?.registrationNo ||
+    maybeRow?.aircraftRegNo ||
+    "";
+
+  if (/^HL\d{3,5}$/i.test(hlnbr)) return hlnbr.toUpperCase();
+
+  const fid = maybeRow?.fid || "";
+  if (/^HL\d{3,5}$/i.test(fid)) return fid.toUpperCase();
+
+  return "";
+}
+
+function getScheduleRegistrationKey(row?: FlightRow) {
+  if (!row) return "";
+  return [
+    getFlightNo(row).replace(/\s+/g, "").toUpperCase(),
+    row.scheduleDateTime || row.formattedScheduleTime || "",
+    row.departureCode || "",
+    row.arrivalCode || "",
+  ].join("|");
+}
+
+function buildScheduleRegistrationMap(rows?: FlightRow[]) {
+  const map = new Map<string, string>();
+  if (!Array.isArray(rows)) return map;
+
+  rows.forEach((row) => {
+    const registrationNo = getRegistrationNo(row);
+    if (!registrationNo) return;
+
+    const fullKey = getScheduleRegistrationKey(row);
+    if (fullKey) map.set(fullKey, registrationNo);
+
+    const flightKey = getFlightNo(row).replace(/\s+/g, "").toUpperCase();
+    if (flightKey && !map.has(flightKey)) map.set(flightKey, registrationNo);
+  });
+
+  return map;
+}
+
+function applyRegistrationMapToRows(rows: FlightRow[], registrationMap: Map<string, string>) {
+  return rows.map((row) => {
+    const existing = getRegistrationNo(row);
+    if (existing) {
+      return {
+        ...row,
+        hlnbr: existing,
+        registrationNo: existing,
+        aircraftRegNo: existing,
+      };
+    }
+
+    const fullKey = getScheduleRegistrationKey(row);
+    const flightKey = getFlightNo(row).replace(/\s+/g, "").toUpperCase();
+    const mapped = registrationMap.get(fullKey) || registrationMap.get(flightKey);
+
+    return mapped
+      ? {
+          ...row,
+          hlnbr: mapped,
+          registrationNo: mapped,
+          aircraftRegNo: mapped,
+        }
+      : row;
+  });
+}
+
+function mergeScheduleRegistrationIntoRoom(
+  incomingRoom: MonitorRoom | null,
+  previousRoom: MonitorRoom | null,
+) {
+  if (!incomingRoom) return incomingRoom;
+
+  const registrationMap = buildScheduleRegistrationMap(previousRoom?.rows);
+  const nextRows = applyRegistrationMapToRows(incomingRoom.rows || [], registrationMap);
+
+  return {
+    ...incomingRoom,
+    rows: nextRows,
+  };
+}
+
 async function loadLatestScheduleFromServer() {
   const res = await fetch(`${BACKEND_URL}/flights/latest-schedule`, {
     cache: "no-store",
@@ -113,7 +217,8 @@ async function loadLatestScheduleFromServer() {
   }
 
   const room = (json.room || null) as MonitorRoom | null;
-  return isActiveScheduleRoom(room) ? room : null;
+  const localLatestRoom = loadRooms().find((candidate) => candidate.fixed && isActiveScheduleRoom(candidate)) || null;
+  return isActiveScheduleRoom(room) ? mergeScheduleRegistrationIntoRoom(room, localLatestRoom) : null;
 }
 
 async function saveLatestScheduleToServer(room: MonitorRoom) {
@@ -130,7 +235,7 @@ async function saveLatestScheduleToServer(room: MonitorRoom) {
     throw new Error(json.detail || json.message || "Schedule Flight 서버 저장 실패");
   }
 
-  return (json.room || room) as MonitorRoom;
+  return mergeScheduleRegistrationIntoRoom((json.room || room) as MonitorRoom, room) as MonitorRoom;
 }
 
 
@@ -412,6 +517,7 @@ function formatDisplayItemFromRow(flight: string, row: FlightRow): WidgetSummary
           "-"
       ) || "-",
     gate: row.gatenumber || "-",
+    registrationNo: getRegistrationNo(row),
   };
 }
 
@@ -423,6 +529,7 @@ function formatFallbackDisplayItem(flight: string): WidgetSummaryItem {
     arrivalCode: "-",
     displayTime: "-",
     gate: "-",
+    registrationNo: "",
   };
 }
 
@@ -505,9 +612,12 @@ export default function FixedLitePage() {
     return requested.map((flight) => {
       const known = knownItemsMap.get(flight);
       const excludeReason = reasonMap.get(flight);
-      if (known) return { ...known, excludeReason };
-
       const latestRow = latestRowMap.get(flight)?.row;
+      if (known) {
+        const registrationNo = latestRow ? getRegistrationNo(latestRow) : known.registrationNo || "";
+        return { ...known, registrationNo, excludeReason };
+      }
+
       if (latestRow) return { ...formatDisplayItemFromRow(flight, latestRow), excludeReason };
 
       return { ...formatFallbackDisplayItem(flight), excludeReason };
@@ -1098,6 +1208,18 @@ export default function FixedLitePage() {
                         }}
                       >
                         {item.flight}
+                        {item.registrationNo ? (
+                          <span
+                            style={{
+                              marginLeft: 8,
+                              color: "#bfdbfe",
+                              fontSize: 15,
+                              fontWeight: 900,
+                            }}
+                          >
+                            {item.registrationNo}
+                          </span>
+                        ) : null}
                       </div>
 
                       <div
