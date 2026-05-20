@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent, type TouchEvent, type WheelEvent } from "react";
 
 export type ImageViewerSlotKey =
   | "daily-schedule"
@@ -21,6 +21,9 @@ export type ImageViewerImage = {
 
 type CropRect = { x: number; y: number; width: number; height: number };
 type CropDragMode = "move" | "resize";
+type ZoomTouchState =
+  | { mode: "pan"; startX: number; startY: number; startPanX: number; startPanY: number }
+  | { mode: "pinch"; startDistance: number; startScale: number; startPanX: number; startPanY: number; centerX: number; centerY: number };
 
 type ImageViewerModalProps = {
   image: ImageViewerImage | null;
@@ -57,16 +60,188 @@ export function ImageViewerModal({
     imageWidth: number;
     imageHeight: number;
   } | null>(null);
+  const zoomTouchRef = useRef<ZoomTouchState | null>(null);
+  const lastTapRef = useRef(0);
 
   const [memo, setMemo] = useState("");
   const [photoMemo, setPhotoMemo] = useState("");
   const [isCropMode, setIsCropMode] = useState(false);
   const [cropRect, setCropRect] = useState<CropRect>(defaultCropRect);
+  const [zoomScale, setZoomScale] = useState(1);
+  const [zoomPan, setZoomPan] = useState({ x: 0, y: 0 });
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     setPhotoMemo(image?.memo || "");
+    setZoomScale(1);
+    setZoomPan({ x: 0, y: 0 });
+    zoomTouchRef.current = null;
+    lastTapRef.current = 0;
   }, [image?.id, image?.memo]);
+
+  const resetZoom = () => {
+    setZoomScale(1);
+    setZoomPan({ x: 0, y: 0 });
+    zoomTouchRef.current = null;
+  };
+
+  const zoomIn = () => {
+    setZoomScale((current) => clamp(Number((current + 0.5).toFixed(2)), 1, 5));
+  };
+
+  const zoomOut = () => {
+    setZoomScale((current) => {
+      const nextScale = clamp(Number((current - 0.5).toFixed(2)), 1, 5);
+
+      if (nextScale === 1) {
+        setZoomPan({ x: 0, y: 0 });
+      }
+
+      return nextScale;
+    });
+  };
+
+  const getTouchDistance = (touches: React.TouchList) => {
+    if (touches.length < 2) return 0;
+
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+
+    return Math.hypot(dx, dy);
+  };
+
+  const getTouchCenter = (touches: React.TouchList) => {
+    if (touches.length < 2) {
+      return { x: touches[0]?.clientX || 0, y: touches[0]?.clientY || 0 };
+    }
+
+    return {
+      x: (touches[0].clientX + touches[1].clientX) / 2,
+      y: (touches[0].clientY + touches[1].clientY) / 2,
+    };
+  };
+
+  const handleImageTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    if (isCropMode) return;
+
+    if (event.touches.length === 2) {
+      event.preventDefault();
+      const center = getTouchCenter(event.touches);
+      zoomTouchRef.current = {
+        mode: "pinch",
+        startDistance: getTouchDistance(event.touches),
+        startScale: zoomScale,
+        startPanX: zoomPan.x,
+        startPanY: zoomPan.y,
+        centerX: center.x,
+        centerY: center.y,
+      };
+      return;
+    }
+
+    if (event.touches.length === 1) {
+      const now = Date.now();
+
+      if (now - lastTapRef.current < 280) {
+        event.preventDefault();
+
+        if (zoomScale > 1) {
+          resetZoom();
+        } else {
+          setZoomScale(2);
+          setZoomPan({ x: 0, y: 0 });
+        }
+
+        lastTapRef.current = 0;
+        return;
+      }
+
+      lastTapRef.current = now;
+
+      zoomTouchRef.current = {
+        mode: "pan",
+        startX: event.touches[0].clientX,
+        startY: event.touches[0].clientY,
+        startPanX: zoomPan.x,
+        startPanY: zoomPan.y,
+      };
+    }
+  };
+
+  const handleImageTouchMove = (event: TouchEvent<HTMLDivElement>) => {
+    if (isCropMode) return;
+
+    const touchState = zoomTouchRef.current;
+
+    if (!touchState) return;
+
+    if (touchState.mode === "pinch" && event.touches.length >= 2) {
+      event.preventDefault();
+      const nextDistance = getTouchDistance(event.touches);
+      if (touchState.startDistance <= 0 || nextDistance <= 0) return;
+
+      const nextScale = clamp(Number((touchState.startScale * (nextDistance / touchState.startDistance)).toFixed(2)), 1, 5);
+
+      setZoomScale(nextScale);
+
+      if (nextScale === 1) {
+        setZoomPan({ x: 0, y: 0 });
+      } else {
+        const center = getTouchCenter(event.touches);
+        setZoomPan({
+          x: touchState.startPanX + (center.x - touchState.centerX),
+          y: touchState.startPanY + (center.y - touchState.centerY),
+        });
+      }
+
+      return;
+    }
+
+    if (touchState.mode === "pan" && event.touches.length === 1 && zoomScale > 1) {
+      event.preventDefault();
+      setZoomPan({
+        x: touchState.startPanX + event.touches[0].clientX - touchState.startX,
+        y: touchState.startPanY + event.touches[0].clientY - touchState.startY,
+      });
+    }
+  };
+
+  const handleImageTouchEnd = () => {
+    zoomTouchRef.current = null;
+
+    if (zoomScale <= 1) {
+      setZoomScale(1);
+      setZoomPan({ x: 0, y: 0 });
+    }
+  };
+
+  const handleImageDoubleClick = () => {
+    if (isCropMode) return;
+
+    if (zoomScale > 1) {
+      resetZoom();
+      return;
+    }
+
+    setZoomScale(2);
+    setZoomPan({ x: 0, y: 0 });
+  };
+
+  const handleImageWheel = (event: WheelEvent<HTMLDivElement>) => {
+    if (isCropMode) return;
+
+    event.preventDefault();
+
+    setZoomScale((current) => {
+      const nextScale = clamp(Number((current + (event.deltaY < 0 ? 0.2 : -0.2)).toFixed(2)), 1, 5);
+
+      if (nextScale === 1) {
+        setZoomPan({ x: 0, y: 0 });
+      }
+
+      return nextScale;
+    });
+  };
 
   if (!image) return null;
 
@@ -108,7 +283,15 @@ export function ImageViewerModal({
   };
 
   const toggleCropMode = () => {
-    setIsCropMode((current) => !current);
+    setIsCropMode((current) => {
+      const nextValue = !current;
+
+      if (nextValue) {
+        resetZoom();
+      }
+
+      return nextValue;
+    });
   };
 
   const resetCropRect = () => {
@@ -183,8 +366,16 @@ export function ImageViewerModal({
           </button>
         </div>
 
-        <div style={imageWrapStyle}>
-          <div style={cropStageStyle}>
+        <div
+          style={imageWrapStyle}
+          onTouchStart={handleImageTouchStart}
+          onTouchMove={handleImageTouchMove}
+          onTouchEnd={handleImageTouchEnd}
+          onTouchCancel={handleImageTouchEnd}
+          onDoubleClick={handleImageDoubleClick}
+          onWheel={handleImageWheel}
+        >
+          <div style={getZoomStageStyle(zoomScale, zoomPan, isCropMode)}>
             <img ref={imageElementRef} src={image.dataUrl} alt={image.label} style={imageStyle} />
             {isCropMode && (
               <div style={cropOverlayStyle}>
@@ -209,6 +400,21 @@ export function ImageViewerModal({
             )}
 
           </div>
+        </div>
+
+        <div style={zoomControlRowStyle}>
+          <button type="button" onClick={zoomOut} style={zoomButtonStyle} disabled={isCropMode || zoomScale <= 1}>
+            축소
+          </button>
+          <button type="button" onClick={resetZoom} style={zoomButtonStyle} disabled={isCropMode || zoomScale === 1}>
+            원래 크기
+          </button>
+          <button type="button" onClick={zoomIn} style={zoomButtonStyle} disabled={isCropMode || zoomScale >= 5}>
+            확대
+          </button>
+          <span style={zoomGuideStyle}>
+            {isCropMode ? "자르기 모드에서는 확대/축소가 잠시 꺼집니다." : `확대 ${Math.round(zoomScale * 100)}% · 두 손가락 확대/축소 · 더블탭`}
+          </span>
         </div>
 
         <div style={metaStyle}>
@@ -508,16 +714,30 @@ const imageWrapStyle: CSSProperties = {
   display: "flex",
   justifyContent: "center",
   alignItems: "center",
-  minHeight: 180,
-};
-
-const cropStageStyle: CSSProperties = {
-  position: "relative",
-  display: "inline-block",
-  maxWidth: "100%",
-  margin: "0 auto",
+  minHeight: 220,
+  maxHeight: "64vh",
   touchAction: "none",
 };
+
+function getZoomStageStyle(
+  zoomScale: number,
+  zoomPan: { x: number; y: number },
+  isCropMode: boolean,
+): CSSProperties {
+  return {
+    position: "relative",
+    display: "inline-block",
+    maxWidth: "100%",
+    margin: "0 auto",
+    touchAction: isCropMode ? "none" : "pan-y",
+    transform: isCropMode
+      ? "none"
+      : `translate3d(${zoomPan.x}px, ${zoomPan.y}px, 0) scale(${zoomScale})`,
+    transformOrigin: "center center",
+    transition: isCropMode ? undefined : "transform 120ms ease-out",
+    cursor: isCropMode ? "default" : zoomScale > 1 ? "grab" : "zoom-in",
+  };
+}
 
 const imageStyle: CSSProperties = {
   width: "auto",
@@ -578,6 +798,33 @@ const resizeHandleStyle: CSSProperties = {
   cursor: "nwse-resize",
   touchAction: "none",
   pointerEvents: "auto",
+};
+
+const zoomControlRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  flexWrap: "wrap",
+  marginTop: 10,
+};
+
+const zoomButtonStyle: CSSProperties = {
+  border: "1px solid rgba(96, 165, 250, 0.38)",
+  borderRadius: 999,
+  background: "rgba(30, 64, 175, 0.72)",
+  color: "#eff6ff",
+  padding: "8px 12px",
+  fontSize: 13,
+  fontWeight: 950,
+  cursor: "pointer",
+};
+
+const zoomGuideStyle: CSSProperties = {
+  color: "#bfdbfe",
+  fontSize: 12,
+  fontWeight: 800,
+  opacity: 0.86,
+  lineHeight: 1.4,
 };
 
 const metaStyle: CSSProperties = {
