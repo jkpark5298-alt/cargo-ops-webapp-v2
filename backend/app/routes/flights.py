@@ -93,6 +93,62 @@ def _format_history_checked_time(value: Any) -> str:
     return raw
 
 
+
+
+def _format_schedule_short(value: Any) -> str:
+    parsed = _parse_row_datetime(value)
+    if parsed is not None:
+        return f"{parsed.month:02d}/{parsed.day:02d} {parsed.hour:02d}:{parsed.minute:02d}"
+
+    raw = _format_alert_time(value)
+    match = re.search(r"'?(?:\d{2,4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}:\d{2})", raw)
+    if match:
+        month, day, time = match.groups()
+        return f"{month.zfill(2)}/{day.zfill(2)} {time}"
+
+    return raw
+
+
+def _first_change_line(changes: List[str], label: str) -> str:
+    for change in changes:
+        if str(change).strip().startswith(label):
+            return str(change).strip()
+    return ""
+
+
+def _format_status_time_line(item: Dict[str, Any]) -> str:
+    estimated = str(item.get("estimatedTimeText") or "").strip()
+    schedule = str(item.get("scheduleTimeText") or "").strip()
+
+    if estimated and schedule:
+        return f"시간 {estimated} · 예정 {schedule}"
+    if estimated:
+        return f"시간 {estimated}"
+    if schedule:
+        return f"예정 {schedule}"
+    return ""
+
+
+def _build_changed_item(flight: str, current: Dict[str, Any], changes: List[str]) -> Dict[str, Any]:
+    schedule_value = _get_schedule_time_value(current)
+    estimated_value = _get_estimated_time_value(current)
+
+    return {
+        "flight": flight,
+        "route": _format_route(current),
+        "changes": changes,
+        "scheduleTime": schedule_value,
+        "estimatedTime": estimated_value,
+        "scheduleTimeText": _format_alert_time(schedule_value) if schedule_value else "",
+        "scheduleTimeShort": _format_schedule_short(schedule_value) if schedule_value else "",
+        "estimatedTimeText": _format_alert_time(estimated_value) if estimated_value else "",
+        "estimatedTimeShort": _format_schedule_short(estimated_value) if estimated_value else "",
+        "remark": current.get("remark") or current.get("status") or "",
+        "gate": current.get("gatenumber") or "",
+        "terminal": current.get("terminalid") or "",
+    }
+
+
 def _extract_clock_text(value: Any) -> str:
     text = str(value or "").replace("T", " ").replace("Z", "").strip()
     match = re.search(r"(\d{2}):(\d{2})", text)
@@ -363,8 +419,30 @@ def _append_notification_history(
         description_lines = []
         if route:
             description_lines.append(route)
-        description_lines.extend(change_lines or ["운항 정보 변경"])
-        description_lines.append(f"발생 {_format_history_checked_time(checked_at)}")
+
+        time_change_line = _first_change_line(change_lines, "운항시각")
+        status_change_line = _first_change_line(change_lines, "상태")
+        gate_change_line = _first_change_line(change_lines, "게이트")
+        terminal_change_line = _first_change_line(change_lines, "터미널")
+
+        if status_change_line:
+            description_lines.append(status_change_line)
+            status_time_line = _format_status_time_line(item)
+            if status_time_line:
+                description_lines.append(status_time_line)
+        elif time_change_line:
+            description_lines.append(time_change_line)
+            schedule_short = str(item.get("scheduleTimeShort") or "").strip()
+            if schedule_short:
+                description_lines.append(f"스케줄 {schedule_short}")
+        else:
+            description_lines.extend(
+                [line for line in [gate_change_line, terminal_change_line] if line]
+                or change_lines
+                or ["운항 정보 변경"]
+            )
+
+        description_lines.append(f"발생 {_format_history_checked_time(checked_at)} KST")
 
         new_items.append(
             {
@@ -1239,24 +1317,12 @@ async def _run_schedule_change_check(push_on_change: bool = True) -> Dict[str, A
         changes = _row_changed_fields(previous, current)
 
         if changes:
-            changed_items.append(
-                {
-                    "flight": flight,
-                    "route": _format_route(current),
-                    "changes": changes,
-                }
-            )
+            changed_items.append(_build_changed_item(flight, current, changes))
 
         prealert = _get_arrival_prealert_changes(flight, current, auto_status)
         if prealert:
             prealert_keys_to_save.append(str(prealert["key"]))
-            changed_items.append(
-                {
-                    "flight": flight,
-                    "route": _format_route(current),
-                    "changes": prealert["changes"],
-                }
-            )
+            changed_items.append(_build_changed_item(flight, current, prealert["changes"]))
 
     merged_rows = _merge_latest_rows(existing_rows, list(fresh_latest.values()))
     room["rows"] = merged_rows
@@ -1599,24 +1665,12 @@ async def check_push_and_save_latest_schedule(payload: LatestScheduleRequest) ->
         # 정보 제공형 알림: 신규 REMARK/status, 출발/도착/지연/결항/회항,
         # 시간/게이트/터미널 변경이 있으면 푸시 대상입니다.
         if changes:
-            changed_items.append(
-                {
-                    "flight": flight,
-                    "route": _format_route(current),
-                    "changes": changes,
-                }
-            )
+            changed_items.append(_build_changed_item(flight, current, changes))
 
         prealert = _get_arrival_prealert_changes(flight, current, auto_status)
         if prealert:
             prealert_keys_to_save.append(str(prealert["key"]))
-            changed_items.append(
-                {
-                    "flight": flight,
-                    "route": _format_route(current),
-                    "changes": prealert["changes"],
-                }
-            )
+            changed_items.append(_build_changed_item(flight, current, prealert["changes"]))
 
     sent = 0
     failed = 0

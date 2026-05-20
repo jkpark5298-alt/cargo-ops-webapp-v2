@@ -305,14 +305,28 @@ function formatAlertDescription(value?: string, checkedAt?: string) {
   const statusChange = extractAlertLabeledChange(raw, "상태");
   const gateChange = extractAlertLabeledChange(raw, "게이트");
   const terminalChange = extractAlertLabeledChange(raw, "터미널");
+  const statusTimeLine = extractAlertLine(raw, "시간");
+  const scheduleLine = extractAlertLine(raw, "스케줄");
+  const expectedLine = extractAlertLine(raw, "예정");
 
   const lines: string[] = [];
 
-  if (timeChange) {
-    const scheduleSuffix = timeChange.scheduleText ? ` (스케줄 ${timeChange.scheduleText})` : "";
-    lines.push(`운항시각 ${timeChange.fullChangeText}${scheduleSuffix}`);
-  } else if (statusChange) {
+  if (statusChange) {
     lines.push(`상태 ${statusChange}`);
+    if (statusTimeLine && expectedLine) {
+      lines.push(`${statusTimeLine} · ${expectedLine}`);
+    } else if (statusTimeLine) {
+      lines.push(statusTimeLine);
+    } else if (expectedLine) {
+      lines.push(expectedLine);
+    }
+  } else if (timeChange) {
+    lines.push(`운항시각 ${timeChange.fullChangeText}`);
+    if (scheduleLine) {
+      lines.push(scheduleLine);
+    } else if (timeChange.scheduleText) {
+      lines.push(`스케줄 ${timeChange.scheduleText}`);
+    }
   } else if (gateChange) {
     lines.push(`게이트 ${gateChange}`);
   } else if (terminalChange) {
@@ -322,6 +336,8 @@ function formatAlertDescription(value?: string, checkedAt?: string) {
       .filter((part) => !route || part.replace(/\s+/g, "") !== route.replace(/\s+/g, ""))
       .filter((part) => !/^발생\b/.test(part))
       .filter((part) => !/^스케줄\b/.test(part))
+      .filter((part) => !/^예정\b/.test(part))
+      .filter((part) => !/^시간\b/.test(part))
       .filter((part) => !/^API\s*확인/.test(part))
       .filter((part) => !part.includes("서버 알림"))
       .filter((part) => !part.includes("자동 확인"))
@@ -344,6 +360,13 @@ function formatAlertDescription(value?: string, checkedAt?: string) {
   }
 
   return Array.from(new Set(lines.filter(Boolean))).join("\n") || "운항 정보 변경";
+}
+
+
+function extractAlertLine(value: string, label: string) {
+  const parts = splitAlertParts(value);
+  const found = parts.find((part) => part.trim().startsWith(`${label} `));
+  return found ? found.replace(/\s+/g, " ").trim() : "";
 }
 
 function splitAlertParts(value: string) {
