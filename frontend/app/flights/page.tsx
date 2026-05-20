@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
 const BACKEND_URL =
@@ -49,7 +49,6 @@ type MonitorRoom = {
 
 const STORAGE_KEY = "cargo_ops_monitor_rooms_v6";
 const HL_MAPPING_STORAGE_KEY = "cargo_ops_hl_number_mapping_v1";
-const HL_IMAGE_STORAGE_KEY = "cargo_ops_hl_number_image_v1";
 const LAST_FIXED_ROOM_KEY = "last_fixed_room_id";
 const FLIGHT_ALERT_SNAPSHOT_KEY = "cargo_ops_flight_alert_snapshot_v1";
 const FLIGHT_ALERT_HISTORY_KEY = "cargo_ops_flight_alert_history_v1";
@@ -477,7 +476,13 @@ function normalizeHlFlightKey(value: string) {
 }
 
 function normalizeHlNumber(value: string) {
-  return value.replace(/\s+/g, "").toUpperCase();
+  const normalized = value.replace(/\s+/g, "").toUpperCase();
+
+  if (/^\d{3,5}$/.test(normalized)) {
+    return `HL${normalized}`;
+  }
+
+  return normalized;
 }
 
 function parseHlMappingText(text: string): Record<string, string> {
@@ -521,19 +526,6 @@ function saveHlMappingText(value: string) {
   window.localStorage.setItem(HL_MAPPING_STORAGE_KEY, value);
 }
 
-function loadHlImageDataUrl() {
-  if (typeof window === "undefined") return "";
-  return window.localStorage.getItem(HL_IMAGE_STORAGE_KEY) || "";
-}
-
-function saveHlImageDataUrl(value: string) {
-  if (typeof window === "undefined") return;
-  if (value) {
-    window.localStorage.setItem(HL_IMAGE_STORAGE_KEY, value);
-  } else {
-    window.localStorage.removeItem(HL_IMAGE_STORAGE_KEY);
-  }
-}
 
 function getMappedHlNumber(row: FlightRow, mapping: Record<string, string>) {
   const flight = getFlightKeyFromRow(row);
@@ -907,8 +899,6 @@ function FragmentRow({ children }: { children: ReactNode }) {
 
 export default function FlightsPage() {
   const router = useRouter();
-  const hlImageInputRef = useRef<HTMLInputElement | null>(null);
-
   const [queryMode, setQueryMode] = useState<"manual" | "kj-all">("manual");
   const [input, setInput] = useState("");
   const [rows, setRows] = useState<FlightRow[]>([]);
@@ -928,7 +918,6 @@ export default function FlightsPage() {
   const [expandedDetailKeys, setExpandedDetailKeys] = useState<Record<string, boolean>>({});
   const [hlMappingText, setHlMappingText] = useState("");
   const [hlMappingStatus, setHlMappingStatus] = useState("");
-  const [hlImageDataUrl, setHlImageDataUrl] = useState("");
 
   const currentRangeText = useMemo(() => {
     return `${startDateTime.replace("T", " ")} ~ ${endDateTime.replace("T", " ")}`;
@@ -941,7 +930,6 @@ export default function FlightsPage() {
 
   useEffect(() => {
     setHlMappingText(loadHlMappingText());
-    setHlImageDataUrl(loadHlImageDataUrl());
   }, []);
 
   const selectedScheduleRows = useMemo(() => {
@@ -981,28 +969,7 @@ export default function FlightsPage() {
     });
   };
 
-  const handleHlImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      setHlImageDataUrl(result);
-      saveHlImageDataUrl(result);
-      setHlMappingStatus("에어제타 최종 변환 이미지를 저장했습니다.");
-    };
-    reader.readAsDataURL(file);
-    event.target.value = "";
-  };
-
-  const handleClearHlImage = () => {
-    setHlImageDataUrl("");
-    saveHlImageDataUrl("");
-    setHlMappingStatus("에어제타 최종 변환 이미지를 삭제했습니다.");
-  };
-
-  const handleSaveHlMapping = async () => {
+    const handleSaveHlMapping = async () => {
     const normalizedText = serializeHlMapping(hlNumberMap);
     setHlMappingText(normalizedText);
     saveHlMappingText(normalizedText);
@@ -2193,42 +2160,18 @@ export default function FlightsPage() {
         <section style={hlMappingCardStyle}>
           <div style={hlMappingHeaderStyle}>
             <div>
-              <div style={hlMappingTitleStyle}>에어제타 최종 변환 이미지 / 등록기호</div>
+              <div style={hlMappingTitleStyle}>등록기호 옵션 입력</div>
               <div style={hlMappingHelpStyle}>
-                이미지로 편성표를 확인하고, 편명별 등록기호를 직접 입력해 Schedule Lite와 초기화면에 반영합니다.
+                편명 옆에 숫자만 입력해도 HL이 자동으로 붙습니다. 예) KJ247 7420 → KJ247 HL7420
               </div>
             </div>
             <div style={hlMappingCountStyle}>저장 대상 {hlMappingCount}건</div>
           </div>
 
-          <input
-            ref={hlImageInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={handleHlImageChange}
-            style={{ display: "none" }}
-          />
-
-          <div style={hlMappingButtonRowStyle}>
-            <button type="button" onClick={() => hlImageInputRef.current?.click()} style={hlMappingButtonStyle}>
-              이미지 등록
-            </button>
-            <button type="button" onClick={handleClearHlImage} style={hlMappingSecondaryButtonStyle}>
-              이미지 삭제
-            </button>
-          </div>
-
-          {hlImageDataUrl ? (
-            <img src={hlImageDataUrl} alt="에어제타 최종 변환 이미지" style={hlImagePreviewStyle} />
-          ) : (
-            <div style={hlImagePlaceholderStyle}>등록된 최종 변환 이미지가 없습니다.</div>
-          )}
-
           <textarea
             value={hlMappingText}
             onChange={(event) => setHlMappingText(event.target.value.toUpperCase())}
-            placeholder={"예: KJ247 HL7420\nKJ958 HL7423\nKJ795 HL7419"}
+            placeholder={"예: KJ247 7420\nKJ958 7423\nKJ795 7419"}
             style={hlMappingTextareaStyle}
           />
 
@@ -2725,11 +2668,6 @@ const hlMappingButtonStyle: CSSProperties = {
   cursor: "pointer",
 };
 
-const hlMappingSecondaryButtonStyle: CSSProperties = {
-  ...hlMappingButtonStyle,
-  background: "#0f172a",
-  color: "#dbeafe",
-};
 
 const hlMappingSaveButtonStyle: CSSProperties = {
   ...hlMappingButtonStyle,
@@ -2737,24 +2675,7 @@ const hlMappingSaveButtonStyle: CSSProperties = {
   border: "none",
 };
 
-const hlImagePreviewStyle: CSSProperties = {
-  width: "100%",
-  maxHeight: 360,
-  objectFit: "contain",
-  marginTop: 12,
-  borderRadius: 12,
-  border: "1px solid rgba(148, 163, 184, 0.22)",
-  background: "#020617",
-};
 
-const hlImagePlaceholderStyle: CSSProperties = {
-  marginTop: 12,
-  padding: 14,
-  borderRadius: 12,
-  border: "1px dashed rgba(148, 163, 184, 0.35)",
-  color: "#94a3b8",
-  fontSize: 13,
-};
 
 const hlMappingTextareaStyle: CSSProperties = {
   width: "100%",
