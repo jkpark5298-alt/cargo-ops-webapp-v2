@@ -532,6 +532,23 @@ function getMappedHlNumber(row: FlightRow, mapping: Record<string, string>) {
   return mapping[flight] || "";
 }
 
+function getEditableHlValue(
+  row: FlightRow,
+  mapping: Record<string, string>,
+  drafts: Record<string, string>,
+) {
+  const flight = getFlightKeyFromRow(row);
+  if (Object.prototype.hasOwnProperty.call(drafts, flight)) {
+    return drafts[flight];
+  }
+
+  const mapped = mapping[flight];
+  if (mapped) return mapped;
+
+  const current = getRegistrationNo(row);
+  return current === "-" ? "" : current;
+}
+
 function applyHlMappingToRows(rows: FlightRow[], mapping: Record<string, string>) {
   return rows.map((row) => {
     const mappedHl = getMappedHlNumber(row, mapping);
@@ -725,6 +742,9 @@ function FixedResultsTable({
   rows,
   expandedKeys,
   selectedKeys,
+  hlNumberMap,
+  hlDrafts,
+  onHlDraftChange,
   onToggleDetail,
   onToggleSelect,
   onDeleteFlight,
@@ -732,6 +752,9 @@ function FixedResultsTable({
   rows: FlightRow[];
   expandedKeys: Record<string, boolean>;
   selectedKeys: Record<string, boolean>;
+  hlNumberMap: Record<string, string>;
+  hlDrafts: Record<string, string>;
+  onHlDraftChange: (flight: string, value: string) => void;
   onToggleDetail: (key: string) => void;
   onToggleSelect: (row: FlightRow, idx: number) => void;
   onDeleteFlight?: (flight: string) => void;
@@ -833,7 +856,16 @@ function FixedResultsTable({
                     )}
                   </td>
                   <td style={tdStyle}>{getFlightDisplay(row)}</td>
-                  <td style={tdStyle}>{getRegistrationNo(row)}</td>
+                  <td style={tdStyle}>
+                    <input
+                      value={getEditableHlValue(row, hlNumberMap, hlDrafts)}
+                      onChange={(event) =>
+                        onHlDraftChange(getFlightKeyFromRow(row), event.target.value.toUpperCase())
+                      }
+                      placeholder="7423"
+                      style={hlInlineInputStyle}
+                    />
+                  </td>
                   <td
                     style={{
                       ...tdStyle,
@@ -918,6 +950,7 @@ export default function FlightsPage() {
   const [expandedDetailKeys, setExpandedDetailKeys] = useState<Record<string, boolean>>({});
   const [hlMappingText, setHlMappingText] = useState("");
   const [hlMappingStatus, setHlMappingStatus] = useState("");
+  const [hlInlineDrafts, setHlInlineDrafts] = useState<Record<string, string>>({});
 
   const currentRangeText = useMemo(() => {
     return `${startDateTime.replace("T", " ")} ~ ${endDateTime.replace("T", " ")}`;
@@ -969,20 +1002,54 @@ export default function FlightsPage() {
     });
   };
 
-    const handleSaveHlMapping = async () => {
-    const normalizedText = serializeHlMapping(hlNumberMap);
+  const handleHlInlineDraftChange = (flight: string, value: string) => {
+    const key = normalizeHlFlightKey(flight);
+    if (!key) return;
+
+    setHlInlineDrafts((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  };
+
+  const handleSaveInlineHlMapping = async () => {
+    const nextMap: Record<string, string> = { ...hlNumberMap };
+    let savedCount = 0;
+
+    rows.forEach((row) => {
+      const flight = getFlightKeyFromRow(row);
+      if (!flight || flight === "-") return;
+
+      const rawValue = Object.prototype.hasOwnProperty.call(hlInlineDrafts, flight)
+        ? hlInlineDrafts[flight]
+        : getEditableHlValue(row, hlNumberMap, {});
+
+      const normalizedHl = normalizeHlNumber(rawValue || "");
+      if (!/^HL\d{3,5}$/i.test(normalizedHl)) return;
+
+      nextMap[flight] = normalizedHl;
+      savedCount += 1;
+    });
+
+    if (savedCount === 0) {
+      setHlMappingStatus("저장할 등록기호가 없습니다. 표의 등록기호 칸에 숫자만 입력해 주세요.");
+      return;
+    }
+
+    const normalizedText = serializeHlMapping(nextMap);
     setHlMappingText(normalizedText);
     saveHlMappingText(normalizedText);
 
-    const nextRows = applyHlMappingToRows(rows, hlNumberMap);
+    const nextRows = applyHlMappingToRows(rows, nextMap);
     const nextRooms = rooms.map((room) => ({
       ...room,
-      rows: applyHlMappingToRows(room.rows || [], hlNumberMap),
+      rows: applyHlMappingToRows(room.rows || [], nextMap),
     }));
 
     setRows(nextRows);
     setRooms(nextRooms);
     saveRooms(nextRooms);
+    setHlInlineDrafts({});
 
     const nextSelectedRoom = selectedRoom
       ? nextRooms.find((room) => room.id === selectedRoom.id) || null
@@ -991,7 +1058,7 @@ export default function FlightsPage() {
     if (nextSelectedRoom?.fixed) {
       try {
         await saveLatestScheduleToServer(normalizeScheduleRoomRows(nextSelectedRoom));
-        setHlMappingStatus(`등록기호 ${Object.keys(hlNumberMap).length}건 저장 · Schedule Lite/초기화면 반영`);
+        setHlMappingStatus(`등록기호 ${savedCount}건 저장 · Schedule Lite/초기화면 반영`);
       } catch (error) {
         setHlMappingStatus(
           error instanceof Error
@@ -1002,7 +1069,7 @@ export default function FlightsPage() {
       return;
     }
 
-    setHlMappingStatus(`등록기호 ${Object.keys(hlNumberMap).length}건 저장`);
+    setHlMappingStatus(`등록기호 ${savedCount}건 저장`);
   };
 
   const handleFlightsInputChange = (value: string) => {
@@ -2157,33 +2224,6 @@ export default function FlightsPage() {
           </button>
         </div>
 
-        <section style={hlMappingCardStyle}>
-          <div style={hlMappingHeaderStyle}>
-            <div>
-              <div style={hlMappingTitleStyle}>등록기호 옵션 입력</div>
-              <div style={hlMappingHelpStyle}>
-                편명 옆에 숫자만 입력해도 HL이 자동으로 붙습니다. 예) KJ247 7420 → KJ247 HL7420
-              </div>
-            </div>
-            <div style={hlMappingCountStyle}>저장 대상 {hlMappingCount}건</div>
-          </div>
-
-          <textarea
-            value={hlMappingText}
-            onChange={(event) => setHlMappingText(event.target.value.toUpperCase())}
-            placeholder={"예: KJ247 7420\nKJ958 7423\nKJ795 7419"}
-            style={hlMappingTextareaStyle}
-          />
-
-          <div style={hlMappingButtonRowStyle}>
-            <button type="button" onClick={() => void handleSaveHlMapping()} style={hlMappingSaveButtonStyle}>
-              등록기호 저장
-            </button>
-          </div>
-
-          {hlMappingStatus ? <div style={hlMappingStatusStyle}>{hlMappingStatus}</div> : null}
-        </section>
-
         {fixed && (
           <div style={{ marginTop: 6, color: "#facc15", fontSize: 14 }}>
             Schedule Flight 관리 중 · D로 상세 확인
@@ -2501,11 +2541,27 @@ export default function FlightsPage() {
           </div>
         )}
 
+        {fixed && rows.length > 0 && (
+          <div style={hlInlineSaveRowStyle}>
+            <button type="button" onClick={() => void handleSaveInlineHlMapping()} style={hlMappingSaveButtonStyle}>
+              등록기호 저장
+            </button>
+            <span style={hlInlineHelpStyle}>
+              아래 표의 등록기호 칸에 숫자만 입력해도 HL이 자동으로 붙습니다. 예) 7423 → HL7423
+            </span>
+          </div>
+        )}
+
+        {hlMappingStatus ? <div style={hlMappingStatusStyle}>{hlMappingStatus}</div> : null}
+
         {fixed && (
           <FixedResultsTable
             rows={rows}
             expandedKeys={expandedDetailKeys}
             selectedKeys={selectedScheduleKeys}
+            hlNumberMap={hlNumberMap}
+            hlDrafts={hlInlineDrafts}
+            onHlDraftChange={handleHlInlineDraftChange}
             onToggleDetail={handleToggleDetail}
             onToggleSelect={handleToggleScheduleSelection}
             onDeleteFlight={isSelectedFixedRoom ? handleDeleteFlightFromSchedule : undefined}
@@ -2557,6 +2613,34 @@ const tdStyle: CSSProperties = {
   fontSize: 14,
   verticalAlign: "top",
   whiteSpace: "nowrap",
+};
+
+
+const hlInlineSaveRowStyle: CSSProperties = {
+  marginTop: 16,
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  flexWrap: "wrap",
+};
+
+const hlInlineHelpStyle: CSSProperties = {
+  color: "#9fb3c8",
+  fontSize: 13,
+  fontWeight: 700,
+};
+
+const hlInlineInputStyle: CSSProperties = {
+  width: 96,
+  minHeight: 34,
+  padding: "7px 9px",
+  borderRadius: 8,
+  border: "1px solid rgba(96, 165, 250, 0.45)",
+  background: "#020617",
+  color: "#f8fafc",
+  fontSize: 14,
+  fontWeight: 800,
+  outline: "none",
 };
 
 const detailThStyle: CSSProperties = {
@@ -2612,51 +2696,11 @@ const selectInputStyle: CSSProperties = {
   minWidth: 78,
 };
 
-const hlMappingCardStyle: CSSProperties = {
-  marginTop: 18,
-  padding: 14,
-  borderRadius: 14,
-  border: "1px solid rgba(96, 165, 250, 0.28)",
-  background: "rgba(15, 23, 42, 0.72)",
-};
 
-const hlMappingHeaderStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "flex-start",
-  justifyContent: "space-between",
-  gap: 12,
-  flexWrap: "wrap",
-};
 
-const hlMappingTitleStyle: CSSProperties = {
-  color: "#e5edf7",
-  fontSize: 16,
-  fontWeight: 900,
-};
 
-const hlMappingHelpStyle: CSSProperties = {
-  marginTop: 4,
-  color: "#93c5fd",
-  fontSize: 13,
-  lineHeight: 1.45,
-};
 
-const hlMappingCountStyle: CSSProperties = {
-  padding: "4px 8px",
-  borderRadius: 999,
-  background: "rgba(37, 99, 235, 0.18)",
-  color: "#bfdbfe",
-  fontSize: 12,
-  fontWeight: 900,
-  whiteSpace: "nowrap",
-};
 
-const hlMappingButtonRowStyle: CSSProperties = {
-  display: "flex",
-  gap: 8,
-  flexWrap: "wrap",
-  marginTop: 12,
-};
 
 const hlMappingButtonStyle: CSSProperties = {
   padding: "9px 12px",
@@ -2677,20 +2721,6 @@ const hlMappingSaveButtonStyle: CSSProperties = {
 
 
 
-const hlMappingTextareaStyle: CSSProperties = {
-  width: "100%",
-  minHeight: 130,
-  marginTop: 12,
-  padding: 12,
-  borderRadius: 12,
-  border: "1px solid rgba(148, 163, 184, 0.28)",
-  background: "#020617",
-  color: "#e5edf7",
-  fontSize: 14,
-  lineHeight: 1.5,
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-  resize: "vertical",
-};
 
 const hlMappingStatusStyle: CSSProperties = {
   marginTop: 10,
