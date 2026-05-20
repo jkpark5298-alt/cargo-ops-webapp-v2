@@ -414,41 +414,41 @@ function buildAlertMetaLine(expectedText: string, occurredText: string) {
 }
 
 function extractAlertStatusChange(value: string) {
-  const normalized = value.replace(/\s+/g, " ").replace(/:/g, " ").trim();
-  const match = normalized.match(/상태\s+(.+?)\s*→\s*(.+?)(?=\s+(?:시간|예정|스케줄|발생|API|서버)\b|$)/);
+  const normalized = value.replace(/\s+/g, " ").trim();
+  const match = normalized.match(/상태\s*:?\s*(.+?)\s*→\s*(.+?)(?=\s*\/?\s*(?:시간|예정|스케줄|발생|API|서버)\b|$)/);
   if (!match) return "";
 
-  const before = match[1].trim() || "-";
-  const after = match[2].trim() || "-";
+  const before = match[1].replace(/[:：]/g, "").trim() || "-";
+  const after = match[2].replace(/[:：]/g, "").trim() || "-";
 
   return `${before} → ${after}`;
 }
 
 function extractAlertDateTimeByLabel(value: string, label: string) {
   const normalized = value.replace(/\s+/g, " ").trim();
-  const pattern = new RegExp(`${label}\\s+('?\\d{2,4}[/-]\\d{1,2}[/-]\\d{1,2}\\s+\\d{1,2}:\\d{2}|\\d{1,2}/\\d{1,2}\\s+\\d{1,2}:\\d{2}|\\d{1,2}:\\d{2})`);
+  const pattern = new RegExp(`${label}\\s*[:：]?\\s+('?\\d{2,4}[/-]\\d{1,2}[/-]\\d{1,2}\\s+\\d{1,2}[: ]\\d{2}|\\d{1,2}/\\d{1,2}\\s+\\d{1,2}[: ]\\d{2}|\\d{1,2}[: ]\\d{2})`);
   const match = normalized.match(pattern);
   if (!match) return "";
   return normalizeAlertDateTime(match[1]);
 }
 
 function normalizeAlertDateTime(value: string) {
-  const raw = value.trim().replace(/^'/, "");
-  const fullMatch = raw.match(/^(\d{2,4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}):(\d{2})$/);
+  const raw = value.trim().replace(/^'/, "").replace(/\s+/g, " ");
+  const fullMatch = raw.match(/^(\d{2,4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2})[: ](\d{2})$/);
   if (fullMatch) {
     let [, year, month, day, hour, minute] = fullMatch;
     if (year.length === 4) year = year.slice(2);
     return `'${year.padStart(2, "0")}/${month.padStart(2, "0")}/${day.padStart(2, "0")} ${hour.padStart(2, "0")}:${minute}`;
   }
 
-  const shortDateMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})$/);
+  const shortDateMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\s+(\d{1,2})[: ](\d{2})$/);
   if (shortDateMatch) {
     const [, month, day, hour, minute] = shortDateMatch;
     const year = new Date().getFullYear().toString().slice(2);
     return `'${year}/${month.padStart(2, "0")}/${day.padStart(2, "0")} ${hour.padStart(2, "0")}:${minute}`;
   }
 
-  const timeMatch = raw.match(/^(\d{1,2}):(\d{2})$/);
+  const timeMatch = raw.match(/^(\d{1,2})[: ](\d{2})$/);
   if (timeMatch) {
     const [, hour, minute] = timeMatch;
     return `${hour.padStart(2, "0")}:${minute}`;
