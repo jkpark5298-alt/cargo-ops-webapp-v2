@@ -218,14 +218,14 @@ const flightAlertHistoryItemHeaderStyle: CSSProperties = {
 
 const flightAlertItemTitleStyle: CSSProperties = {
   color: "#fef3c7",
-  fontSize: 14,
+  fontSize: 15,
   fontWeight: 950,
   marginBottom: 4,
 };
 
 const flightAlertItemDescStyle: CSSProperties = {
   color: "#fde68a",
-  fontSize: 13,
+  fontSize: 15,
   lineHeight: 1.45,
   fontWeight: 800,
   whiteSpace: "pre-line",
@@ -233,6 +233,7 @@ const flightAlertItemDescStyle: CSSProperties = {
 
 const alertHighlightLineStyle: CSSProperties = {
   color: "#fca5a5",
+  fontSize: 17,
   fontWeight: 950,
 };
 
@@ -300,7 +301,8 @@ function formatAlertTitle(value?: string, description?: string) {
       .replace("서버에 저장된 알림 이력", "서버 알림");
   }
 
-  return route ? `${flight} 운항 정보 변경 : ${route}` : `${flight} 운항 정보 변경`;
+  // 모바일에서 제목이 길어지지 않도록 편명 + 노선만 표시합니다.
+  return route ? `${flight} ${route}` : `${flight} 운항 정보 변경`;
 }
 
 type AlertDescriptionLine = {
@@ -331,56 +333,46 @@ function formatAlertDescription(value?: string, checkedAt?: string) {
     .join("\n");
 }
 
-function getStatusTimeLabel(statusChange: string) {
+function getStatusTimeLabel(statusChange: string, route?: string) {
+  const normalizedRoute = (route || "").replace(/\s+/g, "").toUpperCase();
   const after = statusChange.split("→").pop()?.trim() || "";
 
+  if (normalizedRoute.startsWith("ICN→")) return "출발 시간";
+  if (normalizedRoute.endsWith("→ICN")) return "도착 시간";
   if (after.includes("출발")) return "출발 시간";
-  if (after.includes("도착")) return "도착 시간";
-  if (after.includes("착륙")) return "착륙 시간";
+  if (after.includes("도착") || after.includes("착륙")) return "도착 시간";
 
   return "시간";
 }
 
 function buildAlertDescriptionLines(value?: string, checkedAt?: string): AlertDescriptionLine[] {
-  const raw = (value || "운항 정보 변경").trim();
+  const raw = sanitizeLegacyAlertText(value || "운항 정보 변경");
   const route = extractAlertRoute(raw);
   const timeChange = extractAlertTimeChange(raw, checkedAt);
   const statusChange = extractAlertStatusChange(raw);
   const gateChange = extractAlertLabeledChange(raw, "게이트");
   const terminalChange = extractAlertLabeledChange(raw, "터미널");
-  const statusTimeText =
-    extractAlertDateTimeByLabel(raw, "출발 시간") ||
-    extractAlertDateTimeByLabel(raw, "도착 시간") ||
-    extractAlertDateTimeByLabel(raw, "착륙 시간") ||
-    extractAlertDateTimeByLabel(raw, "시간");
-  const expectedText =
-    extractAlertDateTimeByLabel(raw, "예정") ||
-    extractAlertDateTimeByLabel(raw, "스케줄") ||
-    timeChange?.expectedText ||
-    "";
-  const occurredText = formatHistoryFullTime(checkedAt);
+  const statusTimeText = extractStatusDateTime(raw);
+  const expectedText = extractExpectedDateTime(raw) || timeChange?.expectedText || "";
+  const occurredText = formatHistoryClockTime(checkedAt, true);
 
   const lines: AlertDescriptionLine[] = [];
 
   if (statusChange) {
-    const statusTimeLabel = getStatusTimeLabel(statusChange);
+    const statusTimeLabel = getStatusTimeLabel(statusChange, route);
     const timePart = statusTimeText ? ` / ${statusTimeLabel} ${statusTimeText}` : "";
 
     lines.push({
       text: `상태: ${statusChange}${timePart}`,
       highlight: true,
     });
-    lines.push({
-      text: buildAlertMetaLine(expectedText, occurredText),
-    });
+    lines.push({ text: buildAlertMetaLine(expectedText, occurredText) });
   } else if (timeChange) {
     lines.push({
-      text: `운항시각 ${timeChange.shortChangeText}`,
+      text: `운항시각 ${timeChange.fullChangeText}`,
       highlight: true,
     });
-    lines.push({
-      text: buildAlertMetaLine(expectedText, occurredText),
-    });
+    lines.push({ text: buildAlertMetaLine(expectedText, occurredText) });
   } else if (gateChange) {
     lines.push({ text: `게이트 ${gateChange}`, highlight: true });
     lines.push({ text: buildAlertMetaLine(expectedText, occurredText) });
@@ -407,7 +399,7 @@ function buildAlertDescriptionLines(value?: string, checkedAt?: string): AlertDe
       )
       .filter(Boolean);
 
-    lines.push(...Array.from(new Set(cleanedParts)).slice(0, 2).map((text) => ({ text })));
+    lines.push(...Array.from(new Set(cleanedParts)).slice(0, 1).map((text) => ({ text })));
     lines.push({ text: buildAlertMetaLine(expectedText, occurredText) });
   }
 
@@ -415,36 +407,62 @@ function buildAlertDescriptionLines(value?: string, checkedAt?: string): AlertDe
   return uniqueLines.length > 0 ? uniqueLines : [{ text: "운항 정보 변경" }];
 }
 
+function sanitizeLegacyAlertText(value: string) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/\s*·\s*/g, " · ")
+    .replace(/\s*,\s*/g, ", ")
+    .trim();
+}
+
 function buildAlertMetaLine(expectedText: string, occurredText: string) {
   const metaParts: string[] = [];
+  const expectedClock = formatAlertClockOnly(expectedText);
 
-  if (expectedText) {
-    metaParts.push(`예정 ${expectedText}`);
+  if (expectedClock) {
+    metaParts.push(`예정 ${expectedClock}`);
   }
 
   if (occurredText !== "-") {
-    metaParts.push(`발생: ${occurredText}`);
+    metaParts.push(`발생 ${occurredText}`);
   }
 
-  return metaParts.length > 0 ? `(${metaParts.join(", ")})` : "";
+  return metaParts.length > 0 ? `(${metaParts.join(" · ")})` : "";
 }
 
 function extractAlertStatusChange(value: string) {
   const normalized = value.replace(/\s+/g, " ").trim();
-  const match = normalized.match(/상태\s*:?\s*(.+?)\s*→\s*(.+?)(?=\s*\/?\s*(?:시간|출발\s*시간|도착\s*시간|예정|스케줄|발생|API|서버)\b|$)/);
+  const match = normalized.match(/상태\s*:?\s*(.+?)\s*→\s*(.+?)(?=\s*\/?\s*(?:출발\s*시간|도착\s*시간|착륙\s*시간|시간|예정|스케줄|발생|API|서버)(?=\s|$)|$)/);
   if (!match) return "";
 
-  const before = match[1]
-    .replace(/[:：]/g, "")
-    .replace(/\b(?:시간|예정|스케줄|발생)\b.*$/g, "")
-    .trim() || "-";
-
-  const after = match[2]
-    .replace(/[:：]/g, "")
-    .replace(/\b(?:시간|예정|스케줄|발생)\b.*$/g, "")
-    .trim() || "-";
+  const before = cleanStatusToken(match[1]) || "-";
+  const after = cleanStatusToken(match[2]) || "-";
 
   return `${before} → ${after}`;
+}
+
+function cleanStatusToken(value: string) {
+  return value
+    .replace(/[:：]/g, "")
+    .replace(/\b(?:시간|예정|스케줄|발생)\b.*$/g, "")
+    .replace(/[()]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractStatusDateTime(value: string) {
+  const labels = ["출발 시간", "도착 시간", "착륙 시간", "시간"];
+
+  for (const label of labels) {
+    const found = extractAlertDateTimeByLabel(value, label);
+    if (found) return found;
+  }
+
+  return "";
+}
+
+function extractExpectedDateTime(value: string) {
+  return extractAlertDateTimeByLabel(value, "예정") || extractAlertDateTimeByLabel(value, "스케줄") || "";
 }
 
 function extractAlertDateTimeByLabel(value: string, label: string) {
@@ -506,6 +524,19 @@ function normalizeAlertDateTime(value: string) {
   return value.trim();
 }
 
+function formatAlertClockOnly(value?: string) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/(\d{1,2}):(\d{2})(?:\s*KST)?$/);
+  if (match) return `${match[1].padStart(2, "0")}:${match[2]}`;
+
+  const compact = raw.match(/\b(\d{3,4})\b$/);
+  if (compact) {
+    const hhmm = compact[1].padStart(4, "0");
+    return `${hhmm.slice(0, 2)}:${hhmm.slice(2, 4)}`;
+  }
+
+  return raw.replace(/^'\d{2}\/\d{2}\/\d{2}\s+/, "");
+}
 
 function extractAlertLine(value: string, label: string) {
   const parts = splitAlertParts(value);
@@ -534,7 +565,7 @@ function extractAlertRoute(value: string) {
 
 function extractAlertLabeledChange(value: string, label: string) {
   const normalized = value.replace(/\s+/g, " ");
-  const match = normalized.match(new RegExp(`${label}\\s+([^·\\n]+?\\s*→\\s*[^·\\n]+)`));
+  const match = normalized.match(new RegExp(`${label}\s+([^·\n]+?\s*→\s*[^·\n]+)`));
   return match?.[1]?.trim() || "";
 }
 
@@ -615,10 +646,21 @@ function extractAlertTimeChange(value: string, checkedAt?: string) {
       ? `'${year}/${month}/${day} ${after.time}`
       : after.time;
 
+  const datePrefix = month && day ? `'${year}/${month}/${day} ` : "";
+
   return {
     shortChangeText: `${before.time} → ${after.time}`,
+    fullChangeText: `${datePrefix}${before.time} → ${after.time}`,
     expectedText,
   };
+}
+
+function formatHistoryClockTime(value?: string, withKst = false) {
+  const formatted = formatHistoryFullTime(value);
+  if (formatted === "-") return "-";
+  const match = formatted.match(/(\d{2}):(\d{2})\s*KST$/);
+  if (!match) return formatted.replace(/^'\d{2}\/\d{2}\/\d{2}\s+/, "");
+  return `${match[1]}:${match[2]}${withKst ? " KST" : ""}`;
 }
 
 function compactServerStatus(value: string) {
