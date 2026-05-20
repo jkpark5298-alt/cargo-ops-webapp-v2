@@ -2416,6 +2416,19 @@ export default function FlightsPage() {
         {loading && <p style={{ marginTop: 20 }}>조회중...</p>}
         {error && <p style={{ marginTop: 20, color: "#f87171" }}>{error}</p>}
 
+        {rows.length > 0 && (
+          <div style={hlInlineSaveRowStyle}>
+            <button type="button" onClick={() => void handleSaveInlineHlMapping()} style={hlMappingSaveButtonStyle}>
+              등록기호 저장
+            </button>
+            <span style={hlInlineHelpStyle}>
+              아래 표의 등록기호 칸에 숫자만 입력해도 HL이 자동으로 붙습니다. 예) 7423 → HL7423
+            </span>
+          </div>
+        )}
+
+        {hlMappingStatus ? <div style={hlMappingStatusStyle}>{hlMappingStatus}</div> : null}
+
         {!fixed && (
           <div style={{ marginTop: 30, overflowX: "auto" }}>
             <table
@@ -2549,19 +2562,6 @@ export default function FlightsPage() {
             </table>
           </div>
         )}
-
-        {rows.length > 0 && (
-          <div style={hlInlineSaveRowStyle}>
-            <button type="button" onClick={() => void handleSaveInlineHlMapping()} style={hlMappingSaveButtonStyle}>
-              등록기호 저장
-            </button>
-            <span style={hlInlineHelpStyle}>
-              아래 표의 등록기호 칸에 숫자만 입력해도 HL이 자동으로 붙습니다. 예) 7423 → HL7423
-            </span>
-          </div>
-        )}
-
-        {hlMappingStatus ? <div style={hlMappingStatusStyle}>{hlMappingStatus}</div> : null}
 
         {fixed && (
           <FixedResultsTable
