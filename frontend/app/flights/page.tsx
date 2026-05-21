@@ -611,7 +611,8 @@ function getAircraftRegistrationForRow(row: FlightRow, records: AircraftRegistra
 function applyAircraftRegistrationToRows(rows: FlightRow[], records: AircraftRegistrationRecord[]) {
   return rows.map((row) => {
     const existing = getRegistrationNo(row);
-    const registrationNo = existing !== "-" ? existing : getAircraftRegistrationForRow(row, records);
+    const fromRegistrationDb = getAircraftRegistrationForRow(row, records);
+    const registrationNo = fromRegistrationDb || (existing !== "-" ? existing : "");
 
     return registrationNo
       ? {

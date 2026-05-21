@@ -536,18 +536,22 @@ function buildScheduleRegistrationMap(rows?: FlightRow[]) {
 function applyRegistrationMapToRows(rows: FlightRow[], registrationMap: Map<string, string>) {
   return rows.map((row) => {
     const existing = getRegistrationNo(row);
-    if (existing) {
-      return {
-        ...row,
-        hlnbr: existing,
-        registrationNo: existing,
-        aircraftRegNo: existing,
-      };
-    }
-
     const fullKey = getScheduleRegistrationKey(row);
     const flightKey = getFlightNo(row).replace(/\s+/g, "").toUpperCase();
-    const mapped = registrationMap.get(fullKey) || registrationMap.get(flightKey);
+    const dateKey = getAircraftRegistrationDateFromRow(row);
+    const aircraftExactKey = buildAircraftRegistrationKey(
+      dateKey,
+      getFlightNo(row),
+      row.departureCode,
+      row.arrivalCode,
+    );
+    const aircraftFallbackKey = buildAircraftRegistrationFlightDateKey(dateKey, getFlightNo(row));
+    const mapped =
+      registrationMap.get(aircraftExactKey) ||
+      registrationMap.get(aircraftFallbackKey) ||
+      registrationMap.get(fullKey) ||
+      registrationMap.get(flightKey) ||
+      existing;
 
     return mapped
       ? {
@@ -1019,7 +1023,11 @@ export default function HomePage() {
   };
 
   useEffect(() => {
-    setRooms(loadRooms());
+    setRooms(
+      loadRooms().map((room) =>
+        room.fixed ? (mergeScheduleRegistrationIntoRoom(room, room) as MonitorRoom) : room,
+      ),
+    );
     setImages(loadImages());
     setNote(loadNote());
     setDailyNotionRecord(loadDailyNotionRecord());
