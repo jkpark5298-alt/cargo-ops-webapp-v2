@@ -6,6 +6,8 @@ const BACKEND_URL =
   process.env.NEXT_PUBLIC_API_URL || "https://cargo-ops-backend.onrender.com";
 
 const STORAGE_KEY = "cargo_ops_monitor_rooms_v6";
+const AIRCRAFT_REGISTRATION_STORAGE_KEY = "cargo_ops_aircraft_registration_records_v1";
+
 const LAST_FIXED_ROOM_KEY = "last_fixed_room_id";
 
 const DEFAULT_REFRESH_MINUTES = 30;
@@ -49,6 +51,15 @@ type MonitorRoom = {
   fixed: boolean;
   lastFetchedAt: string;
   rows: FlightRow[];
+};
+
+type AircraftRegistrationRecord = {
+  date: string;
+  flight: string;
+  departureCode: string;
+  arrivalCode: string;
+  registrationNo: string;
+  updatedAt: string;
 };
 
 type WidgetSummaryItem = {
@@ -136,6 +147,58 @@ function getRegistrationNo(row?: FlightRow) {
   return "";
 }
 
+function normalizeAircraftRegistrationDate(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  if (/^\d{4}\.\d{2}\.\d{2}/.test(raw)) return raw.slice(0, 10).replace(/\./g, "-");
+  if (/^\d{4}\/\d{2}\/\d{2}/.test(raw)) return raw.slice(0, 10).replace(/\//g, "-");
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length >= 8) return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+  return raw;
+}
+
+function getAircraftRegistrationDateFromRow(row: FlightRow) {
+  return normalizeAircraftRegistrationDate(
+    row.scheduleDateTime || row.formattedScheduleTime || row.estimatedDateTime || row.formattedEstimatedTime || "",
+  );
+}
+
+function buildAircraftRegistrationKey(date: string, flight: string, departureCode = "", arrivalCode = "") {
+  return [
+    normalizeAircraftRegistrationDate(date),
+    String(flight || "").replace(/\s+/g, "").toUpperCase(),
+    String(departureCode || "").replace(/\s+/g, "").toUpperCase(),
+    String(arrivalCode || "").replace(/\s+/g, "").toUpperCase(),
+  ].join("|");
+}
+
+function buildAircraftRegistrationFlightDateKey(date: string, flight: string) {
+  return [normalizeAircraftRegistrationDate(date), String(flight || "").replace(/\s+/g, "").toUpperCase()].join("|");
+}
+
+function loadAircraftRegistrationRecords(): AircraftRegistrationRecord[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const raw = window.localStorage.getItem(AIRCRAFT_REGISTRATION_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function addAircraftRegistrationRecordsToMap(map: Map<string, string>, records: AircraftRegistrationRecord[]) {
+  records.forEach((record) => {
+    if (!record.date || !record.flight || !record.registrationNo) return;
+    map.set(buildAircraftRegistrationKey(record.date, record.flight, record.departureCode, record.arrivalCode), record.registrationNo);
+    const fallbackKey = buildAircraftRegistrationFlightDateKey(record.date, record.flight);
+    if (!map.has(fallbackKey)) map.set(fallbackKey, record.registrationNo);
+  });
+}
+
 function getScheduleRegistrationKey(row?: FlightRow) {
   if (!row) return "";
   return [
@@ -198,6 +261,7 @@ function mergeScheduleRegistrationIntoRoom(
   if (!incomingRoom) return incomingRoom;
 
   const registrationMap = buildScheduleRegistrationMap(previousRoom?.rows);
+  addAircraftRegistrationRecordsToMap(registrationMap, loadAircraftRegistrationRecords());
   const nextRows = applyRegistrationMapToRows(incomingRoom.rows || [], registrationMap);
 
   return {
