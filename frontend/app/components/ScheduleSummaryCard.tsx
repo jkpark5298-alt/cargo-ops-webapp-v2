@@ -184,10 +184,32 @@ function getFlightRouteItems(room: MonitorRoom | null) {
       } => Boolean(item),
     );
 
-  const uniqueRowItems = rowItems.filter((item, index, array) => {
+  const uniqueRowMap = new Map<string, {
+    flight: string;
+    registrationNo: string;
+    route: string;
+    direction: string;
+    status: string;
+    time: string;
+    gate: string;
+    hasResult: boolean;
+  }>();
+
+  rowItems.forEach((item) => {
     const key = item.flight.replace(/\s+/g, "").toUpperCase();
-    return array.findIndex((candidate) => candidate.flight.replace(/\s+/g, "").toUpperCase() === key) === index;
+    const existing = uniqueRowMap.get(key);
+
+    if (!existing) {
+      uniqueRowMap.set(key, item);
+      return;
+    }
+
+    if (!existing.registrationNo && item.registrationNo) {
+      uniqueRowMap.set(key, item);
+    }
   });
+
+  const uniqueRowItems = Array.from(uniqueRowMap.values());
 
   if (uniqueRowItems.length > 0) {
     return uniqueRowItems.sort((a, b) => {

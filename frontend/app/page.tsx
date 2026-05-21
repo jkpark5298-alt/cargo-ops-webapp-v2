@@ -937,7 +937,10 @@ export default function HomePage() {
     () => formatDateInputForTitle(dailyWorkDate),
     [dailyWorkDate],
   );
-  const latestRoom = useMemo(() => getLatestScheduleRoom(rooms), [rooms]);
+  const latestRoom = useMemo(() => {
+    const currentRoom = getLatestScheduleRoom(rooms);
+    return mergeScheduleRegistrationIntoRoom(currentRoom, getLocalLatestScheduleRoom());
+  }, [rooms]);
 
   useEffect(() => {
     saveDailyWorkDate(dailyWorkDate);
