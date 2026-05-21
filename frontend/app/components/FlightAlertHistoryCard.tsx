@@ -24,10 +24,10 @@ export function FlightAlertHistoryCard({
   onClear,
   onLoadServerHistory,
 }: FlightAlertHistoryCardProps) {
-  const visibleCount = summaryCount ?? historyItems.length;
-  const newChangeCount = historyItems.length;
+  const alertCount = summaryCount ?? historyItems.length;
+  const newChangeCount = alertCount;
   const hasHistoryItems = historyItems.length > 0;
-  const hasRecentChanges = visibleCount > 0 || newChangeCount > 0;
+  const hasRecentChanges = newChangeCount > 0;
   const latestItem = historyItems[0];
   const [showAllHistory, setShowAllHistory] = useState(false);
   const defaultVisibleCount = 5;
@@ -42,11 +42,11 @@ export function FlightAlertHistoryCard({
         <div>
           <div style={cardLabelStyle}>출도착 알림 이력</div>
           <h2 style={flightAlertTitleStyle}>
-            {hasRecentChanges ? `신규 변경 ${newChangeCount}건 / 미확인 ${visibleCount}건` : "미확인 없음"}
+            {hasRecentChanges ? `신규 변경 ${newChangeCount}건` : "신규 변경 없음"}
           </h2>
         </div>
         <div style={hasRecentChanges ? activeBadgeStyle : idleBadgeStyle}>
-          {hasRecentChanges ? "확인 필요" : "정상"}
+          {hasRecentChanges ? "이력 있음" : "정상"}
         </div>
       </div>
 
@@ -57,7 +57,7 @@ export function FlightAlertHistoryCard({
           disabled={serverLoading}
           style={serverButtonStyle}
         >
-          {serverLoading ? "확인 중..." : "최근 알림 확인"}
+          {serverLoading ? "확인 중..." : "알림 이력 보기"}
         </button>
         <button
           type="button"
@@ -72,14 +72,14 @@ export function FlightAlertHistoryCard({
       {hasRecentChanges && !detailsVisible ? (
         <div style={compactSummaryStyle}>
           <div style={compactSummaryTitleStyle}>
-            {latestItem ? formatAlertTitle(latestItem.title, latestItem.description) : `미확인 ${visibleCount}건`}
+            {latestItem ? formatAlertTitle(latestItem.title, latestItem.description) : `알림 이력 ${newChangeCount}건`}
           </div>
           <div style={compactSummaryDescStyle}>
             {latestItem
               ? renderAlertDescription(latestItem.description, latestItem.checkedAt)
-              : "최근 알림 확인을 눌러 세부 내용을 확인하세요."}
+              : "알림 이력 보기를 눌러 세부 내용을 확인하세요."}
           </div>
-          <div style={compactSummaryMetaStyle}>눌러서 세부 목록 확인</div>
+          <div style={compactSummaryMetaStyle}>알림 이력 보기로 세부 목록 확인</div>
         </div>
       ) : null}
 
