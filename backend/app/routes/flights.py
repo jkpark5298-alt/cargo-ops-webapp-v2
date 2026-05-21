@@ -38,6 +38,9 @@ NOTIFICATION_HISTORY_FILE = Path(
 INCHEON_API_USAGE_FILE = Path(
     os.getenv("INCHEON_API_USAGE_FILE", "/tmp/cargo_ops_incheon_api_usage.json")
 )
+AIRCRAFT_REGISTRATION_FILE = Path(
+    os.getenv("AIRCRAFT_REGISTRATION_FILE", "/tmp/cargo_ops_aircraft_registrations.json")
+)
 INCHEON_API_DEPARTURE_DAILY_LIMIT = int(os.getenv("INCHEON_API_DEPARTURE_DAILY_LIMIT", "100000"))
 INCHEON_API_ARRIVAL_DAILY_LIMIT = int(os.getenv("INCHEON_API_ARRIVAL_DAILY_LIMIT", "100000"))
 INCHEON_API_WARNING_RATE = float(os.getenv("INCHEON_API_WARNING_RATE", "90"))
@@ -304,6 +307,20 @@ class LatestScheduleRequest(BaseModel):
     room: Dict[str, Any]
 
 
+class AircraftRegistrationRecord(BaseModel):
+    date: str
+    flight: str
+    departureCode: str = ""
+    arrivalCode: str = ""
+    registrationNo: str
+    updatedAt: Optional[str] = None
+
+
+class AircraftRegistrationSaveRequest(BaseModel):
+    records: List[AircraftRegistrationRecord] = Field(default_factory=list)
+    mode: str = "merge"
+
+
 class NotificationHistoryDeleteItemRequest(BaseModel):
     key: Optional[str] = None
     title: Optional[str] = None
@@ -323,6 +340,268 @@ class FlightRangeRequest(BaseModel):
     end: str
 
 
+
+def _normalize_aircraft_registration_date(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+
+    match = re.match(r"^(\d{4})[-/.](\d{2})[-/.](\d{2})", raw)
+    if match:
+        year, month, day = match.groups()
+        return f"{year}-{month}-{day}"
+
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) >= 8:
+        return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
+
+    return raw
+
+
+def _normalize_aircraft_registration_no(value: Any) -> str:
+    raw = str(value or "").strip().upper().replace(" ", "")
+    if not raw:
+        return ""
+
+    if re.fullmatch(r"\d{3,5}", raw):
+        return f"HL{raw}"
+
+    if re.fullmatch(r"HL\d{3,5}", raw):
+        return raw
+
+    return raw
+
+
+def _normalize_aircraft_flight(value: Any) -> str:
+    raw = str(value or "").strip().upper().replace(" ", "")
+    if re.fullmatch(r"\d{3,4}", raw):
+        return f"KJ{raw}"
+    return raw
+
+
+def _aircraft_registration_key(
+    date: Any,
+    flight: Any,
+    departure_code: Any = "",
+    arrival_code: Any = "",
+) -> str:
+    return "|".join(
+        [
+            _normalize_aircraft_registration_date(date),
+            _normalize_aircraft_flight(flight),
+            str(departure_code or "").strip().upper(),
+            str(arrival_code or "").strip().upper(),
+        ]
+    )
+
+
+def _aircraft_registration_flight_date_key(date: Any, flight: Any) -> str:
+    return "|".join(
+        [
+            _normalize_aircraft_registration_date(date),
+            _normalize_aircraft_flight(flight),
+        ]
+    )
+
+
+def _row_aircraft_date(row: Dict[str, Any]) -> str:
+    return _normalize_aircraft_registration_date(
+        row.get("scheduleDateTime")
+        or row.get("formattedScheduleTime")
+        or row.get("estimatedDateTime")
+        or row.get("formattedEstimatedTime")
+        or ""
+    )
+
+
+def _row_aircraft_flight(row: Dict[str, Any]) -> str:
+    return _normalize_aircraft_flight(row.get("flightId") or row.get("flightNo") or "")
+
+
+def _row_aircraft_registration(row: Dict[str, Any]) -> str:
+    for key in ("hlnbr", "registrationNo", "aircraftRegNo", "fid"):
+        value = _normalize_aircraft_registration_no(row.get(key))
+        if re.fullmatch(r"HL\d{3,5}", value):
+            return value
+    return ""
+
+
+def _normalize_aircraft_registration_record(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    date = _normalize_aircraft_registration_date(raw.get("date") or raw.get("운항일자") or raw.get("일자"))
+    flight = _normalize_aircraft_flight(raw.get("flight") or raw.get("편명"))
+    departure_code = str(raw.get("departureCode") or raw.get("출발코드") or raw.get("출발") or "").strip().upper()
+    arrival_code = str(raw.get("arrivalCode") or raw.get("도착코드") or raw.get("도착") or "").strip().upper()
+    registration_no = _normalize_aircraft_registration_no(
+        raw.get("registrationNo") or raw.get("등록기호") or raw.get("HL") or raw.get("hlnbr")
+    )
+
+    if not date or not flight or not registration_no:
+        return None
+
+    return {
+        "date": date,
+        "flight": flight,
+        "departureCode": departure_code,
+        "arrivalCode": arrival_code,
+        "registrationNo": registration_no,
+        "updatedAt": str(raw.get("updatedAt") or _now_kst_iso()),
+    }
+
+
+def _read_aircraft_registrations() -> List[Dict[str, Any]]:
+    try:
+        if not AIRCRAFT_REGISTRATION_FILE.exists():
+            return []
+
+        data = json.loads(AIRCRAFT_REGISTRATION_FILE.read_text(encoding="utf-8"))
+        records = data.get("records") if isinstance(data, dict) else data
+        if not isinstance(records, list):
+            return []
+
+        normalized: List[Dict[str, Any]] = []
+        for record in records:
+            if isinstance(record, dict):
+                parsed = _normalize_aircraft_registration_record(record)
+                if parsed:
+                    normalized.append(parsed)
+        return normalized
+    except Exception:
+        return []
+
+
+def _write_aircraft_registrations(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    normalized: List[Dict[str, Any]] = []
+    seen: Dict[str, Dict[str, Any]] = {}
+
+    for record in records:
+        parsed = _normalize_aircraft_registration_record(record)
+        if not parsed:
+            continue
+        seen[_aircraft_registration_key(
+            parsed.get("date"),
+            parsed.get("flight"),
+            parsed.get("departureCode"),
+            parsed.get("arrivalCode"),
+        )] = parsed
+
+    normalized = sorted(
+        seen.values(),
+        key=lambda item: (
+            str(item.get("date") or ""),
+            str(item.get("flight") or ""),
+            str(item.get("departureCode") or ""),
+            str(item.get("arrivalCode") or ""),
+        ),
+    )
+
+    payload = {
+        "records": normalized,
+        "savedAt": _now_kst_iso(),
+    }
+    AIRCRAFT_REGISTRATION_FILE.parent.mkdir(parents=True, exist_ok=True)
+    AIRCRAFT_REGISTRATION_FILE.write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return payload
+
+
+def _merge_aircraft_registrations(
+    base_records: List[Dict[str, Any]],
+    incoming_records: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    merged: Dict[str, Dict[str, Any]] = {}
+
+    for record in base_records:
+        parsed = _normalize_aircraft_registration_record(record)
+        if parsed:
+            merged[_aircraft_registration_key(
+                parsed.get("date"),
+                parsed.get("flight"),
+                parsed.get("departureCode"),
+                parsed.get("arrivalCode"),
+            )] = parsed
+
+    for record in incoming_records:
+        parsed = _normalize_aircraft_registration_record(record)
+        if parsed:
+            merged[_aircraft_registration_key(
+                parsed.get("date"),
+                parsed.get("flight"),
+                parsed.get("departureCode"),
+                parsed.get("arrivalCode"),
+            )] = parsed
+
+    return list(merged.values())
+
+
+def _build_aircraft_registration_lookup(records: Optional[List[Dict[str, Any]]] = None) -> Dict[str, str]:
+    lookup: Dict[str, str] = {}
+    for record in records if records is not None else _read_aircraft_registrations():
+        parsed = _normalize_aircraft_registration_record(record)
+        if not parsed:
+            continue
+
+        exact_key = _aircraft_registration_key(
+            parsed.get("date"),
+            parsed.get("flight"),
+            parsed.get("departureCode"),
+            parsed.get("arrivalCode"),
+        )
+        fallback_key = _aircraft_registration_flight_date_key(parsed.get("date"), parsed.get("flight"))
+
+        lookup[exact_key] = str(parsed.get("registrationNo") or "")
+        if fallback_key not in lookup:
+            lookup[fallback_key] = str(parsed.get("registrationNo") or "")
+
+    return lookup
+
+
+def _apply_aircraft_registrations_to_rows(rows: List[Any]) -> List[Any]:
+    lookup = _build_aircraft_registration_lookup()
+    if not lookup:
+        return rows
+
+    next_rows: List[Any] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            next_rows.append(row)
+            continue
+
+        date = _row_aircraft_date(row)
+        flight = _row_aircraft_flight(row)
+        exact_key = _aircraft_registration_key(
+            date,
+            flight,
+            row.get("departureCode") or "",
+            row.get("arrivalCode") or "",
+        )
+        fallback_key = _aircraft_registration_flight_date_key(date, flight)
+        registration_no = lookup.get(exact_key) or lookup.get(fallback_key) or _row_aircraft_registration(row)
+
+        if registration_no:
+            next_row = dict(row)
+            next_row["hlnbr"] = registration_no
+            next_row["registrationNo"] = registration_no
+            next_row["aircraftRegNo"] = registration_no
+            next_rows.append(next_row)
+        else:
+            next_rows.append(row)
+
+    return next_rows
+
+
+def _apply_aircraft_registrations_to_room(room: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not isinstance(room, dict):
+        return room
+
+    next_room = dict(room)
+    rows = next_room.get("rows")
+    if isinstance(rows, list):
+        next_room["rows"] = _apply_aircraft_registrations_to_rows(rows)
+    return next_room
+
+
 def _read_latest_schedule() -> Optional[Dict[str, Any]]:
     try:
         if not LATEST_SCHEDULE_FILE.exists():
@@ -330,14 +609,15 @@ def _read_latest_schedule() -> Optional[Dict[str, Any]]:
 
         data = json.loads(LATEST_SCHEDULE_FILE.read_text(encoding="utf-8"))
         room = data.get("room")
-        return room if isinstance(room, dict) else None
+        return _apply_aircraft_registrations_to_room(room) if isinstance(room, dict) else None
     except Exception:
         return None
 
 
 def _write_latest_schedule(room: Dict[str, Any]) -> Dict[str, Any]:
+    room_with_registration = _apply_aircraft_registrations_to_room(room) or room
     payload = {
-        "room": room,
+        "room": room_with_registration,
         "savedAt": _now_kst_iso(),
     }
     LATEST_SCHEDULE_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -1778,6 +2058,44 @@ async def delete_notification_history_item(payload: NotificationHistoryDeleteIte
         "success": True,
         "deleted": deleted,
         "items": next_items[:50],
+    }
+
+
+
+@router.get("/aircraft-registrations")
+async def get_aircraft_registrations() -> Dict[str, Any]:
+    records = _read_aircraft_registrations()
+    return {
+        "success": True,
+        "records": records,
+        "count": len(records),
+    }
+
+
+@router.post("/aircraft-registrations")
+async def save_aircraft_registrations(payload: AircraftRegistrationSaveRequest) -> Dict[str, Any]:
+    incoming_records = [record.dict() for record in payload.records]
+    mode = str(payload.mode or "merge").lower().strip()
+
+    if mode == "replace":
+        next_records = incoming_records
+    else:
+        next_records = _merge_aircraft_registrations(
+            _read_aircraft_registrations(),
+            incoming_records,
+        )
+
+    saved = _write_aircraft_registrations(next_records)
+    latest_room = _read_latest_schedule()
+    if latest_room:
+        _write_latest_schedule(latest_room)
+
+    records = saved["records"]
+    return {
+        "success": True,
+        "records": records,
+        "count": len(records),
+        "savedAt": saved["savedAt"],
     }
 
 

@@ -643,6 +643,43 @@ function saveAircraftRegistrationRecords(records: AircraftRegistrationRecord[]) 
   window.localStorage.setItem(AIRCRAFT_REGISTRATION_STORAGE_KEY, JSON.stringify(records));
 }
 
+async function fetchAircraftRegistrationRecordsFromServer() {
+  const res = await fetch(`${BACKEND_URL}/flights/aircraft-registrations`, {
+    cache: "no-store",
+  });
+  const json = await res.json();
+
+  if (!res.ok || json.success === false) {
+    throw new Error(json.detail || json.message || "등록기호 서버 조회 실패");
+  }
+
+  const records = Array.isArray(json.records) ? (json.records as AircraftRegistrationRecord[]) : [];
+  saveAircraftRegistrationRecords(records);
+  return records;
+}
+
+async function saveAircraftRegistrationRecordsToServer(
+  records: AircraftRegistrationRecord[],
+  mode: "merge" | "replace" = "merge",
+) {
+  const res = await fetch(`${BACKEND_URL}/flights/aircraft-registrations`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ records, mode }),
+  });
+  const json = await res.json();
+
+  if (!res.ok || json.success === false) {
+    throw new Error(json.detail || json.message || "등록기호 서버 저장 실패");
+  }
+
+  const nextRecords = Array.isArray(json.records) ? (json.records as AircraftRegistrationRecord[]) : records;
+  saveAircraftRegistrationRecords(nextRecords);
+  return nextRecords;
+}
+
 function mergeAircraftRegistrationRecords(
   baseRecords: AircraftRegistrationRecord[],
   incomingRecords: AircraftRegistrationRecord[],
@@ -1152,7 +1189,26 @@ export default function FlightsPage() {
 
   useEffect(() => {
     setHlMappingText(loadHlMappingText());
-    setAircraftRegistrationRecords(loadAircraftRegistrationRecords());
+
+    const localRecords = loadAircraftRegistrationRecords();
+    setAircraftRegistrationRecords(localRecords);
+
+    void fetchAircraftRegistrationRecordsFromServer()
+      .then((serverRecords) => {
+        setAircraftRegistrationRecords(serverRecords);
+        setRows((prevRows) => applyAircraftRegistrationToRows(prevRows, serverRecords));
+        setRooms((prevRooms) => {
+          const nextRooms = prevRooms.map((room) => ({
+            ...room,
+            rows: applyAircraftRegistrationToRows(room.rows || [], serverRecords),
+          }));
+          saveRooms(nextRooms);
+          return nextRooms;
+        });
+      })
+      .catch(() => {
+        // 서버 등록기호 DB 조회 실패 시 현재 기기의 로컬 데이터로 계속 동작합니다.
+      });
   }, []);
 
   const selectedScheduleRows = useMemo(() => {
@@ -1225,9 +1281,21 @@ export default function FlightsPage() {
         return;
       }
 
-      const nextRecords = mergeAircraftRegistrationRecords(aircraftRegistrationRecords, parsedRecords);
+      let nextRecords = mergeAircraftRegistrationRecords(aircraftRegistrationRecords, parsedRecords);
+      let serverSyncMessage = "";
+
+      try {
+        nextRecords = await saveAircraftRegistrationRecordsToServer(parsedRecords, "merge");
+        serverSyncMessage = " · 서버 저장";
+      } catch (serverError) {
+        saveAircraftRegistrationRecords(nextRecords);
+        serverSyncMessage =
+          serverError instanceof Error
+            ? ` · 서버 저장 실패: ${serverError.message}`
+            : " · 서버 저장 실패";
+      }
+
       setAircraftRegistrationRecords(nextRecords);
-      saveAircraftRegistrationRecords(nextRecords);
 
       const nextRows = applyAircraftRegistrationToRows(rows, nextRecords);
       const nextRooms = rooms.map((room) => ({
@@ -1246,7 +1314,7 @@ export default function FlightsPage() {
       if (nextSelectedRoom?.fixed) {
         try {
           await saveLatestScheduleToServer(normalizeScheduleRoomRows(nextSelectedRoom));
-          setHlMappingStatus(`등록기호 엑셀 ${parsedRecords.length}건 업로드 · 총 ${nextRecords.length}건 관리 · Schedule Lite/초기화면 반영`);
+          setHlMappingStatus(`등록기호 엑셀 ${parsedRecords.length}건 업로드 · 총 ${nextRecords.length}건 관리${serverSyncMessage} · Schedule Lite/초기화면 반영`);
         } catch (error) {
           setHlMappingStatus(
             error instanceof Error
@@ -1257,7 +1325,7 @@ export default function FlightsPage() {
         return;
       }
 
-      setHlMappingStatus(`등록기호 엑셀 ${parsedRecords.length}건 업로드 · 총 ${nextRecords.length}건 관리`);
+      setHlMappingStatus(`등록기호 엑셀 ${parsedRecords.length}건 업로드 · 총 ${nextRecords.length}건 관리${serverSyncMessage}`);
     } catch (error) {
       setHlMappingStatus(
         error instanceof Error
@@ -1327,12 +1395,28 @@ export default function FlightsPage() {
       })
       .filter((record): record is AircraftRegistrationRecord => Boolean(record));
 
-    const nextAircraftRegistrationRecords = mergeAircraftRegistrationRecords(
+    let nextAircraftRegistrationRecords = mergeAircraftRegistrationRecords(
       aircraftRegistrationRecords,
       incomingRecords,
     );
+    let serverRegistrationSyncMessage = "";
+
+    if (incomingRecords.length > 0) {
+      try {
+        nextAircraftRegistrationRecords = await saveAircraftRegistrationRecordsToServer(incomingRecords, "merge");
+        serverRegistrationSyncMessage = " · 서버 저장";
+      } catch (serverError) {
+        saveAircraftRegistrationRecords(nextAircraftRegistrationRecords);
+        serverRegistrationSyncMessage =
+          serverError instanceof Error
+            ? ` · 서버 저장 실패: ${serverError.message}`
+            : " · 서버 저장 실패";
+      }
+    } else {
+      saveAircraftRegistrationRecords(nextAircraftRegistrationRecords);
+    }
+
     setAircraftRegistrationRecords(nextAircraftRegistrationRecords);
-    saveAircraftRegistrationRecords(nextAircraftRegistrationRecords);
 
     const nextRows = applyAircraftRegistrationToRows(applyHlMappingToRows(rows, nextMap), nextAircraftRegistrationRecords);
     const nextRooms = rooms.map((room) => ({
@@ -1352,7 +1436,7 @@ export default function FlightsPage() {
     if (nextSelectedRoom?.fixed) {
       try {
         await saveLatestScheduleToServer(normalizeScheduleRoomRows(nextSelectedRoom));
-        setHlMappingStatus(`등록기호 ${savedCount}건 저장 · Schedule Lite/초기화면 반영`);
+        setHlMappingStatus(`등록기호 ${savedCount}건 저장${serverRegistrationSyncMessage} · Schedule Lite/초기화면 반영`);
       } catch (error) {
         setHlMappingStatus(
           error instanceof Error
@@ -1363,7 +1447,7 @@ export default function FlightsPage() {
       return;
     }
 
-    setHlMappingStatus(`등록기호 ${savedCount}건 저장`);
+    setHlMappingStatus(`등록기호 ${savedCount}건 저장${serverRegistrationSyncMessage}`);
   };
 
   const handleFlightsInputChange = (value: string) => {
