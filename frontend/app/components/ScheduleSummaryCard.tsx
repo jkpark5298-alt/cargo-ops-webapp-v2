@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { FlightRow, MonitorRoom } from "../page";
 
 type ScheduleSummaryCardProps = {
@@ -63,24 +63,75 @@ export function ScheduleSummaryCard({
 }
 
 function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
-  const items = getFlightRouteItems(room);
+  const baseItems = useMemo(() => getFlightRouteItems(room), [room]);
+  const orderStorageKey = getScheduleFlightOrderStorageKey(room);
+  const [manualOrder, setManualOrder] = useState<string[]>([]);
+
+  useEffect(() => {
+    setManualOrder(loadScheduleFlightOrder(orderStorageKey));
+  }, [orderStorageKey]);
+
+  const items = useMemo(
+    () => applyScheduleFlightOrder(baseItems, manualOrder),
+    [baseItems, manualOrder],
+  );
+
+  const moveFlight = (flight: string, direction: -1 | 1) => {
+    const currentKeys = items.map((item) => normalizeSummaryFlightKey(item.flight));
+    const targetKey = normalizeSummaryFlightKey(flight);
+    const currentIndex = currentKeys.indexOf(targetKey);
+    const nextIndex = currentIndex + direction;
+
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= currentKeys.length) return;
+
+    const nextOrder = [...currentKeys];
+    const [moved] = nextOrder.splice(currentIndex, 1);
+    nextOrder.splice(nextIndex, 0, moved);
+
+    setManualOrder(nextOrder);
+    saveScheduleFlightOrder(orderStorageKey, nextOrder);
+  };
 
   return (
     <div style={flightRouteOnlyBlockStyle}>
       {items.length > 0 ? (
-        items.map((item) => (
-          <div key={`${item.flight}-${item.route}`} style={flightRouteRowStyle}>
-            <div style={flightRoutePrimaryLineStyle}>
-              <span style={flightRouteNoStyle}>{item.flight}</span>
-              <span style={flightRouteValueStyle}>{formatRouteInline(item.route)}</span>
-              {item.registrationNo ? <span style={flightRouteHlStyle}>{item.registrationNo}</span> : null}
-            </div>
-            <div style={getFlightRouteMetaStyle(item.status)}>
-              {item.status && item.status !== "-" ? (
-                <span style={getStatusBadgeStyle(item.status)}>{item.status}</span>
-              ) : null}
-              {item.time && item.time !== "-" ? <span>{item.status && item.status !== "-" ? " · " : ""}{item.time}</span> : null}
-              {item.gate ? <span> · G{item.gate}</span> : null}
+        items.map((item, index) => (
+          <div key={`${item.flight}-${item.route}-${index}`} style={flightRouteRowStyle}>
+            <div style={flightRouteRowHeaderStyle}>
+              <div style={flightRouteTextBlockStyle}>
+                <div style={flightRoutePrimaryLineStyle}>
+                  <span style={flightRouteNoStyle}>{item.flight}</span>
+                  <span style={flightRouteValueStyle}>{formatRouteInline(item.route)}</span>
+                  {item.registrationNo ? <span style={flightRouteHlStyle}>{item.registrationNo}</span> : null}
+                </div>
+                <div style={getFlightRouteMetaStyle(item.status)}>
+                  {item.status && item.status !== "-" ? (
+                    <span style={getStatusBadgeStyle(item.status)}>{item.status}</span>
+                  ) : null}
+                  {item.time && item.time !== "-" ? <span>{item.status && item.status !== "-" ? " · " : ""}{item.time}</span> : null}
+                  {item.gate ? <span> · G{item.gate}</span> : null}
+                </div>
+              </div>
+              <div style={flightMoveButtonGroupStyle}>
+                <button
+                  type="button"
+                  onClick={() => moveFlight(item.flight, -1)}
+                  disabled={index === 0}
+                  style={index === 0 ? flightMoveButtonDisabledStyle : flightMoveButtonStyle}
+                  aria-label={`${item.flight} 위로 이동`}
+                >
+                  ▲
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moveFlight(item.flight, 1)}
+                  disabled={index === items.length - 1}
+                  style={index === items.length - 1 ? flightMoveButtonDisabledStyle : flightMoveButtonStyle}
+                  aria-label={`${item.flight} 아래로 이동`}
+                >
+                  ▼
+                </button>
+              </div>
             </div>
           </div>
         ))
@@ -138,6 +189,50 @@ function formatApiLookupTime(value?: string) {
 
 function normalizeSummaryFlightKey(value: string) {
   return value.replace(/\s+/g, "").toUpperCase();
+}
+
+function getScheduleFlightOrderStorageKey(room: MonitorRoom | null) {
+  return `cargo_ops_schedule_flight_order_${room?.id || "latest"}`;
+}
+
+function loadScheduleFlightOrder(storageKey: string) {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed)
+      ? parsed.map((value) => normalizeSummaryFlightKey(String(value))).filter(Boolean)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveScheduleFlightOrder(storageKey: string, order: string[]) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(order));
+  } catch {
+    // 순서 저장 실패는 화면 동작을 막지 않습니다.
+  }
+}
+
+function applyScheduleFlightOrder<T extends { flight: string }>(items: T[], manualOrder: string[]) {
+  if (manualOrder.length === 0) return items;
+
+  const orderMap = new Map(manualOrder.map((key, index) => [key, index]));
+
+  return [...items].sort((a, b) => {
+    const aKey = normalizeSummaryFlightKey(a.flight);
+    const bKey = normalizeSummaryFlightKey(b.flight);
+    const aIndex = orderMap.has(aKey) ? orderMap.get(aKey)! : Number.MAX_SAFE_INTEGER;
+    const bIndex = orderMap.has(bKey) ? orderMap.get(bKey)! : Number.MAX_SAFE_INTEGER;
+
+    if (aIndex !== bIndex) return aIndex - bIndex;
+    return items.indexOf(a) - items.indexOf(b);
+  });
 }
 
 function getSummaryFlightOrderIndex(room: MonitorRoom, flight: string) {
@@ -521,6 +616,43 @@ const flightRouteRowStyle: CSSProperties = {
   color: "#f8fafc",
   fontWeight: 900,
   lineHeight: 1.32,
+};
+
+const flightRouteRowHeaderStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr auto",
+  alignItems: "center",
+  gap: 8,
+};
+
+const flightRouteTextBlockStyle: CSSProperties = {
+  minWidth: 0,
+};
+
+const flightMoveButtonGroupStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, 32px)",
+  gap: 4,
+};
+
+const flightMoveButtonStyle: CSSProperties = {
+  width: 32,
+  height: 30,
+  border: "1px solid rgba(96, 165, 250, 0.48)",
+  borderRadius: 10,
+  background: "rgba(37, 99, 235, 0.22)",
+  color: "#dbeafe",
+  fontSize: 12,
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const flightMoveButtonDisabledStyle: CSSProperties = {
+  ...flightMoveButtonStyle,
+  background: "rgba(51, 65, 85, 0.62)",
+  border: "1px solid rgba(100, 116, 139, 0.34)",
+  color: "#94a3b8",
+  cursor: "not-allowed",
 };
 
 const flightRoutePrimaryLineStyle: CSSProperties = {
