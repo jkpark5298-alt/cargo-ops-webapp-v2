@@ -126,30 +126,24 @@ export function IssueRecordCard({
         특이사항 발생 시 날짜, 시간, 편명, 구간, HL NBR, 날씨, 작성자, 이미지와 메모를 함께 저장합니다.
       </p>
 
-      {issueImage ? (
-        <SimpleIssueImageViewCard
+      <div
+        tabIndex={0}
+        contentEditable
+        suppressContentEditableWarning
+        role="button"
+        aria-label="특이사항 이미지 붙여넣기 영역"
+        onPaste={handlePasteImage}
+        style={pasteTargetStyle}
+      >
+        <ImageRegistrationCard
           slot={issueImageSlot}
           image={issueImage}
-          onView={openLatestImage}
+          onCamera={openCamera}
+          onLibrary={openPhotoLibrary}
+          onPaste={() => void handlePasteButton()}
+          onView={() => issueImage ? openLatestImage(issueImage) : window.alert("등록된 이미지가 없습니다.")}
         />
-      ) : (
-        <div
-          tabIndex={0}
-          contentEditable
-          suppressContentEditableWarning
-          role="button"
-          aria-label="특이사항 이미지 붙여넣기 영역"
-          onPaste={handlePasteImage}
-          style={pasteTargetStyle}
-        >
-          <ImageRegistrationCard
-            slot={issueImageSlot}
-            onCamera={openCamera}
-            onLibrary={openPhotoLibrary}
-            onPaste={() => void handlePasteButton()}
-          />
-        </div>
-      )}
+      </div>
 
       <div style={formGridStyle}>
         <div style={fieldBlockStyle}>
@@ -268,14 +262,18 @@ export function IssueRecordCard({
 
 function ImageRegistrationCard({
   slot,
+  image,
   onCamera,
   onLibrary,
   onPaste,
+  onView,
 }: {
   slot: ImageSlot;
+  image?: SavedImage | null;
   onCamera: () => void;
   onLibrary: () => void;
   onPaste: () => void;
+  onView: () => void;
 }) {
   return (
     <div style={imageRegistrationCardStyle}>
@@ -283,6 +281,18 @@ function ImageRegistrationCard({
         <div style={imageRegistrationTitleStyle}>{slot.title}</div>
         <div style={imageRegistrationDescStyle}>{slot.description}</div>
       </div>
+
+      {image ? (
+        <button
+          type="button"
+          onClick={onView}
+          aria-label={`${slot.title} 이미지 보기`}
+          style={simpleImagePreviewButtonStyle}
+        >
+          <img src={image.dataUrl} alt={slot.title} style={simpleImagePreviewStyle} />
+        </button>
+      ) : null}
+
       <div style={imageRegistrationButtonRowStyle}>
         <button type="button" onClick={onCamera} style={compactImageButtonStyle}>
           촬영
@@ -292,6 +302,9 @@ function ImageRegistrationCard({
         </button>
         <button type="button" onClick={onPaste} style={compactPasteButtonStyle}>
           붙여넣기
+        </button>
+        <button type="button" onClick={onView} style={image ? compactViewButtonStyle : compactDisabledButtonStyle}>
+          보기
         </button>
       </div>
     </div>
@@ -359,17 +372,17 @@ const imageRegistrationDescStyle: CSSProperties = {
 
 const imageRegistrationButtonRowStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-  gap: 6,
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  gap: 5,
 };
 
 const compactImageButtonStyle: CSSProperties = {
   border: "1px solid #334155",
-  borderRadius: 10,
+  borderRadius: 9,
   background: "#1e293b",
   color: "#e5edf7",
-  padding: "8px 4px",
-  fontSize: 12,
+  padding: "8px 2px",
+  fontSize: 11,
   fontWeight: 900,
   cursor: "pointer",
   whiteSpace: "nowrap",
@@ -380,6 +393,21 @@ const compactPasteButtonStyle: CSSProperties = {
   background: "#2563eb",
   border: "1px solid #60a5fa",
   color: "#ffffff",
+};
+
+const compactViewButtonStyle: CSSProperties = {
+  ...compactImageButtonStyle,
+  background: "#0f766e",
+  border: "1px solid #2dd4bf",
+  color: "#ffffff",
+};
+
+const compactDisabledButtonStyle: CSSProperties = {
+  ...compactImageButtonStyle,
+  background: "#334155",
+  border: "1px solid #475569",
+  color: "#94a3b8",
+  cursor: "not-allowed",
 };
 
 const simpleImageCardStyle: CSSProperties = {
