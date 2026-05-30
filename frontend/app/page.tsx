@@ -26,14 +26,20 @@ import {
   type FlightAlertSnapshot,
 } from "./lib/flight-alerts";
 import {
+  clearDailyDraft,
   clearDailyNotionRecord,
+  clearIssueDraft,
   clearIssueNotionRecord,
+  loadDailyDraft,
   loadDailyNotionRecord,
   loadImages,
+  loadIssueDraft,
   loadIssueNotionRecord,
   loadNote,
+  saveDailyDraft,
   saveDailyNotionRecord,
   saveImages,
+  saveIssueDraft,
   saveIssueNotionRecord,
   saveNote,
   getLastDailySaveSignature,
@@ -1028,10 +1034,36 @@ export default function HomePage() {
         room.fixed ? (mergeScheduleRegistrationIntoRoom(room, room) as MonitorRoom) : room,
       ),
     );
+    const savedDailyDraft = loadDailyDraft();
+    const savedIssueDraft = loadIssueDraft();
+
     setImages(loadImages());
-    setNote(loadNote());
+    setNote(savedDailyDraft?.note ?? loadNote());
     setDailyNotionRecord(loadDailyNotionRecord());
     setIssueNotionRecord(loadIssueNotionRecord());
+
+    if (savedDailyDraft?.status) {
+      setDailyStatus(savedDailyDraft.status);
+    }
+    if (savedDailyDraft?.author) {
+      setAuthor(savedDailyDraft.author);
+    }
+    if (savedDailyDraft?.workDate) {
+      setDailyWorkDate(savedDailyDraft.workDate);
+    }
+
+    if (savedIssueDraft) {
+      setIssueFlight(savedIssueDraft.flight);
+      setIssueRoute(savedIssueDraft.route);
+      setIssueHlnbr(savedIssueDraft.hlnbr);
+      setIssueText(savedIssueDraft.text);
+      if (savedIssueDraft.author) {
+        setAuthor(savedIssueDraft.author);
+      }
+      if (savedIssueDraft.status === "issue" || savedIssueDraft.text.trim()) {
+        setDailyStatus("issue");
+      }
+    }
 
     const savedSnapshot = loadFlightAlertSnapshot();
     const savedHistory = loadFlightAlertHistory();
@@ -2084,16 +2116,47 @@ export default function HomePage() {
   };
 
 
-  const handleSaveIssueDraft = () => {
+  const saveCurrentDailyDraft = (status: "normal" | "issue" = dailyStatus) => {
+    saveImages(images);
     saveNote(note);
-    setNotice("\uD2B9\uC774\uC0AC\uD56D\uC744 \uC784\uC2DC \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.");
+    saveDailyDraft({
+      note,
+      status,
+      author,
+      workDate: dailyWorkDate,
+      savedAt: new Date().toISOString(),
+    });
+  };
+
+  const saveCurrentIssueDraft = (status: "normal" | "issue" = "issue") => {
+    saveIssueDraft({
+      flight: issueFlight,
+      route: issueRoute,
+      hlnbr: issueHlnbr,
+      text: issueText,
+      status,
+      author,
+      savedAt: new Date().toISOString(),
+    });
+  };
+
+  const handleSaveIssueDraft = () => {
+    saveCurrentDailyDraft("issue");
+    saveCurrentIssueDraft("issue");
+    setNotice("특이사항을 임시 저장했습니다. 앱을 다시 열어도 입력 내용이 유지됩니다.");
   };
 
   const handleSaveDailyDraft = () => {
+    saveCurrentDailyDraft(dailyStatus);
+
+    if (dailyStatus === "issue") {
+      saveCurrentIssueDraft("issue");
+    }
+
     setNotice(
       dailyStatus === "normal"
-        ? "일일 업무 기록을 임시 저장했습니다. 상태: 이상 없음"
-        : "일일 업무 기록을 임시 저장했습니다. 특이사항 입력 화면을 확인하세요.",
+        ? "일일 업무 기록을 임시 저장했습니다. 앱을 다시 열어도 유지됩니다."
+        : "일일 업무 기록과 특이사항 입력 내용을 임시 저장했습니다. 앱을 다시 열어도 유지됩니다.",
     );
   };
 
@@ -2242,6 +2305,8 @@ export default function HomePage() {
 
     saveImages([]);
     saveNote("");
+    clearDailyDraft();
+    clearIssueDraft();
     clearDailyNotionRecord();
     clearIssueNotionRecord();
 

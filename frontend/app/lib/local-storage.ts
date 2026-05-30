@@ -15,6 +15,15 @@ const ISSUE_NOTION_RECORD_KEY = "cargo_ops_issue_notion_record_v1";
 const DAILY_SAVE_SIGNATURE_KEY = "cargo_ops_daily_save_signature_v1";
 const ISSUE_SAVE_SIGNATURE_KEY = "cargo_ops_issue_save_signature_v1";
 const ISSUE_DRAFT_KEY = "cargo_ops_issue_draft_v1";
+const DAILY_DRAFT_KEY = "cargo_ops_daily_draft_v1";
+
+export type DailyDraft = {
+  note: string;
+  status: "normal" | "issue";
+  author: string;
+  workDate: string;
+  savedAt: string;
+};
 
 export type IssueDraft = {
   flight: string;
@@ -23,8 +32,40 @@ export type IssueDraft = {
   text: string;
   status: "normal" | "issue";
   author: string;
+  savedAt?: string;
 };
 
+
+
+export function loadDailyDraft(): DailyDraft | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = localStorage.getItem(DAILY_DRAFT_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    return {
+      note: typeof parsed?.note === "string" ? parsed.note : "",
+      status: parsed?.status === "issue" ? "issue" : "normal",
+      author: typeof parsed?.author === "string" ? parsed.author : "jkpark",
+      workDate: typeof parsed?.workDate === "string" ? parsed.workDate : "",
+      savedAt: typeof parsed?.savedAt === "string" ? parsed.savedAt : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function saveDailyDraft(draft: DailyDraft) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(DAILY_DRAFT_KEY, JSON.stringify(draft));
+}
+
+export function clearDailyDraft() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(DAILY_DRAFT_KEY);
+}
 
 export function loadIssueDraft(): IssueDraft | null {
   if (typeof window === "undefined") return null;
@@ -41,6 +82,7 @@ export function loadIssueDraft(): IssueDraft | null {
       text: typeof parsed?.text === "string" ? parsed.text : "",
       status: parsed?.status === "issue" ? "issue" : "normal",
       author: typeof parsed?.author === "string" ? parsed.author : "jkpark",
+      savedAt: typeof parsed?.savedAt === "string" ? parsed.savedAt : "",
     };
   } catch {
     return null;
