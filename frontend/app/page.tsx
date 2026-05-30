@@ -2169,16 +2169,28 @@ export default function HomePage() {
   };
 
   const handleDeleteImageSlot = (slotKey: ImageSlotKey) => {
-    const image = getImageBySlot(images, slotKey);
-    if (!image) return false;
+    const slotImages = getImagesBySlot(images, slotKey);
+    if (slotImages.length === 0) return false;
 
-    const confirmed = window.confirm("이 이미지를 삭제할까요?");
+    const confirmed = window.confirm("이 항목의 이미지를 모두 삭제할까요?");
     if (!confirmed) return false;
 
     const nextImages = removeImageBySlot(images, slotKey);
-    persistImages(nextImages, `${image.label}를 삭제했습니다.`);
+    persistImages(nextImages, `${slotImages[0].label} 항목의 이미지를 삭제했습니다.`);
     setImageViewerImage((current) =>
       current?.type === slotKey ? null : current,
+    );
+    return true;
+  };
+
+  const handleDeleteSingleImage = (targetImage: SavedImage) => {
+    const confirmed = window.confirm("이 이미지만 삭제할까요?");
+    if (!confirmed) return false;
+
+    const nextImages = images.filter((image) => image.id !== targetImage.id);
+    persistImages(nextImages, `${targetImage.label} 이미지를 삭제했습니다.`);
+    setImageViewerImage((current) =>
+      current?.id === targetImage.id ? null : current,
     );
     return true;
   };
@@ -2703,6 +2715,7 @@ export default function HomePage() {
           openPhotoLibrary={openPhotoLibrary}
           openLatestImage={openLatestImage}
           handleDeleteImageSlot={handleDeleteImageSlot}
+          handleDeleteSingleImage={handleDeleteSingleImage}
           cameraInputRef={cameraInputRef}
           libraryInputRef={libraryInputRef}
           handleImageSelected={handleImageSelected}
@@ -2731,6 +2744,7 @@ export default function HomePage() {
             openPhotoLibrary={() => openPhotoLibrary(ISSUE_IMAGE_SLOT.key)}
             openLatestImage={openLatestImage}
             handleDeleteImageSlot={() => handleDeleteImageSlot(ISSUE_IMAGE_SLOT.key)}
+            handleDeleteSingleImage={handleDeleteSingleImage}
             handlePastedImage={(file) => handlePastedImage(ISSUE_IMAGE_SLOT.key, file)}
             todayText={todayText}
             currentTimeText={getCurrentTimeText()}

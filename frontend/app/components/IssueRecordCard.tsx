@@ -17,6 +17,7 @@ type IssueRecordCardProps = {
   openPhotoLibrary: () => void;
   openLatestImage: (image: SavedImage) => void;
   handleDeleteImageSlot: () => void;
+  handleDeleteSingleImage: (image: SavedImage) => void;
   handlePastedImage: (file: File) => void;
   todayText: string;
   currentTimeText: string;
@@ -50,6 +51,7 @@ export function IssueRecordCard({
   openPhotoLibrary,
   openLatestImage,
   handleDeleteImageSlot,
+  handleDeleteSingleImage,
   handlePastedImage,
   todayText,
   currentTimeText,
@@ -146,6 +148,7 @@ export function IssueRecordCard({
           onPaste={() => void handlePasteButton()}
           onView={() => issueImage ? openLatestImage(issueImage) : window.alert("등록된 이미지가 없습니다.")}
           onViewImage={openLatestImage}
+          onDeleteImage={handleDeleteSingleImage}
         />
       </div>
 
@@ -273,6 +276,7 @@ function ImageRegistrationCard({
   onPaste,
   onView,
   onViewImage,
+  onDeleteImage,
 }: {
   slot: ImageSlot;
   image?: SavedImage | null;
@@ -282,6 +286,7 @@ function ImageRegistrationCard({
   onPaste: () => void;
   onView: () => void;
   onViewImage: (image: SavedImage) => void;
+  onDeleteImage: (image: SavedImage) => void;
 }) {
   return (
     <div style={imageRegistrationCardStyle}>
@@ -308,16 +313,28 @@ function ImageRegistrationCard({
       {images.length > 0 ? (
         <div style={multiImagePreviewGridStyle}>
           {images.map((item, index) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onViewImage(item)}
-              aria-label={`${slot.title} ${index + 1}번째 이미지 보기`}
-              style={multiImagePreviewButtonStyle}
-            >
-              <img src={item.dataUrl} alt={`${slot.title} ${index + 1}`} style={multiImagePreviewStyle} />
-              <span style={multiImageIndexBadgeStyle}>{index + 1}</span>
-            </button>
+            <div key={item.id} style={multiImagePreviewItemStyle}>
+              <button
+                type="button"
+                onClick={() => onViewImage(item)}
+                aria-label={`${slot.title} ${index + 1}번째 이미지 보기`}
+                style={multiImagePreviewButtonStyle}
+              >
+                <img src={item.dataUrl} alt={`${slot.title} ${index + 1}`} style={multiImagePreviewStyle} />
+                <span style={multiImageIndexBadgeStyle}>{index + 1}</span>
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDeleteImage(item);
+                }}
+                aria-label={`${slot.title} ${index + 1}번째 이미지 삭제`}
+                style={multiImageDeleteButtonStyle}
+              >
+                ×
+              </button>
+            </div>
           ))}
         </div>
       ) : null}
@@ -430,6 +447,10 @@ const multiImagePreviewGridStyle: CSSProperties = {
   gap: 8,
 };
 
+const multiImagePreviewItemStyle: CSSProperties = {
+  position: "relative",
+};
+
 const multiImagePreviewButtonStyle: CSSProperties = {
   position: "relative",
   border: "1px solid #334155",
@@ -438,6 +459,7 @@ const multiImagePreviewButtonStyle: CSSProperties = {
   background: "transparent",
   cursor: "pointer",
   overflow: "hidden",
+  width: "100%",
 };
 
 const multiImagePreviewStyle: CSSProperties = {
@@ -461,6 +483,26 @@ const multiImageIndexBadgeStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
+};
+
+const multiImageDeleteButtonStyle: CSSProperties = {
+  position: "absolute",
+  right: 8,
+  top: 8,
+  width: 28,
+  height: 28,
+  border: "1px solid rgba(248, 113, 113, 0.75)",
+  borderRadius: 999,
+  background: "rgba(127, 29, 29, 0.92)",
+  color: "#ffffff",
+  fontSize: 18,
+  lineHeight: "24px",
+  fontWeight: 900,
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  zIndex: 2,
 };
 
 const simpleImageCardStyle: CSSProperties = {

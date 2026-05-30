@@ -37,6 +37,7 @@ type DailyRecordCardProps = {
   openPhotoLibrary: (slotKey: ImageSlotKey) => void;
   openLatestImage: (image: SavedImage) => void;
   handleDeleteImageSlot: (slotKey: ImageSlotKey) => void;
+  handleDeleteSingleImage: (image: SavedImage) => void;
   cameraInputRef: RefObject<HTMLInputElement | null>;
   libraryInputRef: RefObject<HTMLInputElement | null>;
   handleImageSelected: (
@@ -73,6 +74,7 @@ export function DailyRecordCard({
   openPhotoLibrary,
   openLatestImage,
   handleDeleteImageSlot,
+  handleDeleteSingleImage,
   cameraInputRef,
   libraryInputRef,
   handleImageSelected,
@@ -210,6 +212,7 @@ export function DailyRecordCard({
                 onPaste={() => void handlePasteButtonToSlot(slot.key)}
                 onView={() => latestImage ? openLatestImage(latestImage) : window.alert("등록된 이미지가 없습니다.")}
                 onViewImage={openLatestImage}
+                onDeleteImage={handleDeleteSingleImage}
               />
               <PhotoMemoPreview images={slotImages} />
             </div>
@@ -308,6 +311,7 @@ function ImageRegistrationCard({
   onPaste,
   onView,
   onViewImage,
+  onDeleteImage,
 }: {
   slot: ImageSlot;
   image?: SavedImage;
@@ -317,6 +321,7 @@ function ImageRegistrationCard({
   onPaste: () => void;
   onView: () => void;
   onViewImage: (image: SavedImage) => void;
+  onDeleteImage: (image: SavedImage) => void;
 }) {
   return (
     <div style={imageRegistrationCardStyle}>
@@ -343,16 +348,28 @@ function ImageRegistrationCard({
       {images.length > 0 ? (
         <div style={multiImagePreviewGridStyle}>
           {images.map((item, index) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onViewImage(item)}
-              aria-label={`${slot.title} ${index + 1}번째 이미지 보기`}
-              style={multiImagePreviewButtonStyle}
-            >
-              <img src={item.dataUrl} alt={`${slot.title} ${index + 1}`} style={multiImagePreviewStyle} />
-              <span style={multiImageIndexBadgeStyle}>{index + 1}</span>
-            </button>
+            <div key={item.id} style={multiImagePreviewItemStyle}>
+              <button
+                type="button"
+                onClick={() => onViewImage(item)}
+                aria-label={`${slot.title} ${index + 1}번째 이미지 보기`}
+                style={multiImagePreviewButtonStyle}
+              >
+                <img src={item.dataUrl} alt={`${slot.title} ${index + 1}`} style={multiImagePreviewStyle} />
+                <span style={multiImageIndexBadgeStyle}>{index + 1}</span>
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDeleteImage(item);
+                }}
+                aria-label={`${slot.title} ${index + 1}번째 이미지 삭제`}
+                style={multiImageDeleteButtonStyle}
+              >
+                ×
+              </button>
+            </div>
           ))}
         </div>
       ) : null}
@@ -493,6 +510,10 @@ const multiImagePreviewGridStyle: CSSProperties = {
   gap: 8,
 };
 
+const multiImagePreviewItemStyle: CSSProperties = {
+  position: "relative",
+};
+
 const multiImagePreviewButtonStyle: CSSProperties = {
   position: "relative",
   border: "1px solid #334155",
@@ -501,6 +522,7 @@ const multiImagePreviewButtonStyle: CSSProperties = {
   background: "transparent",
   cursor: "pointer",
   overflow: "hidden",
+  width: "100%",
 };
 
 const multiImagePreviewStyle: CSSProperties = {
@@ -524,6 +546,26 @@ const multiImageIndexBadgeStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
+};
+
+const multiImageDeleteButtonStyle: CSSProperties = {
+  position: "absolute",
+  right: 8,
+  top: 8,
+  width: 28,
+  height: 28,
+  border: "1px solid rgba(248, 113, 113, 0.75)",
+  borderRadius: 999,
+  background: "rgba(127, 29, 29, 0.92)",
+  color: "#ffffff",
+  fontSize: 18,
+  lineHeight: "24px",
+  fontWeight: 900,
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  zIndex: 2,
 };
 
 const simpleImageCardStyle: CSSProperties = {
