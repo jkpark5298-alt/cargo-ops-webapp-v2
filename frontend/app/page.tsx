@@ -2726,6 +2726,7 @@ export default function HomePage() {
           <IssueRecordCard
             issueImageSlot={ISSUE_IMAGE_SLOT}
             issueImage={getImageBySlot(images, ISSUE_IMAGE_SLOT.key)}
+            issueImages={getImagesBySlot(images, ISSUE_IMAGE_SLOT.key)}
             openCamera={() => openCamera(ISSUE_IMAGE_SLOT.key)}
             openPhotoLibrary={() => openPhotoLibrary(ISSUE_IMAGE_SLOT.key)}
             openLatestImage={openLatestImage}

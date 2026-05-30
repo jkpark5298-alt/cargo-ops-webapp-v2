@@ -12,6 +12,7 @@ type IssueNotionRecord = {
 type IssueRecordCardProps = {
   issueImageSlot: ImageSlot;
   issueImage: SavedImage | null;
+  issueImages: SavedImage[];
   openCamera: () => void;
   openPhotoLibrary: () => void;
   openLatestImage: (image: SavedImage) => void;
@@ -44,6 +45,7 @@ type IssueRecordCardProps = {
 export function IssueRecordCard({
   issueImageSlot,
   issueImage,
+  issueImages,
   openCamera,
   openPhotoLibrary,
   openLatestImage,
@@ -138,10 +140,12 @@ export function IssueRecordCard({
         <ImageRegistrationCard
           slot={issueImageSlot}
           image={issueImage}
+          images={issueImages}
           onCamera={openCamera}
           onLibrary={openPhotoLibrary}
           onPaste={() => void handlePasteButton()}
           onView={() => issueImage ? openLatestImage(issueImage) : window.alert("등록된 이미지가 없습니다.")}
+          onViewImage={openLatestImage}
         />
       </div>
 
@@ -263,17 +267,21 @@ export function IssueRecordCard({
 function ImageRegistrationCard({
   slot,
   image,
+  images,
   onCamera,
   onLibrary,
   onPaste,
   onView,
+  onViewImage,
 }: {
   slot: ImageSlot;
   image?: SavedImage | null;
+  images: SavedImage[];
   onCamera: () => void;
   onLibrary: () => void;
   onPaste: () => void;
   onView: () => void;
+  onViewImage: (image: SavedImage) => void;
 }) {
   return (
     <div style={imageRegistrationCardStyle}>
@@ -281,17 +289,6 @@ function ImageRegistrationCard({
         <div style={imageRegistrationTitleStyle}>{slot.title}</div>
         <div style={imageRegistrationDescStyle}>{slot.description}</div>
       </div>
-
-      {image ? (
-        <button
-          type="button"
-          onClick={onView}
-          aria-label={`${slot.title} 이미지 보기`}
-          style={simpleImagePreviewButtonStyle}
-        >
-          <img src={image.dataUrl} alt={slot.title} style={simpleImagePreviewStyle} />
-        </button>
-      ) : null}
 
       <div style={imageRegistrationButtonRowStyle}>
         <button type="button" onClick={onCamera} style={compactImageButtonStyle}>
@@ -307,6 +304,23 @@ function ImageRegistrationCard({
           보기
         </button>
       </div>
+
+      {images.length > 0 ? (
+        <div style={multiImagePreviewGridStyle}>
+          {images.map((item, index) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onViewImage(item)}
+              aria-label={`${slot.title} ${index + 1}번째 이미지 보기`}
+              style={multiImagePreviewButtonStyle}
+            >
+              <img src={item.dataUrl} alt={`${slot.title} ${index + 1}`} style={multiImagePreviewStyle} />
+              <span style={multiImageIndexBadgeStyle}>{index + 1}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -408,6 +422,45 @@ const compactDisabledButtonStyle: CSSProperties = {
   border: "1px solid #475569",
   color: "#94a3b8",
   cursor: "not-allowed",
+};
+
+const multiImagePreviewGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(132px, 1fr))",
+  gap: 8,
+};
+
+const multiImagePreviewButtonStyle: CSSProperties = {
+  position: "relative",
+  border: "1px solid #334155",
+  borderRadius: 14,
+  padding: 0,
+  background: "transparent",
+  cursor: "pointer",
+  overflow: "hidden",
+};
+
+const multiImagePreviewStyle: CSSProperties = {
+  display: "block",
+  width: "100%",
+  height: 150,
+  objectFit: "cover",
+};
+
+const multiImageIndexBadgeStyle: CSSProperties = {
+  position: "absolute",
+  left: 8,
+  top: 8,
+  minWidth: 22,
+  height: 22,
+  borderRadius: 999,
+  background: "rgba(15, 23, 42, 0.82)",
+  color: "#ffffff",
+  fontSize: 12,
+  fontWeight: 900,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
 };
 
 const simpleImageCardStyle: CSSProperties = {
