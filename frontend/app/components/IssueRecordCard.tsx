@@ -1,7 +1,7 @@
 "use client";
 
 import type { ClipboardEvent, CSSProperties } from "react";
-import { ImageSlotCard, type ImageSlot, type ImageSlotKey, type SavedImage } from "./ImageSlotCard";
+import { type ImageSlot, type ImageSlotKey, type SavedImage } from "./ImageSlotCard";
 
 type IssueNotionRecord = {
   pageId: string;
@@ -85,6 +85,39 @@ export function IssueRecordCard({
     handlePastedImage(file);
   };
 
+  const handlePasteButton = async () => {
+    try {
+      const clipboard = navigator.clipboard as Clipboard & {
+        read?: () => Promise<Array<{ types: string[]; getType: (type: string) => Promise<Blob> }>>;
+      };
+
+      if (!clipboard?.read) {
+        window.alert("이 브라우저에서는 이미지 붙여넣기 버튼을 지원하지 않습니다. 사진촬영 또는 사진첩을 사용해 주세요.");
+        return;
+      }
+
+      const items = await clipboard.read();
+
+      for (const item of items) {
+        const imageType = item.types.find((type) => type.startsWith("image/"));
+        if (!imageType) continue;
+
+        const blob = await item.getType(imageType);
+        const ext = imageType.includes("png") ? "png" : imageType.includes("webp") ? "webp" : "jpg";
+        const file = new File([blob], `pasted-image-${Date.now()}.${ext}`, {
+          type: blob.type || imageType,
+        });
+
+        handlePastedImage(file);
+        return;
+      }
+
+      window.alert("클립보드에 붙여넣을 이미지가 없습니다. 이미지를 먼저 복사해 주세요.");
+    } catch {
+      window.alert("이미지 붙여넣기를 완료하지 못했습니다. 아이폰에서는 붙여넣기 허용을 선택하거나 사진첩을 사용해 주세요.");
+    }
+  };
+
   return (
     <section style={{ ...cardStyle, borderColor: "#f9731666" }}>
       <div style={cardLabelStyle}>특이사항 기록</div>
@@ -106,20 +139,14 @@ export function IssueRecordCard({
           suppressContentEditableWarning
           role="button"
           aria-label="특이사항 이미지 붙여넣기 영역"
-          onClick={(event) => event.currentTarget.focus()}
           onPaste={handlePasteImage}
           style={pasteTargetStyle}
         >
-          <div style={pasteHintStyle}>
-            PC: 클릭 후 Ctrl+V · 아이폰: 길게 눌러 ‘붙여넣기’
-          </div>
-          <ImageSlotCard
+          <ImageRegistrationCard
             slot={issueImageSlot}
-            image={issueImage}
             onCamera={openCamera}
             onLibrary={openPhotoLibrary}
-            onView={openLatestImage}
-            onDelete={handleDeleteImageSlot}
+            onPaste={() => void handlePasteButton()}
           />
         </div>
       )}
@@ -239,6 +266,38 @@ export function IssueRecordCard({
 }
 
 
+function ImageRegistrationCard({
+  slot,
+  onCamera,
+  onLibrary,
+  onPaste,
+}: {
+  slot: ImageSlot;
+  onCamera: () => void;
+  onLibrary: () => void;
+  onPaste: () => void;
+}) {
+  return (
+    <div style={imageRegistrationCardStyle}>
+      <div style={imageRegistrationHeaderStyle}>
+        <div style={imageRegistrationTitleStyle}>{slot.title}</div>
+        <div style={imageRegistrationDescStyle}>{slot.description}</div>
+      </div>
+      <div style={imageRegistrationButtonRowStyle}>
+        <button type="button" onClick={onCamera} style={compactImageButtonStyle}>
+          촬영
+        </button>
+        <button type="button" onClick={onLibrary} style={compactImageButtonStyle}>
+          사진첩
+        </button>
+        <button type="button" onClick={onPaste} style={compactPasteButtonStyle}>
+          붙여넣기
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SimpleIssueImageViewCard({
   slot,
   image,
@@ -271,6 +330,57 @@ function SimpleIssueImageViewCard({
   );
 }
 
+
+const imageRegistrationCardStyle: CSSProperties = {
+  background: "#0f172a",
+  border: "1px dashed #334155",
+  borderRadius: 16,
+  padding: 12,
+  display: "grid",
+  gap: 10,
+};
+
+const imageRegistrationHeaderStyle: CSSProperties = {
+  display: "grid",
+  gap: 4,
+};
+
+const imageRegistrationTitleStyle: CSSProperties = {
+  color: "#f8fafc",
+  fontSize: 15,
+  fontWeight: 900,
+};
+
+const imageRegistrationDescStyle: CSSProperties = {
+  color: "#94a3b8",
+  fontSize: 12,
+  lineHeight: 1.45,
+};
+
+const imageRegistrationButtonRowStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: 6,
+};
+
+const compactImageButtonStyle: CSSProperties = {
+  border: "1px solid #334155",
+  borderRadius: 10,
+  background: "#1e293b",
+  color: "#e5edf7",
+  padding: "8px 4px",
+  fontSize: 12,
+  fontWeight: 900,
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+};
+
+const compactPasteButtonStyle: CSSProperties = {
+  ...compactImageButtonStyle,
+  background: "#2563eb",
+  border: "1px solid #60a5fa",
+  color: "#ffffff",
+};
 
 const simpleImageCardStyle: CSSProperties = {
   background: "#0f172a",
@@ -484,9 +594,3 @@ const pasteTargetStyle: CSSProperties = {
   userSelect: "text",
 };
 
-const pasteHintStyle: CSSProperties = {
-  margin: "0 0 8px",
-  color: "#fdba74",
-  fontSize: 12,
-  fontWeight: 800,
-};
