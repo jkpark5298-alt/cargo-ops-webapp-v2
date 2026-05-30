@@ -2,6 +2,7 @@
 
 import type {
   ChangeEvent,
+  ClipboardEvent,
   CSSProperties,
   Dispatch,
   Ref,
@@ -42,6 +43,7 @@ type DailyRecordCardProps = {
     event: ChangeEvent<HTMLInputElement>,
     sourceLabel: "카메라 촬영" | "사진첩 선택",
   ) => void;
+  handlePastedImage: (slotKey: ImageSlotKey, file: File) => void;
   author: string;
   setAuthor: Dispatch<SetStateAction<string>>;
   note: string;
@@ -74,6 +76,7 @@ export function DailyRecordCard({
   cameraInputRef,
   libraryInputRef,
   handleImageSelected,
+  handlePastedImage,
   author,
   setAuthor,
   note,
@@ -88,6 +91,18 @@ export function DailyRecordCard({
   openNotionDatabase,
   handleResetLocalDraft,
 }: DailyRecordCardProps) {
+  const handlePasteImageToSlot = (event: ClipboardEvent<HTMLDivElement>, slotKey: ImageSlotKey) => {
+    const imageItem = Array.from(event.clipboardData.items).find((item) =>
+      item.type.startsWith("image/"),
+    );
+    const file = imageItem?.getAsFile();
+
+    if (!file) return;
+
+    event.preventDefault();
+    handlePastedImage(slotKey, file);
+  };
+
   return (
     <section style={cardStyle}>
       <div style={cardLabelStyle}>일일 업무 기록</div>
@@ -141,7 +156,13 @@ export function DailyRecordCard({
           const slotImages = images.filter((image) => image.type === slot.key) as SavedImageWithMemo[];
 
           return (
-            <div key={slot.key}>
+            <div
+              key={slot.key}
+              tabIndex={0}
+              onPaste={(event) => handlePasteImageToSlot(event, slot.key)}
+              style={pasteTargetStyle}
+            >
+              <div style={pasteHintStyle}>PC: 이 영역 클릭 후 Ctrl+V로 이미지 붙여넣기</div>
               <ImageSlotCard
                 slot={slot}
                 image={getImageBySlot(images, slot.key)}
@@ -524,4 +545,16 @@ const dangerButtonStyle: CSSProperties = {
   fontSize: 15,
   fontWeight: 900,
   cursor: "pointer",
+};
+
+
+const pasteTargetStyle: CSSProperties = {
+  outline: "none",
+};
+
+const pasteHintStyle: CSSProperties = {
+  margin: "0 0 8px",
+  color: "#93c5fd",
+  fontSize: 12,
+  fontWeight: 800,
 };

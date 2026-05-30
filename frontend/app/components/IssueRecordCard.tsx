@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import type { ClipboardEvent, CSSProperties } from "react";
 import { ImageSlotCard, type ImageSlot, type ImageSlotKey, type SavedImage } from "./ImageSlotCard";
 
 type IssueNotionRecord = {
@@ -16,6 +16,7 @@ type IssueRecordCardProps = {
   openPhotoLibrary: () => void;
   openLatestImage: (image: SavedImage) => void;
   handleDeleteImageSlot: () => void;
+  handlePastedImage: (file: File) => void;
   todayText: string;
   currentTimeText: string;
   issueFlight: string;
@@ -47,6 +48,7 @@ export function IssueRecordCard({
   openPhotoLibrary,
   openLatestImage,
   handleDeleteImageSlot,
+  handlePastedImage,
   todayText,
   currentTimeText,
   issueFlight,
@@ -70,6 +72,18 @@ export function IssueRecordCard({
   openNotionDatabase,
   handleResetLocalDraft,
 }: IssueRecordCardProps) {
+  const handlePasteImage = (event: ClipboardEvent<HTMLDivElement>) => {
+    const imageItem = Array.from(event.clipboardData.items).find((item) =>
+      item.type.startsWith("image/"),
+    );
+    const file = imageItem?.getAsFile();
+
+    if (!file) return;
+
+    event.preventDefault();
+    handlePastedImage(file);
+  };
+
   return (
     <section style={{ ...cardStyle, borderColor: "#f9731666" }}>
       <div style={cardLabelStyle}>특이사항 기록</div>
@@ -78,14 +92,17 @@ export function IssueRecordCard({
         특이사항 발생 시 날짜, 시간, 편명, 구간, HL NBR, 날씨, 작성자, 이미지와 메모를 함께 저장합니다.
       </p>
 
-      <ImageSlotCard
-        slot={issueImageSlot}
+      <div tabIndex={0} onPaste={handlePasteImage} style={pasteTargetStyle}>
+        <div style={pasteHintStyle}>PC: 이 영역 클릭 후 Ctrl+V로 이미지 붙여넣기</div>
+        <ImageSlotCard
+          slot={issueImageSlot}
         image={issueImage}
         onCamera={openCamera}
         onLibrary={openPhotoLibrary}
         onView={openLatestImage}
-        onDelete={handleDeleteImageSlot}
-      />
+          onDelete={handleDeleteImageSlot}
+        />
+      </div>
 
       <div style={formGridStyle}>
         <div style={fieldBlockStyle}>
@@ -346,4 +363,16 @@ const dangerButtonStyle: CSSProperties = {
   fontSize: 15,
   fontWeight: 900,
   cursor: "pointer",
+};
+
+
+const pasteTargetStyle: CSSProperties = {
+  outline: "none",
+};
+
+const pasteHintStyle: CSSProperties = {
+  margin: "0 0 8px",
+  color: "#fdba74",
+  fontSize: 12,
+  fontWeight: 800,
 };

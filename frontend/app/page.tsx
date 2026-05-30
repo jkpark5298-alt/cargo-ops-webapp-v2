@@ -1980,14 +1980,15 @@ export default function HomePage() {
     );
   };
 
-  const handleImageSelected = (
-    event: React.ChangeEvent<HTMLInputElement>,
-    sourceLabel: "카메라 촬영" | "사진첩 선택",
+  const saveImageFileToSlot = (
+    file: File,
+    slotKey: ImageSlotKey,
+    sourceLabel: "카메라 촬영" | "사진첩 선택" | "붙여넣기",
   ) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-
-    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setNotice("붙여넣기 가능한 이미지가 없습니다. 사진첩 또는 카메라를 사용해 주세요.");
+      return;
+    }
 
     const reader = new FileReader();
 
@@ -1999,7 +2000,6 @@ export default function HomePage() {
       const dataUrl = await resizeImageDataUrl(originalDataUrl, 1280, 0.72);
       const metadata = await readImageFileMetadata(file);
       const savedAt = new Date().toLocaleString("ko-KR");
-      const slotKey = pendingImageSlotRef.current;
       const slotInfo =
         [...IMAGE_SLOTS, ISSUE_IMAGE_SLOT].find((slot) => slot.key === slotKey) ||
         IMAGE_SLOTS[0];
@@ -2026,6 +2026,23 @@ export default function HomePage() {
     };
 
     reader.readAsDataURL(file);
+  };
+
+  const handleImageSelected = (
+    event: React.ChangeEvent<HTMLInputElement>,
+    sourceLabel: "카메라 촬영" | "사진첩 선택",
+  ) => {
+    const file = event.target.files?.[0];
+    const slotKey = pendingImageSlotRef.current;
+    event.target.value = "";
+
+    if (!file) return;
+
+    saveImageFileToSlot(file, slotKey, sourceLabel);
+  };
+
+  const handlePastedImage = (slotKey: ImageSlotKey, file: File) => {
+    saveImageFileToSlot(file, slotKey, "붙여넣기");
   };
 
   const handleDeleteImageSlot = (slotKey: ImageSlotKey) => {
@@ -2566,6 +2583,7 @@ export default function HomePage() {
           cameraInputRef={cameraInputRef}
           libraryInputRef={libraryInputRef}
           handleImageSelected={handleImageSelected}
+          handlePastedImage={handlePastedImage}
           author={author}
           setAuthor={setAuthor}
           note={note}
@@ -2589,6 +2607,7 @@ export default function HomePage() {
             openPhotoLibrary={() => openPhotoLibrary(ISSUE_IMAGE_SLOT.key)}
             openLatestImage={openLatestImage}
             handleDeleteImageSlot={() => handleDeleteImageSlot(ISSUE_IMAGE_SLOT.key)}
+            handlePastedImage={(file) => handlePastedImage(ISSUE_IMAGE_SLOT.key, file)}
             todayText={todayText}
             currentTimeText={getCurrentTimeText()}
             issueFlight={issueFlight}
