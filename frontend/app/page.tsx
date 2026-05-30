@@ -2027,6 +2027,28 @@ export default function HomePage() {
     const saved = saveImages(nextImages);
 
     if (saved) {
+      saveNote(note);
+      saveDailyDraft({
+        note,
+        status: dailyStatus,
+        author,
+        workDate: dailyWorkDate,
+        savedAt: new Date().toISOString(),
+      });
+
+      const hasIssueImage = nextImages.some((image) => image.type === ISSUE_IMAGE_SLOT.key);
+      if (dailyStatus === "issue" || hasIssueImage || issueText.trim()) {
+        saveIssueDraft({
+          flight: issueFlight,
+          route: issueRoute,
+          hlnbr: issueHlnbr,
+          text: issueText,
+          status: "issue",
+          author,
+          savedAt: new Date().toISOString(),
+        });
+      }
+
       setNotice(successMessage);
       return;
     }
@@ -2053,27 +2075,72 @@ export default function HomePage() {
 
       if (!originalDataUrl) return;
 
-      const dataUrl = await resizeImageDataUrl(originalDataUrl, 1280, 0.72);
       const metadata = await readImageFileMetadata(file);
       const savedAt = new Date().toLocaleString("ko-KR");
       const slotInfo =
         [...IMAGE_SLOTS, ISSUE_IMAGE_SLOT].find((slot) => slot.key === slotKey) ||
         IMAGE_SLOTS[0];
       const label = `${slotInfo.title} · ${sourceLabel}`;
-      const nextImage: SavedImage = {
-        id: `${Date.now()}`,
-        type: slotKey,
-        label,
-        savedAt,
-        dataUrl,
-        capturedAt: metadata.capturedAt,
-        locationText: metadata.locationText,
-      };
-      const nextImages = upsertImageBySlot(images, nextImage);
+      const resizePlans =
+        sourceLabel === "붙여넣기"
+          ? [
+              { maxSize: 960, quality: 0.62 },
+              { maxSize: 720, quality: 0.55 },
+              { maxSize: 540, quality: 0.5 },
+            ]
+          : [
+              { maxSize: 1280, quality: 0.72 },
+              { maxSize: 960, quality: 0.62 },
+              { maxSize: 720, quality: 0.55 },
+            ];
 
-      persistImages(nextImages, `${slotInfo.title}를 기기에 저장했습니다.`);
+      let savedImage: SavedImage | null = null;
+      let savedImages: SavedImage[] = [];
+      let saved = false;
+
+      for (const plan of resizePlans) {
+        const dataUrl = await resizeImageDataUrl(originalDataUrl, plan.maxSize, plan.quality);
+        const nextImage: SavedImage = {
+          id: `${Date.now()}`,
+          type: slotKey,
+          label,
+          savedAt,
+          dataUrl,
+          capturedAt: metadata.capturedAt,
+          locationText: metadata.locationText,
+        };
+        const nextImages = upsertImageBySlot(images, nextImage);
+
+        if (saveImages(nextImages)) {
+          savedImage = nextImage;
+          savedImages = nextImages;
+          saved = true;
+          break;
+        }
+      }
+
+      if (!savedImage) {
+        const dataUrl = await resizeImageDataUrl(originalDataUrl, 420, 0.45);
+        savedImage = {
+          id: `${Date.now()}`,
+          type: slotKey,
+          label,
+          savedAt,
+          dataUrl,
+          capturedAt: metadata.capturedAt,
+          locationText: metadata.locationText,
+        };
+        savedImages = upsertImageBySlot(images, savedImage);
+      }
+
+      persistImages(
+        savedImages,
+        saved
+          ? `${slotInfo.title}를 기기에 저장했습니다.`
+          : `${slotInfo.title}를 화면에는 올렸지만, 저장공간 제한으로 복원되지 않을 수 있습니다.`,
+      );
       setImageViewerImage((current) =>
-        current?.type === slotKey ? nextImage : current,
+        current?.type === slotKey ? savedImage : current,
       );
     };
 
