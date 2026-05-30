@@ -1011,6 +1011,7 @@ export default function HomePage() {
     () => formatDateInputForTitle(dailyWorkDate),
     [dailyWorkDate],
   );
+  const [draftHydrated, setDraftHydrated] = useState(false);
   const latestRoom = useMemo(() => {
     const currentRoom = getLatestScheduleRoom(rooms);
     return mergeScheduleRegistrationIntoRoom(currentRoom, getLocalLatestScheduleRoom());
@@ -1065,6 +1066,8 @@ export default function HomePage() {
       }
     }
 
+    setDraftHydrated(true);
+
     const savedSnapshot = loadFlightAlertSnapshot();
     const savedHistory = loadFlightAlertHistory();
     setFlightAlertSnapshot(savedSnapshot);
@@ -1096,6 +1099,41 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
+    if (!draftHydrated) return;
+
+    saveImages(images);
+    saveNote(note);
+    saveDailyDraft({
+      note,
+      status: dailyStatus,
+      author,
+      workDate: dailyWorkDate,
+      savedAt: new Date().toISOString(),
+    });
+
+    saveIssueDraft({
+      flight: issueFlight,
+      route: issueRoute,
+      hlnbr: issueHlnbr,
+      text: issueText,
+      status: dailyStatus === "issue" || issueText.trim() ? "issue" : "normal",
+      author,
+      savedAt: new Date().toISOString(),
+    });
+  }, [
+    draftHydrated,
+    images,
+    note,
+    dailyStatus,
+    author,
+    dailyWorkDate,
+    issueFlight,
+    issueRoute,
+    issueHlnbr,
+    issueText,
+  ]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
 
     void syncPwaPermissionAndSubscription(false);
@@ -1106,6 +1144,24 @@ export default function HomePage() {
     if (typeof window === "undefined") return;
 
     const refreshFromResume = () => {
+      const savedDailyDraft = loadDailyDraft();
+      const savedIssueDraft = loadIssueDraft();
+
+      setImages(loadImages());
+      setNote(savedDailyDraft?.note ?? loadNote());
+
+      if (savedDailyDraft?.status) setDailyStatus(savedDailyDraft.status);
+      if (savedDailyDraft?.author) setAuthor(savedDailyDraft.author);
+      if (savedDailyDraft?.workDate) setDailyWorkDate(savedDailyDraft.workDate);
+
+      if (savedIssueDraft) {
+        setIssueFlight(savedIssueDraft.flight);
+        setIssueRoute(savedIssueDraft.route);
+        setIssueHlnbr(savedIssueDraft.hlnbr);
+        setIssueText(savedIssueDraft.text);
+        if (savedIssueDraft.author) setAuthor(savedIssueDraft.author);
+      }
+
       void checkScheduleApiAndSync(false);
       void syncPwaPermissionAndSubscription(false);
       void fetchAutoPushStatus();

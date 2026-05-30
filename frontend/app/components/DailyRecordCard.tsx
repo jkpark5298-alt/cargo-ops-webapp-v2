@@ -97,9 +97,10 @@ export function DailyRecordCard({
     );
     const file = imageItem?.getAsFile();
 
+    event.preventDefault();
+
     if (!file) return;
 
-    event.preventDefault();
     handlePastedImage(slotKey, file);
   };
 
@@ -159,10 +160,17 @@ export function DailyRecordCard({
             <div
               key={slot.key}
               tabIndex={0}
+              contentEditable
+              suppressContentEditableWarning
+              role="button"
+              aria-label={`${slot.title} 이미지 붙여넣기 영역`}
+              onClick={(event) => event.currentTarget.focus()}
               onPaste={(event) => handlePasteImageToSlot(event, slot.key)}
               style={pasteTargetStyle}
             >
-              <div style={pasteHintStyle}>PC: 이 영역 클릭 후 Ctrl+V로 이미지 붙여넣기</div>
+              <div style={pasteHintStyle}>
+                PC: 클릭 후 Ctrl+V · 아이폰: 길게 눌러 ‘붙여넣기’
+              </div>
               <ImageSlotCard
                 slot={slot}
                 image={getImageBySlot(images, slot.key)}
@@ -550,6 +558,9 @@ const dangerButtonStyle: CSSProperties = {
 
 const pasteTargetStyle: CSSProperties = {
   outline: "none",
+  cursor: "text",
+  WebkitUserSelect: "text",
+  userSelect: "text",
 };
 
 const pasteHintStyle: CSSProperties = {

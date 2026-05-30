@@ -78,9 +78,10 @@ export function IssueRecordCard({
     );
     const file = imageItem?.getAsFile();
 
+    event.preventDefault();
+
     if (!file) return;
 
-    event.preventDefault();
     handlePastedImage(file);
   };
 
@@ -92,8 +93,19 @@ export function IssueRecordCard({
         특이사항 발생 시 날짜, 시간, 편명, 구간, HL NBR, 날씨, 작성자, 이미지와 메모를 함께 저장합니다.
       </p>
 
-      <div tabIndex={0} onPaste={handlePasteImage} style={pasteTargetStyle}>
-        <div style={pasteHintStyle}>PC: 이 영역 클릭 후 Ctrl+V로 이미지 붙여넣기</div>
+      <div
+        tabIndex={0}
+        contentEditable
+        suppressContentEditableWarning
+        role="button"
+        aria-label="특이사항 이미지 붙여넣기 영역"
+        onClick={(event) => event.currentTarget.focus()}
+        onPaste={handlePasteImage}
+        style={pasteTargetStyle}
+      >
+        <div style={pasteHintStyle}>
+          PC: 클릭 후 Ctrl+V · 아이폰: 길게 눌러 ‘붙여넣기’
+        </div>
         <ImageSlotCard
           slot={issueImageSlot}
         image={issueImage}
@@ -368,6 +380,9 @@ const dangerButtonStyle: CSSProperties = {
 
 const pasteTargetStyle: CSSProperties = {
   outline: "none",
+  cursor: "text",
+  WebkitUserSelect: "text",
+  userSelect: "text",
 };
 
 const pasteHintStyle: CSSProperties = {
