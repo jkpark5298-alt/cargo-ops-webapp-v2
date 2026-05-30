@@ -372,6 +372,44 @@ function formatDateForTitle(date: Date) {
 
 const DAILY_WORK_DATE_STORAGE_KEY = "cargo_ops_daily_work_date_v1";
 
+type ScheduleCardPosition = 0 | 1 | 2 | 3;
+
+const SCHEDULE_CARD_POSITION_STORAGE_KEY = "cargo_ops_schedule_card_position_v1";
+const SCHEDULE_CARD_POSITION_MIN = 0;
+const SCHEDULE_CARD_POSITION_MAX = 3;
+
+function normalizeScheduleCardPosition(value: unknown): ScheduleCardPosition {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) return 1;
+  const rounded = Math.round(numberValue);
+  if (rounded <= SCHEDULE_CARD_POSITION_MIN) return 0;
+  if (rounded >= SCHEDULE_CARD_POSITION_MAX) return 3;
+  return rounded as ScheduleCardPosition;
+}
+
+function loadScheduleCardPosition(): ScheduleCardPosition {
+  if (typeof window === "undefined") return 1;
+
+  try {
+    return normalizeScheduleCardPosition(
+      window.localStorage.getItem(SCHEDULE_CARD_POSITION_STORAGE_KEY),
+    );
+  } catch {
+    return 1;
+  }
+}
+
+function saveScheduleCardPosition(value: ScheduleCardPosition) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(SCHEDULE_CARD_POSITION_STORAGE_KEY, String(value));
+  } catch {
+    // 위치 저장 실패는 화면 동작을 막지 않습니다.
+  }
+}
+
+
 function formatHeaderUsageRate(value?: number) {
   if (typeof value !== "number" || Number.isNaN(value)) return "-";
   return `${value.toFixed(value >= 10 ? 1 : 2)}%`;
@@ -981,6 +1019,8 @@ export default function HomePage() {
   const [scheduleSyncCheckedAt, setScheduleSyncCheckedAt] = useState("");
   const [scheduleApiSyncStatus, setScheduleApiSyncStatus] = useState("");
   const [scheduleApiSyncLoading, setScheduleApiSyncLoading] = useState(false);
+  const [scheduleCardPosition, setScheduleCardPosition] =
+    useState<ScheduleCardPosition>(() => loadScheduleCardPosition());
   const [incheonApiUsage, setIncheonApiUsage] = useState<IncheonApiUsage | null>(null);
   const [isDailySaving, setIsDailySaving] = useState(false);
   const [isIssueSaving, setIsIssueSaving] = useState(false);
@@ -2633,6 +2673,53 @@ export default function HomePage() {
     }
   };
 
+  const moveScheduleCard = (direction: -1 | 1) => {
+    setScheduleCardPosition((current) => {
+      const next = normalizeScheduleCardPosition(current + direction);
+      saveScheduleCardPosition(next);
+      return next;
+    });
+  };
+
+  const scheduleSummarySection = (
+    <div style={scheduleMoveSectionStyle}>
+      <div style={scheduleMoveControlStyle}>
+        <button
+          type="button"
+          onClick={() => moveScheduleCard(-1)}
+          disabled={scheduleCardPosition === SCHEDULE_CARD_POSITION_MIN}
+          style={
+            scheduleCardPosition === SCHEDULE_CARD_POSITION_MIN
+              ? scheduleMoveButtonDisabledStyle
+              : scheduleMoveButtonStyle
+          }
+        >
+          ▲ 위로
+        </button>
+        <button
+          type="button"
+          onClick={() => moveScheduleCard(1)}
+          disabled={scheduleCardPosition === SCHEDULE_CARD_POSITION_MAX}
+          style={
+            scheduleCardPosition === SCHEDULE_CARD_POSITION_MAX
+              ? scheduleMoveButtonDisabledStyle
+              : scheduleMoveButtonStyle
+          }
+        >
+          ▼ 아래로
+        </button>
+      </div>
+      <ScheduleSummaryCard
+        latestRoom={latestRoom}
+        syncCheckedAt={scheduleSyncCheckedAt}
+        apiSyncStatus={scheduleApiSyncStatus}
+        apiSyncLoading={scheduleApiSyncLoading}
+        onOpenScheduleFlight={openScheduleFlight}
+        onRefreshLatestSchedule={handleRefreshLatestSchedule}
+      />
+    </div>
+  );
+
   const imageViewerSlotInfo = getImageViewerSlotInfo();
 
   return (
@@ -2657,6 +2744,8 @@ export default function HomePage() {
       </section>
 
       <section style={stackStyle}>
+        {scheduleCardPosition === 0 && scheduleSummarySection}
+
         <FlightAlertHistoryCard
           historyItems={flightAlertHistory}
           serverLoading={serverFlightAlertLoading}
@@ -2668,14 +2757,7 @@ export default function HomePage() {
           onLoadServerHistory={handleRevealServerFlightAlertHistory}
         />
 
-        <ScheduleSummaryCard
-          latestRoom={latestRoom}
-          syncCheckedAt={scheduleSyncCheckedAt}
-          apiSyncStatus={scheduleApiSyncStatus}
-          apiSyncLoading={scheduleApiSyncLoading}
-          onOpenScheduleFlight={openScheduleFlight}
-          onRefreshLatestSchedule={handleRefreshLatestSchedule}
-        />
+        {scheduleCardPosition === 1 && scheduleSummarySection}
 
         <ActionCard
           label="오늘 KJ 화물기 조회"
@@ -2685,6 +2767,8 @@ export default function HomePage() {
           onClick={openFlights}
           accent="#2563eb"
         />
+
+        {scheduleCardPosition === 2 && scheduleSummarySection}
 
         <PwaNotificationCard
           permissionLabel={pwaPermissionLabel}
@@ -2700,6 +2784,8 @@ export default function HomePage() {
           onCheckSchedule={handleCheckScheduleAndPush}
           onToggleAuto={handleToggleAutoPush}
         />
+
+        {scheduleCardPosition === 3 && scheduleSummarySection}
 
         <DailyRecordCard
           dailyStatus={dailyStatus}
@@ -2965,6 +3051,37 @@ const stackStyle: CSSProperties = {
   flexDirection: "column",
   gap: 8,
 };
+
+const scheduleMoveSectionStyle: CSSProperties = {
+  display: "grid",
+  gap: 8,
+};
+
+const scheduleMoveControlStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: 8,
+};
+
+const scheduleMoveButtonStyle: CSSProperties = {
+  minHeight: 38,
+  border: "1px solid rgba(96, 165, 250, 0.55)",
+  borderRadius: 12,
+  background: "rgba(37, 99, 235, 0.28)",
+  color: "#dbeafe",
+  fontSize: 13,
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const scheduleMoveButtonDisabledStyle: CSSProperties = {
+  ...scheduleMoveButtonStyle,
+  background: "rgba(51, 65, 85, 0.72)",
+  border: "1px solid rgba(100, 116, 139, 0.36)",
+  color: "#94a3b8",
+  cursor: "not-allowed",
+};
+
 const cardStyle: CSSProperties = {
   width: "100%",
   boxSizing: "border-box",
