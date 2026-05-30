@@ -93,28 +93,36 @@ export function IssueRecordCard({
         특이사항 발생 시 날짜, 시간, 편명, 구간, HL NBR, 날씨, 작성자, 이미지와 메모를 함께 저장합니다.
       </p>
 
-      <div
-        tabIndex={0}
-        contentEditable
-        suppressContentEditableWarning
-        role="button"
-        aria-label="특이사항 이미지 붙여넣기 영역"
-        onClick={(event) => event.currentTarget.focus()}
-        onPaste={handlePasteImage}
-        style={pasteTargetStyle}
-      >
-        <div style={pasteHintStyle}>
-          PC: 클릭 후 Ctrl+V · 아이폰: 길게 눌러 ‘붙여넣기’
-        </div>
-        <ImageSlotCard
+      {issueImage ? (
+        <SimpleIssueImageViewCard
           slot={issueImageSlot}
-        image={issueImage}
-        onCamera={openCamera}
-        onLibrary={openPhotoLibrary}
-        onView={openLatestImage}
-          onDelete={handleDeleteImageSlot}
+          image={issueImage}
+          onView={openLatestImage}
         />
-      </div>
+      ) : (
+        <div
+          tabIndex={0}
+          contentEditable
+          suppressContentEditableWarning
+          role="button"
+          aria-label="특이사항 이미지 붙여넣기 영역"
+          onClick={(event) => event.currentTarget.focus()}
+          onPaste={handlePasteImage}
+          style={pasteTargetStyle}
+        >
+          <div style={pasteHintStyle}>
+            PC: 클릭 후 Ctrl+V · 아이폰: 길게 눌러 ‘붙여넣기’
+          </div>
+          <ImageSlotCard
+            slot={issueImageSlot}
+            image={issueImage}
+            onCamera={openCamera}
+            onLibrary={openPhotoLibrary}
+            onView={openLatestImage}
+            onDelete={handleDeleteImageSlot}
+          />
+        </div>
+      )}
 
       <div style={formGridStyle}>
         <div style={fieldBlockStyle}>
@@ -229,6 +237,97 @@ export function IssueRecordCard({
     </section>
   );
 }
+
+
+function SimpleIssueImageViewCard({
+  slot,
+  image,
+  onView,
+}: {
+  slot: ImageSlot;
+  image: SavedImage;
+  onView: (image: SavedImage) => void;
+}) {
+  return (
+    <div style={simpleImageCardStyle}>
+      <div style={simpleImageHeaderStyle}>
+        <div>
+          <div style={simpleImageTitleStyle}>{slot.title}</div>
+          <div style={simpleImageDescStyle}>{slot.description}</div>
+        </div>
+        <button type="button" onClick={() => onView(image)} style={simpleViewButtonStyle}>
+          보기
+        </button>
+      </div>
+      <button
+        type="button"
+        onClick={() => onView(image)}
+        aria-label={`${slot.title} 이미지 보기`}
+        style={simpleImagePreviewButtonStyle}
+      >
+        <img src={image.dataUrl} alt={slot.title} style={simpleImagePreviewStyle} />
+      </button>
+    </div>
+  );
+}
+
+
+const simpleImageCardStyle: CSSProperties = {
+  background: "#0f172a",
+  border: "1px solid #26374f",
+  borderRadius: 16,
+  padding: 12,
+  display: "grid",
+  gap: 10,
+};
+
+const simpleImageHeaderStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: 10,
+};
+
+const simpleImageTitleStyle: CSSProperties = {
+  color: "#f8fafc",
+  fontSize: 15,
+  fontWeight: 900,
+};
+
+const simpleImageDescStyle: CSSProperties = {
+  color: "#94a3b8",
+  fontSize: 12,
+  lineHeight: 1.45,
+  marginTop: 3,
+};
+
+const simpleViewButtonStyle: CSSProperties = {
+  border: "none",
+  borderRadius: 999,
+  padding: "8px 13px",
+  background: "#2563eb",
+  color: "#ffffff",
+  fontWeight: 900,
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+};
+
+const simpleImagePreviewButtonStyle: CSSProperties = {
+  border: "none",
+  padding: 0,
+  background: "transparent",
+  cursor: "pointer",
+  width: "100%",
+};
+
+const simpleImagePreviewStyle: CSSProperties = {
+  display: "block",
+  width: "100%",
+  maxHeight: 220,
+  objectFit: "cover",
+  borderRadius: 14,
+  border: "1px solid #334155",
+};
 
 const cardStyle: CSSProperties = {
   background: "#111827",
