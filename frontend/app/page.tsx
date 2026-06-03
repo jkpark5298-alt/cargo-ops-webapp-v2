@@ -984,6 +984,8 @@ export default function HomePage() {
   const [incheonApiUsage, setIncheonApiUsage] = useState<IncheonApiUsage | null>(null);
   const [isDailySaving, setIsDailySaving] = useState(false);
   const [isIssueSaving, setIsIssueSaving] = useState(false);
+  const [isDailyTextSyncing, setIsDailyTextSyncing] = useState(false);
+  const [dailyTextSyncStatus, setDailyTextSyncStatus] = useState("");
   const [weather, setWeather] = useState<WeatherInfo>(DEFAULT_WEATHER);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [, setAlertCheckedAt] = useState("");
@@ -2325,6 +2327,109 @@ export default function HomePage() {
   };
 
 
+  const applyDailyReportText = (report: unknown) => {
+    if (!report || typeof report !== "object") return false;
+
+    const record = report as {
+      workDate?: string;
+      status?: string;
+      author?: string;
+      note?: string;
+    };
+
+    const nextStatus = record.status === "issue" ? "issue" : "normal";
+    const nextAuthor = typeof record.author === "string" ? record.author : author;
+    const nextNote = typeof record.note === "string" ? record.note : "";
+
+    setDailyStatus(nextStatus);
+    setAuthor(nextAuthor);
+    setNote(nextNote);
+
+    if (typeof record.workDate === "string" && record.workDate) {
+      setDailyWorkDate(record.workDate);
+    }
+
+    saveNote(nextNote);
+    saveDailyDraft({
+      note: nextNote,
+      status: nextStatus,
+      author: nextAuthor,
+      workDate: typeof record.workDate === "string" && record.workDate ? record.workDate : dailyWorkDate,
+      savedAt: new Date().toISOString(),
+    });
+
+    return true;
+  };
+
+  const handleSaveDailyTextToSupabase = async () => {
+    setIsDailyTextSyncing(true);
+    setDailyTextSyncStatus("Supabase 텍스트 저장 중...");
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/flights/daily-report-text`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workDate: dailyWorkDate,
+          status: dailyStatus,
+          author,
+          note,
+          savedAt: new Date().toISOString(),
+        }),
+      });
+
+      const json = await response.json().catch(() => null);
+
+      if (!response.ok || !json?.success) {
+        throw new Error(json?.message || "Daily 텍스트 공유 저장에 실패했습니다.");
+      }
+
+      setDailyTextSyncStatus("Supabase 텍스트 저장 완료");
+      setNotice("Daily 업무보고 텍스트를 Supabase에 공유 저장했습니다.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Daily 텍스트 공유 저장 중 오류가 발생했습니다.";
+      setDailyTextSyncStatus(message);
+      setNotice(message);
+    } finally {
+      setIsDailyTextSyncing(false);
+    }
+  };
+
+  const handleLoadDailyTextFromSupabase = async () => {
+    setIsDailyTextSyncing(true);
+    setDailyTextSyncStatus("Supabase 텍스트 불러오는 중...");
+
+    try {
+      const query = new URLSearchParams({ workDate: dailyWorkDate });
+      const response = await fetch(`${BACKEND_URL}/flights/daily-report-text?${query.toString()}`);
+      const json = await response.json().catch(() => null);
+
+      if (!response.ok || !json?.success) {
+        throw new Error(json?.message || "Daily 텍스트 공유 불러오기에 실패했습니다.");
+      }
+
+      if (!json.report) {
+        setDailyTextSyncStatus("해당 업무일자의 Supabase 텍스트 저장본이 없습니다.");
+        setNotice("해당 업무일자의 Supabase 텍스트 저장본이 없습니다.");
+        return;
+      }
+
+      if (!applyDailyReportText(json.report)) {
+        throw new Error("Supabase 텍스트 저장본을 화면에 적용하지 못했습니다.");
+      }
+
+      setDailyTextSyncStatus("Supabase 텍스트 불러오기 완료");
+      setNotice("Daily 업무보고 텍스트를 Supabase에서 불러왔습니다.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Daily 텍스트 공유 불러오기 중 오류가 발생했습니다.";
+      setDailyTextSyncStatus(message);
+      setNotice(message);
+    } finally {
+      setIsDailyTextSyncing(false);
+    }
+  };
+
+
   const buildDailyPayload = () => {
     const dailyImages = IMAGE_SLOTS.flatMap((slot) =>
       getImagesBySlot(images, slot.key).map((image) => ({
@@ -2727,6 +2832,10 @@ export default function HomePage() {
           setNote={setNote}
           dailyNotionRecord={dailyNotionRecord}
           isDailySaving={isDailySaving}
+          isDailyTextSyncing={isDailyTextSyncing}
+          dailyTextSyncStatus={dailyTextSyncStatus}
+          handleSaveDailyTextToSupabase={handleSaveDailyTextToSupabase}
+          handleLoadDailyTextFromSupabase={handleLoadDailyTextFromSupabase}
           handleSaveDailyDraft={handleSaveDailyDraft}
           handleSaveDailyToNotion={handleSaveDailyToNotion}
           handleUpdateDailyToNotion={handleUpdateDailyToNotion}

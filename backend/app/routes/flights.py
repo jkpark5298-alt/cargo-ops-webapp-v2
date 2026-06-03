@@ -340,6 +340,93 @@ class FlightRangeRequest(BaseModel):
     end: str
 
 
+class DailyReportTextSaveRequest(BaseModel):
+    workDate: str
+    status: str = "normal"
+    author: str = ""
+    note: str = ""
+    savedAt: Optional[str] = None
+
+
+
+def _normalize_daily_report_text_date(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return _now_kst().date().isoformat()
+
+    match = re.match(r"^(\d{4})[-/.](\d{2})[-/.](\d{2})", raw)
+    if match:
+        year, month, day = match.groups()
+        return f"{year}-{month}-{day}"
+
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) >= 8:
+        return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
+
+    return raw
+
+
+def _daily_report_text_to_supabase_row(report: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "work_date": _normalize_daily_report_text_date(report.get("workDate")),
+        "status": str(report.get("status") or "normal"),
+        "author": str(report.get("author") or ""),
+        "note": str(report.get("note") or ""),
+        "updated_at": _now_kst_iso(),
+    }
+
+
+def _daily_report_text_from_supabase_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "workDate": str(row.get("work_date") or ""),
+        "status": str(row.get("status") or "normal"),
+        "author": str(row.get("author") or ""),
+        "note": str(row.get("note") or ""),
+        "savedAt": str(row.get("updated_at") or row.get("created_at") or ""),
+    }
+
+
+def _save_daily_report_text_to_supabase(report: Dict[str, Any]) -> Dict[str, Any]:
+    if not _supabase_usage_enabled():
+        raise RuntimeError("Supabase storage is not configured.")
+
+    row = _daily_report_text_to_supabase_row(report)
+    result = _supabase_request(
+        "POST",
+        "/rest/v1/daily_report_texts?on_conflict=work_date",
+        row,
+        {
+            "Prefer": "resolution=merge-duplicates,return=representation",
+        },
+    )
+
+    if isinstance(result, list) and result and isinstance(result[0], dict):
+        return _daily_report_text_from_supabase_row(result[0])
+
+    return _daily_report_text_from_supabase_row(row)
+
+
+def _load_daily_report_text_from_supabase(work_date: str) -> Optional[Dict[str, Any]]:
+    if not _supabase_usage_enabled():
+        raise RuntimeError("Supabase storage is not configured.")
+
+    query = urllib.parse.urlencode(
+        {
+            "work_date": f"eq.{_normalize_daily_report_text_date(work_date)}",
+            "select": "work_date,status,author,note,created_at,updated_at",
+            "limit": "1",
+        }
+    )
+
+    rows = _supabase_request("GET", f"/rest/v1/daily_report_texts?{query}")
+
+    if not isinstance(rows, list) or not rows:
+        return None
+
+    row = rows[0]
+    return _daily_report_text_from_supabase_row(row) if isinstance(row, dict) else None
+
+
 
 def _normalize_aircraft_registration_date(value: Any) -> str:
     raw = str(value or "").strip()
@@ -827,7 +914,12 @@ def _supabase_headers() -> Dict[str, str]:
     }
 
 
-def _supabase_request(method: str, path: str, payload: Optional[Dict[str, Any]] = None) -> Any:
+def _supabase_request(
+    method: str,
+    path: str,
+    payload: Optional[Dict[str, Any]] = None,
+    extra_headers: Optional[Dict[str, str]] = None,
+) -> Any:
     if not _supabase_usage_enabled():
         raise RuntimeError("Supabase usage storage is not configured.")
 
@@ -835,10 +927,14 @@ def _supabase_request(method: str, path: str, payload: Optional[Dict[str, Any]] 
     if payload is not None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
+    headers = _supabase_headers()
+    if extra_headers:
+        headers.update(extra_headers)
+
     request = urllib.request.Request(
         f"{SUPABASE_URL}{path}",
         data=body,
-        headers=_supabase_headers(),
+        headers=headers,
         method=method,
     )
 
@@ -2058,6 +2154,56 @@ async def delete_notification_history_item(payload: NotificationHistoryDeleteIte
         "success": True,
         "deleted": deleted,
         "items": next_items[:50],
+    }
+
+
+
+@router.get("/daily-report-text")
+async def get_daily_report_text(workDate: str) -> Dict[str, Any]:
+    work_date = _normalize_daily_report_text_date(workDate)
+
+    try:
+        report = _load_daily_report_text_from_supabase(work_date)
+    except Exception as exc:
+        return {
+            "success": False,
+            "configured": _supabase_usage_enabled(),
+            "message": str(exc),
+            "report": None,
+        }
+
+    return {
+        "success": True,
+        "configured": _supabase_usage_enabled(),
+        "report": report,
+    }
+
+
+@router.post("/daily-report-text")
+async def save_daily_report_text(payload: DailyReportTextSaveRequest) -> Dict[str, Any]:
+    report = {
+        "workDate": _normalize_daily_report_text_date(payload.workDate),
+        "status": str(payload.status or "normal"),
+        "author": str(payload.author or ""),
+        "note": str(payload.note or ""),
+        "savedAt": payload.savedAt or _now_kst_iso(),
+    }
+
+    try:
+        saved_report = _save_daily_report_text_to_supabase(report)
+    except Exception as exc:
+        return {
+            "success": False,
+            "configured": _supabase_usage_enabled(),
+            "message": str(exc),
+            "report": None,
+        }
+
+    return {
+        "success": True,
+        "configured": _supabase_usage_enabled(),
+        "report": saved_report,
+        "savedAt": saved_report.get("savedAt") or _now_kst_iso(),
     }
 
 
