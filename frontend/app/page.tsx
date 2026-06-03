@@ -2109,7 +2109,8 @@ export default function HomePage() {
           capturedAt: metadata.capturedAt,
           locationText: metadata.locationText,
         };
-        const nextImages = upsertImageBySlot(images, nextImage);
+        const latestImages = loadImages();
+        const nextImages = upsertImageBySlot(latestImages.length > 0 ? latestImages : images, nextImage);
 
         if (saveImages(nextImages)) {
           savedImage = nextImage;
