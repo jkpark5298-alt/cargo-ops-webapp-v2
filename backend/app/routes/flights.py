@@ -689,19 +689,37 @@ def _apply_aircraft_registrations_to_room(room: Optional[Dict[str, Any]]) -> Opt
     return next_room
 
 
-def _read_latest_schedule() -> Optional[Dict[str, Any]]:
+def _latest_schedule_from_supabase_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    room = row.get("room")
+    if not isinstance(room, dict):
+        return None
+
+    saved_at = str(row.get("saved_at") or row.get("updated_at") or "")
+    return {
+        "room": _apply_aircraft_registrations_to_room(room) or room,
+        "savedAt": saved_at,
+    }
+
+
+def _read_latest_schedule_from_file() -> Optional[Dict[str, Any]]:
     try:
         if not LATEST_SCHEDULE_FILE.exists():
             return None
 
         data = json.loads(LATEST_SCHEDULE_FILE.read_text(encoding="utf-8"))
         room = data.get("room")
-        return _apply_aircraft_registrations_to_room(room) if isinstance(room, dict) else None
+        if not isinstance(room, dict):
+            return None
+
+        return {
+            "room": _apply_aircraft_registrations_to_room(room) or room,
+            "savedAt": str(data.get("savedAt") or ""),
+        }
     except Exception:
         return None
 
 
-def _write_latest_schedule(room: Dict[str, Any]) -> Dict[str, Any]:
+def _write_latest_schedule_to_file(room: Dict[str, Any]) -> Dict[str, Any]:
     room_with_registration = _apply_aircraft_registrations_to_room(room) or room
     payload = {
         "room": room_with_registration,
@@ -713,6 +731,78 @@ def _write_latest_schedule(room: Dict[str, Any]) -> Dict[str, Any]:
         encoding="utf-8",
     )
     return payload
+
+
+def _read_latest_schedule_from_supabase() -> Optional[Dict[str, Any]]:
+    if not _supabase_usage_enabled():
+        return None
+
+    query = urllib.parse.urlencode(
+        {
+            "id": "eq.default",
+            "select": "id,room,saved_at,updated_at",
+            "limit": "1",
+        }
+    )
+
+    try:
+        rows = _supabase_request("GET", f"/rest/v1/latest_schedule_rooms?{query}")
+    except Exception:
+        return None
+
+    if not isinstance(rows, list) or not rows:
+        return None
+
+    row = rows[0]
+    return _latest_schedule_from_supabase_row(row) if isinstance(row, dict) else None
+
+
+def _write_latest_schedule_to_supabase(room: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if not _supabase_usage_enabled():
+        return None
+
+    room_with_registration = _apply_aircraft_registrations_to_room(room) or room
+    saved_at = _now_kst_iso()
+    row = {
+        "id": "default",
+        "room": room_with_registration,
+        "saved_at": saved_at,
+        "updated_at": saved_at,
+    }
+
+    try:
+        result = _supabase_request(
+            "POST",
+            "/rest/v1/latest_schedule_rooms?on_conflict=id",
+            row,
+            {
+                "Prefer": "resolution=merge-duplicates,return=representation",
+            },
+        )
+    except Exception:
+        return None
+
+    if isinstance(result, list) and result and isinstance(result[0], dict):
+        saved = _latest_schedule_from_supabase_row(result[0])
+        if saved:
+            return saved
+
+    return {"room": room_with_registration, "savedAt": saved_at}
+
+
+def _read_latest_schedule() -> Optional[Dict[str, Any]]:
+    supabase_payload = _read_latest_schedule_from_supabase()
+    if supabase_payload:
+        return supabase_payload.get("room")
+
+    file_payload = _read_latest_schedule_from_file()
+    return file_payload.get("room") if file_payload else None
+
+
+def _write_latest_schedule(room: Dict[str, Any]) -> Dict[str, Any]:
+    file_payload = _write_latest_schedule_to_file(room)
+    supabase_payload = _write_latest_schedule_to_supabase(file_payload["room"])
+    return supabase_payload or file_payload
 
 
 def _sanitize_latest_schedule_room(room: Dict[str, Any]) -> Dict[str, Any]:
@@ -2247,10 +2337,14 @@ async def save_aircraft_registrations(payload: AircraftRegistrationSaveRequest) 
 
 @router.get("/latest-schedule")
 async def get_latest_schedule() -> Dict[str, Any]:
-    room = _read_latest_schedule()
+    supabase_payload = _read_latest_schedule_from_supabase()
+    file_payload = None if supabase_payload else _read_latest_schedule_from_file()
+    payload = supabase_payload or file_payload
     return {
         "success": True,
-        "room": room,
+        "room": payload.get("room") if payload else None,
+        "savedAt": payload.get("savedAt") if payload else "",
+        "source": "supabase" if supabase_payload else "file" if file_payload else "",
     }
 
 
