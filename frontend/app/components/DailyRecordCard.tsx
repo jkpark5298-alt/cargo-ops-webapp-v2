@@ -51,6 +51,10 @@ type DailyRecordCardProps = {
   setNote: Dispatch<SetStateAction<string>>;
   dailyNotionRecord: DailyNotionRecord | null;
   isDailySaving: boolean;
+  isDailyTextSyncing: boolean;
+  dailyTextSyncStatus: string;
+  handleSaveDailyTextToSupabase: () => void;
+  handleLoadDailyTextFromSupabase: () => void;
   handleSaveDailyDraft: () => void;
   handleSaveDailyToNotion: () => void;
   handleUpdateDailyToNotion: () => void;
@@ -85,6 +89,10 @@ export function DailyRecordCard({
   setNote,
   dailyNotionRecord,
   isDailySaving,
+  isDailyTextSyncing,
+  dailyTextSyncStatus,
+  handleSaveDailyTextToSupabase,
+  handleLoadDailyTextFromSupabase,
   handleSaveDailyDraft,
   handleSaveDailyToNotion,
   handleUpdateDailyToNotion,
@@ -252,6 +260,34 @@ export function DailyRecordCard({
         placeholder="주요 사항을 입력하세요. 예: 점검 대상 결과 이상 없음."
         style={noteStyle}
       />
+
+      <div style={supabaseTextSyncBoxStyle}>
+        <div style={supabaseTextSyncTitleStyle}>Supabase 텍스트 공유</div>
+        <div style={supabaseTextSyncDescStyle}>
+          사진은 건드리지 않고 업무일자, 작성자, 상태, 주요사항 메모만 PC/아이폰에서 공유합니다.
+        </div>
+        <div style={supabaseTextSyncButtonRowStyle}>
+          <button
+            type="button"
+            onClick={handleSaveDailyTextToSupabase}
+            disabled={isDailyTextSyncing}
+            style={isDailyTextSyncing ? supabaseTextSyncButtonDisabledStyle : supabaseTextSaveButtonStyle}
+          >
+            텍스트 공유 저장
+          </button>
+          <button
+            type="button"
+            onClick={handleLoadDailyTextFromSupabase}
+            disabled={isDailyTextSyncing}
+            style={isDailyTextSyncing ? supabaseTextSyncButtonDisabledStyle : supabaseTextLoadButtonStyle}
+          >
+            텍스트 공유 불러오기
+          </button>
+        </div>
+        {dailyTextSyncStatus ? (
+          <div style={supabaseTextSyncStatusStyle}>{dailyTextSyncStatus}</div>
+        ) : null}
+      </div>
 
       {dailyNotionRecord ? (
         <div style={notionSavedBoxStyle}>
@@ -437,6 +473,64 @@ function PhotoMemoPreview({ images }: { images: SavedImageWithMemo[] }) {
   );
 }
 
+
+const supabaseTextSyncBoxStyle: CSSProperties = {
+  marginTop: 12,
+  padding: 12,
+  borderRadius: 16,
+  background: "rgba(15, 23, 42, 0.72)",
+  border: "1px solid rgba(96, 165, 250, 0.24)",
+  display: "grid",
+  gap: 8,
+};
+
+const supabaseTextSyncTitleStyle: CSSProperties = {
+  color: "#bfdbfe",
+  fontSize: 13,
+  fontWeight: 900,
+};
+
+const supabaseTextSyncDescStyle: CSSProperties = {
+  color: "#94a3b8",
+  fontSize: 12,
+  lineHeight: 1.45,
+};
+
+const supabaseTextSyncButtonRowStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: 8,
+};
+
+const supabaseTextSaveButtonStyle: CSSProperties = {
+  border: "none",
+  borderRadius: 12,
+  background: "#2563eb",
+  color: "#ffffff",
+  padding: "10px 8px",
+  fontSize: 12,
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const supabaseTextLoadButtonStyle: CSSProperties = {
+  ...supabaseTextSaveButtonStyle,
+  background: "#0f766e",
+};
+
+const supabaseTextSyncButtonDisabledStyle: CSSProperties = {
+  ...supabaseTextSaveButtonStyle,
+  background: "#475569",
+  color: "#cbd5e1",
+  cursor: "wait",
+};
+
+const supabaseTextSyncStatusStyle: CSSProperties = {
+  color: "#fde68a",
+  fontSize: 12,
+  lineHeight: 1.45,
+  fontWeight: 800,
+};
 
 const imageRegistrationCardStyle: CSSProperties = {
   background: "#0f172a",
