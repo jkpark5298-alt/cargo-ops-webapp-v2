@@ -51,10 +51,6 @@ type DailyRecordCardProps = {
   setNote: Dispatch<SetStateAction<string>>;
   dailyNotionRecord: DailyNotionRecord | null;
   isDailySaving: boolean;
-  isDailySharedSyncing: boolean;
-  dailySharedSyncStatus: string;
-  handleSaveDailyShared: () => void;
-  handleLoadDailyShared: () => void;
   handleSaveDailyDraft: () => void;
   handleSaveDailyToNotion: () => void;
   handleUpdateDailyToNotion: () => void;
@@ -89,10 +85,6 @@ export function DailyRecordCard({
   setNote,
   dailyNotionRecord,
   isDailySaving,
-  isDailySharedSyncing,
-  dailySharedSyncStatus,
-  handleSaveDailyShared,
-  handleLoadDailyShared,
   handleSaveDailyDraft,
   handleSaveDailyToNotion,
   handleUpdateDailyToNotion,
@@ -260,35 +252,6 @@ export function DailyRecordCard({
         placeholder="주요 사항을 입력하세요. 예: 점검 대상 결과 이상 없음."
         style={noteStyle}
       />
-
-      <div style={sharedSyncBoxStyle}>
-        <div style={sharedSyncTitleStyle}>PC / 아이폰 공유 저장</div>
-        <div style={sharedSyncButtonRowStyle}>
-          <button
-            type="button"
-            onClick={handleSaveDailyShared}
-            disabled={isDailySharedSyncing}
-            style={isDailySharedSyncing ? sharedSyncButtonDisabledStyle : sharedSyncButtonStyle}
-          >
-            공유 저장
-          </button>
-          <button
-            type="button"
-            onClick={handleLoadDailyShared}
-            disabled={isDailySharedSyncing}
-            style={isDailySharedSyncing ? sharedSyncButtonDisabledStyle : sharedLoadButtonStyle}
-          >
-            공유 불러오기
-          </button>
-        </div>
-        {dailySharedSyncStatus ? (
-          <div style={sharedSyncStatusStyle}>{dailySharedSyncStatus}</div>
-        ) : (
-          <div style={sharedSyncHintStyle}>
-            아이폰에서 공유 저장 후 PC에서 공유 불러오기를 누르면 같은 Daily 업무보고를 볼 수 있습니다.
-          </div>
-        )}
-      </div>
 
       {dailyNotionRecord ? (
         <div style={notionSavedBoxStyle}>
@@ -474,64 +437,6 @@ function PhotoMemoPreview({ images }: { images: SavedImageWithMemo[] }) {
   );
 }
 
-
-const sharedSyncBoxStyle: CSSProperties = {
-  marginTop: 12,
-  padding: 12,
-  borderRadius: 16,
-  background: "rgba(15, 23, 42, 0.72)",
-  border: "1px solid rgba(96, 165, 250, 0.26)",
-  display: "grid",
-  gap: 8,
-};
-
-const sharedSyncTitleStyle: CSSProperties = {
-  color: "#bfdbfe",
-  fontSize: 13,
-  fontWeight: 900,
-};
-
-const sharedSyncButtonRowStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: 8,
-};
-
-const sharedSyncButtonStyle: CSSProperties = {
-  border: "none",
-  borderRadius: 12,
-  background: "#2563eb",
-  color: "#ffffff",
-  padding: "10px 8px",
-  fontSize: 13,
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const sharedLoadButtonStyle: CSSProperties = {
-  ...sharedSyncButtonStyle,
-  background: "#0f766e",
-};
-
-const sharedSyncButtonDisabledStyle: CSSProperties = {
-  ...sharedSyncButtonStyle,
-  background: "#475569",
-  color: "#cbd5e1",
-  cursor: "wait",
-};
-
-const sharedSyncStatusStyle: CSSProperties = {
-  color: "#fde68a",
-  fontSize: 12,
-  lineHeight: 1.45,
-  fontWeight: 800,
-};
-
-const sharedSyncHintStyle: CSSProperties = {
-  color: "#94a3b8",
-  fontSize: 12,
-  lineHeight: 1.45,
-};
 
 const imageRegistrationCardStyle: CSSProperties = {
   background: "#0f172a",

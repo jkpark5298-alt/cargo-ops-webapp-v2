@@ -41,9 +41,6 @@ INCHEON_API_USAGE_FILE = Path(
 AIRCRAFT_REGISTRATION_FILE = Path(
     os.getenv("AIRCRAFT_REGISTRATION_FILE", "/tmp/cargo_ops_aircraft_registrations.json")
 )
-DAILY_REPORTS_FILE = Path(
-    os.getenv("DAILY_REPORTS_FILE", "/tmp/cargo_ops_daily_reports.json")
-)
 INCHEON_API_DEPARTURE_DAILY_LIMIT = int(os.getenv("INCHEON_API_DEPARTURE_DAILY_LIMIT", "100000"))
 INCHEON_API_ARRIVAL_DAILY_LIMIT = int(os.getenv("INCHEON_API_ARRIVAL_DAILY_LIMIT", "100000"))
 INCHEON_API_WARNING_RATE = float(os.getenv("INCHEON_API_WARNING_RATE", "90"))
@@ -341,156 +338,6 @@ class FlightQueryRequest(BaseModel):
 class FlightRangeRequest(BaseModel):
     start: str
     end: str
-
-
-class DailyReportSaveRequest(BaseModel):
-    workDate: str
-    status: str = "normal"
-    author: str = ""
-    note: str = ""
-    images: List[Dict[str, Any]] = Field(default_factory=list)
-    issueFlight: str = ""
-    issueRoute: str = ""
-    issueHlnbr: str = ""
-    issueText: str = ""
-    savedAt: Optional[str] = None
-
-
-
-def _normalize_daily_report_date(value: Any) -> str:
-    raw = str(value or "").strip()
-    if not raw:
-        return _now_kst().date().isoformat()
-
-    match = re.match(r"^(\d{4})[-/.](\d{2})[-/.](\d{2})", raw)
-    if match:
-        year, month, day = match.groups()
-        return f"{year}-{month}-{day}"
-
-    digits = re.sub(r"\D", "", raw)
-    if len(digits) >= 8:
-        return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
-
-    return raw
-
-
-def _read_daily_reports_file() -> Dict[str, Any]:
-    try:
-        if not DAILY_REPORTS_FILE.exists():
-            return {}
-        data = json.loads(DAILY_REPORTS_FILE.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
-
-
-def _write_daily_reports_file(reports: Dict[str, Any]) -> None:
-    DAILY_REPORTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    DAILY_REPORTS_FILE.write_text(
-        json.dumps(reports, ensure_ascii=False),
-        encoding="utf-8",
-    )
-
-
-def _daily_report_to_supabase_row(report: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "work_date": _normalize_daily_report_date(report.get("workDate")),
-        "status": str(report.get("status") or "normal"),
-        "author": str(report.get("author") or ""),
-        "note": str(report.get("note") or ""),
-        "images": report.get("images") if isinstance(report.get("images"), list) else [],
-        "issue_flight": str(report.get("issueFlight") or ""),
-        "issue_route": str(report.get("issueRoute") or ""),
-        "issue_hlnbr": str(report.get("issueHlnbr") or ""),
-        "issue_text": str(report.get("issueText") or ""),
-        "updated_at": _now_kst_iso(),
-    }
-
-
-def _daily_report_from_supabase_row(row: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "workDate": str(row.get("work_date") or ""),
-        "status": str(row.get("status") or "normal"),
-        "author": str(row.get("author") or ""),
-        "note": str(row.get("note") or ""),
-        "images": row.get("images") if isinstance(row.get("images"), list) else [],
-        "issueFlight": str(row.get("issue_flight") or ""),
-        "issueRoute": str(row.get("issue_route") or ""),
-        "issueHlnbr": str(row.get("issue_hlnbr") or ""),
-        "issueText": str(row.get("issue_text") or ""),
-        "savedAt": str(row.get("updated_at") or row.get("created_at") or ""),
-        "source": "supabase",
-    }
-
-
-def _save_daily_report_to_file(report: Dict[str, Any]) -> Dict[str, Any]:
-    work_date = _normalize_daily_report_date(report.get("workDate"))
-    next_report = {
-        **report,
-        "workDate": work_date,
-        "savedAt": _now_kst_iso(),
-        "source": "file",
-    }
-    reports = _read_daily_reports_file()
-    reports[work_date] = next_report
-    _write_daily_reports_file(reports)
-    return next_report
-
-
-def _load_daily_report_from_file(work_date: str) -> Optional[Dict[str, Any]]:
-    reports = _read_daily_reports_file()
-    report = reports.get(_normalize_daily_report_date(work_date))
-    return report if isinstance(report, dict) else None
-
-
-def _save_daily_report_to_supabase(report: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    if not _supabase_usage_enabled():
-        return None
-
-    row = _daily_report_to_supabase_row(report)
-
-    try:
-        result = _supabase_request(
-            "POST",
-            "/rest/v1/daily_reports?on_conflict=work_date",
-            row,
-            {
-                "Prefer": "resolution=merge-duplicates,return=representation",
-            },
-        )
-    except Exception as exc:
-        raise RuntimeError(f"Supabase Daily 업무보고 저장 실패: {exc}") from exc
-
-    if isinstance(result, list) and result:
-        first = result[0]
-        if isinstance(first, dict):
-            return _daily_report_from_supabase_row(first)
-
-    return _daily_report_from_supabase_row(row)
-
-
-def _load_daily_report_from_supabase(work_date: str) -> Optional[Dict[str, Any]]:
-    if not _supabase_usage_enabled():
-        return None
-
-    query = urllib.parse.urlencode(
-        {
-            "work_date": f"eq.{_normalize_daily_report_date(work_date)}",
-            "select": "*",
-            "limit": "1",
-        }
-    )
-
-    try:
-        rows = _supabase_request("GET", f"/rest/v1/daily_reports?{query}")
-    except Exception as exc:
-        raise RuntimeError(f"Supabase Daily 업무보고 조회 실패: {exc}") from exc
-
-    if not isinstance(rows, list) or not rows:
-        return None
-
-    row = rows[0]
-    return _daily_report_from_supabase_row(row) if isinstance(row, dict) else None
 
 
 
@@ -980,12 +827,7 @@ def _supabase_headers() -> Dict[str, str]:
     }
 
 
-def _supabase_request(
-    method: str,
-    path: str,
-    payload: Optional[Dict[str, Any]] = None,
-    extra_headers: Optional[Dict[str, str]] = None,
-) -> Any:
+def _supabase_request(method: str, path: str, payload: Optional[Dict[str, Any]] = None) -> Any:
     if not _supabase_usage_enabled():
         raise RuntimeError("Supabase usage storage is not configured.")
 
@@ -993,14 +835,10 @@ def _supabase_request(
     if payload is not None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
-    headers = _supabase_headers()
-    if extra_headers:
-        headers.update(extra_headers)
-
     request = urllib.request.Request(
         f"{SUPABASE_URL}{path}",
         data=body,
-        headers=headers,
+        headers=_supabase_headers(),
         method=method,
     )
 
@@ -2221,74 +2059,6 @@ async def delete_notification_history_item(payload: NotificationHistoryDeleteIte
         "deleted": deleted,
         "items": next_items[:50],
     }
-
-
-
-@router.get("/daily-report")
-async def get_daily_report(workDate: str) -> Dict[str, Any]:
-    work_date = _normalize_daily_report_date(workDate)
-
-    try:
-        report = _load_daily_report_from_supabase(work_date)
-        if report:
-            return {
-                "success": True,
-                "configured": True,
-                "report": report,
-            }
-    except Exception as exc:
-        file_report = _load_daily_report_from_file(work_date)
-        return {
-            "success": bool(file_report),
-            "configured": _supabase_usage_enabled(),
-            "fallback": True,
-            "message": str(exc),
-            "report": file_report,
-        }
-
-    file_report = _load_daily_report_from_file(work_date)
-    return {
-        "success": bool(file_report),
-        "configured": _supabase_usage_enabled(),
-        "report": file_report,
-    }
-
-
-@router.post("/daily-report")
-async def save_daily_report(payload: DailyReportSaveRequest) -> Dict[str, Any]:
-    report = {
-        "workDate": _normalize_daily_report_date(payload.workDate),
-        "status": str(payload.status or "normal"),
-        "author": str(payload.author or ""),
-        "note": str(payload.note or ""),
-        "images": payload.images if isinstance(payload.images, list) else [],
-        "issueFlight": str(payload.issueFlight or ""),
-        "issueRoute": str(payload.issueRoute or ""),
-        "issueHlnbr": str(payload.issueHlnbr or ""),
-        "issueText": str(payload.issueText or ""),
-        "savedAt": payload.savedAt or _now_kst_iso(),
-    }
-
-    file_report = _save_daily_report_to_file(report)
-
-    try:
-        supabase_report = _save_daily_report_to_supabase(report)
-        saved_report = supabase_report or file_report
-        return {
-            "success": True,
-            "configured": _supabase_usage_enabled(),
-            "report": saved_report,
-            "savedAt": saved_report.get("savedAt") or _now_kst_iso(),
-        }
-    except Exception as exc:
-        return {
-            "success": True,
-            "configured": _supabase_usage_enabled(),
-            "fallback": True,
-            "message": str(exc),
-            "report": file_report,
-            "savedAt": file_report.get("savedAt") or _now_kst_iso(),
-        }
 
 
 

@@ -984,8 +984,6 @@ export default function HomePage() {
   const [incheonApiUsage, setIncheonApiUsage] = useState<IncheonApiUsage | null>(null);
   const [isDailySaving, setIsDailySaving] = useState(false);
   const [isIssueSaving, setIsIssueSaving] = useState(false);
-  const [isDailySharedSyncing, setIsDailySharedSyncing] = useState(false);
-  const [dailySharedSyncStatus, setDailySharedSyncStatus] = useState("");
   const [weather, setWeather] = useState<WeatherInfo>(DEFAULT_WEATHER);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [, setAlertCheckedAt] = useState("");
@@ -2327,136 +2325,6 @@ export default function HomePage() {
   };
 
 
-  const buildDailySharedPayload = () => ({
-    workDate: dailyWorkDate,
-    status: dailyStatus,
-    author,
-    note,
-    images,
-    issueFlight,
-    issueRoute,
-    issueHlnbr,
-    issueText,
-    savedAt: new Date().toISOString(),
-  });
-
-  const applyDailySharedReport = (report: any) => {
-    if (!report || typeof report !== "object") return false;
-
-    const nextStatus = report.status === "issue" ? "issue" : "normal";
-    const nextNote = typeof report.note === "string" ? report.note : "";
-    const nextAuthor = typeof report.author === "string" ? report.author : author;
-    const nextImages = Array.isArray(report.images) ? report.images : [];
-
-    setDailyStatus(nextStatus);
-    setNote(nextNote);
-    setAuthor(nextAuthor);
-    setImages(nextImages);
-    saveImages(nextImages);
-    saveNote(nextNote);
-    saveDailyDraft({
-      note: nextNote,
-      status: nextStatus,
-      author: nextAuthor,
-      workDate: typeof report.workDate === "string" ? report.workDate : dailyWorkDate,
-      savedAt: new Date().toISOString(),
-    });
-
-    if (typeof report.issueFlight === "string") setIssueFlight(report.issueFlight);
-    if (typeof report.issueRoute === "string") setIssueRoute(report.issueRoute);
-    if (typeof report.issueHlnbr === "string") setIssueHlnbr(report.issueHlnbr);
-    if (typeof report.issueText === "string") setIssueText(report.issueText);
-
-    if (
-      nextStatus === "issue" ||
-      String(report.issueText || "").trim() ||
-      String(report.issueFlight || "").trim()
-    ) {
-      saveIssueDraft({
-        flight: typeof report.issueFlight === "string" ? report.issueFlight : "",
-        route: typeof report.issueRoute === "string" ? report.issueRoute : "",
-        hlnbr: typeof report.issueHlnbr === "string" ? report.issueHlnbr : "",
-        text: typeof report.issueText === "string" ? report.issueText : "",
-        status: "issue",
-        author: nextAuthor,
-        savedAt: new Date().toISOString(),
-      });
-    }
-
-    return true;
-  };
-
-  const handleSaveDailyShared = async () => {
-    setIsDailySharedSyncing(true);
-    setDailySharedSyncStatus("Supabase 공유 저장 중...");
-
-    try {
-      const response = await fetch(`${BACKEND_URL}/flights/daily-report`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildDailySharedPayload()),
-      });
-
-      const json = await response.json().catch(() => null);
-      if (!response.ok || !json?.success) {
-        throw new Error(json?.message || "Daily 업무보고 공유 저장에 실패했습니다.");
-      }
-
-      setDailySharedSyncStatus(
-        json.fallback
-          ? "서버 파일에 임시 저장했습니다. Supabase 설정을 확인해 주세요."
-          : "Supabase 공유 저장 완료",
-      );
-      setNotice("Daily 업무보고를 공유 저장했습니다. PC/아이폰에서 불러올 수 있습니다.");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Daily 업무보고 공유 저장 중 오류가 발생했습니다.";
-      setDailySharedSyncStatus(message);
-      setNotice(message);
-    } finally {
-      setIsDailySharedSyncing(false);
-    }
-  };
-
-  const handleLoadDailyShared = async () => {
-    setIsDailySharedSyncing(true);
-    setDailySharedSyncStatus("Supabase 공유 불러오는 중...");
-
-    try {
-      const query = new URLSearchParams({ workDate: dailyWorkDate });
-      const response = await fetch(`${BACKEND_URL}/flights/daily-report?${query.toString()}`);
-      const json = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(json?.message || "Daily 업무보고 공유 불러오기에 실패했습니다.");
-      }
-
-      if (!json?.report) {
-        setDailySharedSyncStatus("해당 업무일자의 공유 저장 기록이 없습니다.");
-        setNotice("해당 업무일자의 공유 저장 기록이 없습니다.");
-        return;
-      }
-
-      const applied = applyDailySharedReport(json.report);
-      if (!applied) {
-        throw new Error("공유 저장 기록을 화면에 적용하지 못했습니다.");
-      }
-
-      setDailySharedSyncStatus(
-        json.fallback
-          ? "서버 파일 저장본을 불러왔습니다. Supabase 설정을 확인해 주세요."
-          : "Supabase 공유 불러오기 완료",
-      );
-      setNotice("Daily 업무보고 공유 저장본을 불러왔습니다.");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Daily 업무보고 공유 불러오기 중 오류가 발생했습니다.";
-      setDailySharedSyncStatus(message);
-      setNotice(message);
-    } finally {
-      setIsDailySharedSyncing(false);
-    }
-  };
-
-
   const buildDailyPayload = () => {
     const dailyImages = IMAGE_SLOTS.flatMap((slot) =>
       getImagesBySlot(images, slot.key).map((image) => ({
@@ -2859,10 +2727,6 @@ export default function HomePage() {
           setNote={setNote}
           dailyNotionRecord={dailyNotionRecord}
           isDailySaving={isDailySaving}
-          isDailySharedSyncing={isDailySharedSyncing}
-          dailySharedSyncStatus={dailySharedSyncStatus}
-          handleSaveDailyShared={handleSaveDailyShared}
-          handleLoadDailyShared={handleLoadDailyShared}
           handleSaveDailyDraft={handleSaveDailyDraft}
           handleSaveDailyToNotion={handleSaveDailyToNotion}
           handleUpdateDailyToNotion={handleUpdateDailyToNotion}
