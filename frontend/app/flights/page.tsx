@@ -106,6 +106,60 @@ function saveRooms(rooms: MonitorRoom[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(rooms));
 }
 
+
+const FLIGHT_LOOKUP_CACHE_PREFIX = "cargo_ops_flight_lookup_cache_v1:";
+const FLIGHT_LOOKUP_CACHE_TTL_MS = 3 * 60 * 1000;
+
+type FlightLookupCacheValue = {
+  rows: FlightRow[];
+  fetchedAt: string;
+  savedAt: number;
+};
+
+function getFlightLookupCacheKey(kind: "manual" | "kj-all", flights: string, start: string, end: string) {
+  return `${FLIGHT_LOOKUP_CACHE_PREFIX}${kind}|${flights}|${start}|${end}`;
+}
+
+function loadFlightLookupCache(key: string): FlightLookupCacheValue | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    const savedAt = Number(parsed?.savedAt || 0);
+    if (!savedAt || Date.now() - savedAt > FLIGHT_LOOKUP_CACHE_TTL_MS) {
+      window.localStorage.removeItem(key);
+      return null;
+    }
+
+    const rows = Array.isArray(parsed?.rows) ? parsed.rows : [];
+    const fetchedAt = typeof parsed?.fetchedAt === "string" ? parsed.fetchedAt : "";
+
+    return { rows, fetchedAt, savedAt };
+  } catch {
+    return null;
+  }
+}
+
+function saveFlightLookupCache(key: string, rows: FlightRow[], fetchedAt: string) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(
+      key,
+      JSON.stringify({
+        rows,
+        fetchedAt,
+        savedAt: Date.now(),
+      }),
+    );
+  } catch {
+    // 조회 캐시 저장 실패는 화면 동작을 막지 않습니다.
+  }
+}
+
 function isActiveScheduleRoom(room?: MonitorRoom | null) {
   if (!room) return false;
   const flightsInput = String(room.flightsInput || "").trim();
@@ -1768,19 +1822,32 @@ export default function FlightsPage() {
 
     const keepScheduleContext = Boolean(selectedRoom?.fixed);
     const previousScheduleRows = keepScheduleContext ? selectedRoom?.rows || [] : [];
+    const normalizedInput = flights.join(", ");
+    const cacheKey = getFlightLookupCacheKey("manual", normalizedInput, startDateTime, endDateTime);
+    const cachedLookup = loadFlightLookupCache(cacheKey);
 
     setQueryMode("manual");
-    setInput(flights.join(", "));
+    setInput(normalizedInput);
     if (!keepScheduleContext) {
       setSelectedRoomId("");
       setFixed(false);
     }
-    setRows([]);
     setSelectedScheduleKeys({});
     setSelectedScheduleOrder([]);
     setExpandedDetailKeys({});
-    setLoading(true);
     setError("");
+
+    if (cachedLookup) {
+      const cachedRows = applyAllRegistrationSources(cachedLookup.rows || []);
+      setRows(cachedRows);
+      setLastFetchedAt(`${cachedLookup.fetchedAt} · 캐시`);
+      setError("최근 조회 결과를 먼저 표시했습니다. 최신 정보로 갱신 중입니다.");
+    } else {
+      setRows([]);
+      setLastFetchedAt("");
+    }
+
+    setLoading(true);
 
     try {
       const res = await fetch(`${BACKEND_URL}/flights/`, {
@@ -1803,13 +1870,14 @@ export default function FlightsPage() {
 
       const nextRows = applyAllRegistrationSources(json.data || []);
       const fetchedAt = new Date().toLocaleString("ko-KR");
+      saveFlightLookupCache(cacheKey, nextRows, fetchedAt);
 
       setRows(nextRows);
-      setLastFetchedAt(fetchedAt);
+      setLastFetchedAt(json.cached ? `${fetchedAt} · 서버 캐시` : fetchedAt);
       setExpandedDetailKeys({});
 
       if (keepScheduleContext && selectedRoom) {
-        const mergedInput = mergeFlightsInput(selectedRoom.flightsInput, flights.join(", "));
+        const mergedInput = mergeFlightsInput(selectedRoom.flightsInput, normalizedInput);
         const mergedRows = mergeScheduleRowsByFlight(previousScheduleRows, nextRows);
         const updatedRoom: MonitorRoom = {
           ...selectedRoom,
@@ -1838,7 +1906,7 @@ export default function FlightsPage() {
           nextRows,
           fetchedAt,
           fixed,
-          flights.join(", "),
+          normalizedInput,
           startDateTime,
           endDateTime
         );
@@ -1851,16 +1919,28 @@ export default function FlightsPage() {
   };
 
   const fetchAllKjFlights = async () => {
+    const cacheKey = getFlightLookupCacheKey("kj-all", "KJ_ALL", startDateTime, endDateTime);
+    const cachedLookup = loadFlightLookupCache(cacheKey);
+
     setQueryMode("kj-all");
     setSelectedRoomId("");
     setFixed(false);
-    setRows([]);
-    setLastFetchedAt("");
     setExpandedDetailKeys({});
     setSelectedScheduleKeys({});
     setSelectedScheduleOrder([]);
-    setLoading(true);
     setError("");
+
+    if (cachedLookup) {
+      const cachedRows = applyAllRegistrationSources(cachedLookup.rows || []);
+      setRows(cachedRows);
+      setLastFetchedAt(`${cachedLookup.fetchedAt} · 캐시`);
+      setError("최근 KJ 전체 조회 결과를 먼저 표시했습니다. 최신 정보로 갱신 중입니다.");
+    } else {
+      setRows([]);
+      setLastFetchedAt("");
+    }
+
+    setLoading(true);
 
     try {
       const res = await fetch(`${BACKEND_URL}/flights/kj-all`, {
@@ -1888,9 +1968,10 @@ export default function FlightsPage() {
 
       const nextRows = applyAllRegistrationSources(json.data || []);
       const fetchedAt = new Date().toLocaleString("ko-KR");
+      saveFlightLookupCache(cacheKey, nextRows, fetchedAt);
 
       setRows(nextRows);
-      setLastFetchedAt(fetchedAt);
+      setLastFetchedAt(json.cached ? `${fetchedAt} · 서버 캐시` : fetchedAt);
       setExpandedDetailKeys({});
     } catch (e: any) {
       setError(e.message || "KJ 전체 조회 실패");

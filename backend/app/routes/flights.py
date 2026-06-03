@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -52,9 +53,50 @@ SUPABASE_SERVICE_ROLE_KEY = (
 )
 
 AUTO_PUSH_DEFAULT_INTERVAL_MINUTES = int(os.getenv("AUTO_PUSH_INTERVAL_MINUTES", "30"))
+FLIGHT_SEARCH_CACHE_TTL_SECONDS = int(os.getenv("FLIGHT_SEARCH_CACHE_TTL_SECONDS", "180"))
+FLIGHT_SEARCH_CACHE_MAX_ITEMS = int(os.getenv("FLIGHT_SEARCH_CACHE_MAX_ITEMS", "60"))
 AUTO_PUSH_STARTED = False
 
 KST = timezone(timedelta(hours=9))
+FLIGHT_SEARCH_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+def _clone_jsonable(value: Any) -> Any:
+    return json.loads(json.dumps(value, ensure_ascii=False))
+
+
+def _flight_search_cache_get(key: str) -> Optional[Dict[str, Any]]:
+    if FLIGHT_SEARCH_CACHE_TTL_SECONDS <= 0:
+        return None
+
+    item = FLIGHT_SEARCH_CACHE.get(key)
+    if not item:
+        return None
+
+    expires_at = float(item.get("expiresAt") or 0)
+    if expires_at <= time.monotonic():
+        FLIGHT_SEARCH_CACHE.pop(key, None)
+        return None
+
+    value = item.get("value")
+    return _clone_jsonable(value) if isinstance(value, dict) else None
+
+
+def _flight_search_cache_set(key: str, value: Dict[str, Any]) -> None:
+    if FLIGHT_SEARCH_CACHE_TTL_SECONDS <= 0:
+        return
+
+    while len(FLIGHT_SEARCH_CACHE) >= FLIGHT_SEARCH_CACHE_MAX_ITEMS:
+        oldest_key = next(iter(FLIGHT_SEARCH_CACHE), None)
+        if oldest_key is None:
+            break
+        FLIGHT_SEARCH_CACHE.pop(oldest_key, None)
+
+    FLIGHT_SEARCH_CACHE[key] = {
+        "expiresAt": time.monotonic() + FLIGHT_SEARCH_CACHE_TTL_SECONDS,
+        "value": _clone_jsonable(value),
+    }
+
 
 
 def _now_kst() -> datetime:
@@ -2379,6 +2421,12 @@ async def save_latest_schedule(payload: LatestScheduleRequest) -> Dict[str, Any]
 @router.post("/kj-all")
 async def search_all_kj_flights(payload: FlightRangeRequest) -> Dict[str, Any]:
     start_dt, end_dt, start_date, end_date = _validate_range(payload.start, payload.end)
+    cache_key = f"kj-all|{payload.start}|{payload.end}|{start_date}|{end_date}"
+    cached = _flight_search_cache_get(cache_key)
+    if cached:
+        cached["cached"] = True
+        cached["source"] = "memory-cache"
+        return cached
 
     try:
         rows = await get_all_kj_flight_data(
@@ -2407,14 +2455,18 @@ async def search_all_kj_flights(payload: FlightRangeRequest) -> Dict[str, Any]:
         }
     )
 
-    return {
+    result = {
         "success": True,
         "data": filtered_rows,
         "count": len(filtered_rows),
         "queriedFlights": queried_flights,
         "start": payload.start,
         "end": payload.end,
+        "cached": False,
+        "source": "incheon-api",
     }
+    _flight_search_cache_set(cache_key, result)
+    return result
 
 
 @router.post("/")
@@ -2425,17 +2477,28 @@ async def search_flights(payload: FlightQueryRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="조회할 편명이 없습니다.")
 
     start_dt, end_dt, start_date, end_date = _validate_range(payload.start, payload.end)
+    cache_key = f"manual|{','.join(normalized_flights)}|{payload.start}|{payload.end}|{start_date}|{end_date}"
+    cached = _flight_search_cache_get(cache_key)
+    if cached:
+        cached["cached"] = True
+        cached["source"] = "memory-cache"
+        return cached
 
     all_rows: List[Dict[str, Any]] = []
 
     try:
-        for flight_no in normalized_flights:
-            rows = await get_flight_data(
-                flight_no=flight_no,
-                start_date=start_date,
-                end_date=end_date,
-            )
+        rows_by_flight = await asyncio.gather(
+            *[
+                get_flight_data(
+                    flight_no=flight_no,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                for flight_no in normalized_flights
+            ]
+        )
 
+        for rows in rows_by_flight:
             filtered_rows = [
                 row
                 for row in rows
@@ -2450,11 +2513,15 @@ async def search_flights(payload: FlightQueryRequest) -> Dict[str, Any]:
 
     all_rows.sort(key=_get_row_sort_key)
 
-    return {
+    result = {
         "success": True,
         "data": all_rows,
         "count": len(all_rows),
         "queriedFlights": normalized_flights,
         "start": payload.start,
         "end": payload.end,
+        "cached": False,
+        "source": "incheon-api",
     }
+    _flight_search_cache_set(cache_key, result)
+    return result
