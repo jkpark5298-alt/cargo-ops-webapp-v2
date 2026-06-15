@@ -706,7 +706,7 @@ def _apply_aircraft_registrations_to_rows(rows: List[Any]) -> List[Any]:
             row.get("arrivalCode") or "",
         )
         fallback_key = _aircraft_registration_flight_date_key(date, flight)
-        registration_no = lookup.get(exact_key) or lookup.get(fallback_key) or _row_aircraft_registration(row)
+        registration_no = lookup.get(fallback_key) or lookup.get(exact_key) or _row_aircraft_registration(row)
 
         if registration_no:
             next_row = dict(row)

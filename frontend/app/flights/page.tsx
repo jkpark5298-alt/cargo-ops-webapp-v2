@@ -659,7 +659,7 @@ function getAircraftRegistrationForRow(row: FlightRow, records: AircraftRegistra
   const flight = getFlightDisplay(row);
   const exactKey = buildAircraftRegistrationKey(date, flight, row.departureCode, row.arrivalCode);
   const fallbackKey = buildAircraftRegistrationFlightDateKey(date, flight);
-  return map.get(exactKey) || map.get(fallbackKey) || "";
+  return map.get(fallbackKey) || map.get(exactKey) || "";
 }
 
 function applyAircraftRegistrationToRows(rows: FlightRow[], records: AircraftRegistrationRecord[]) {
