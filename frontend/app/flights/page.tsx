@@ -1335,11 +1335,11 @@ export default function FlightsPage() {
         return;
       }
 
-      let nextRecords = mergeAircraftRegistrationRecords(aircraftRegistrationRecords, parsedRecords);
+      let nextRecords = parsedRecords;
       let serverSyncMessage = "";
 
       try {
-        nextRecords = await saveAircraftRegistrationRecordsToServer(parsedRecords, "merge");
+        nextRecords = await saveAircraftRegistrationRecordsToServer(parsedRecords, "replace");
         serverSyncMessage = " · 서버 저장";
       } catch (serverError) {
         saveAircraftRegistrationRecords(nextRecords);
