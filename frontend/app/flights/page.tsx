@@ -638,19 +638,32 @@ function buildAircraftRegistrationFlightDateKey(date: string, flight: string) {
 }
 
 function buildAircraftRegistrationMap(records: AircraftRegistrationRecord[]) {
-  const map = new Map<string, string>();
+  const tempMap = new Map<string, { registrationNo: string; updatedAt: string }>();
 
   records.forEach((record) => {
     if (!record.date || !record.flight || !record.registrationNo) return;
 
     const exactKey = buildAircraftRegistrationKey(record.date, record.flight, record.departureCode, record.arrivalCode);
-    map.set(exactKey, record.registrationNo);
-
     const fallbackKey = buildAircraftRegistrationFlightDateKey(record.date, record.flight);
-    if (!map.has(fallbackKey)) map.set(fallbackKey, record.registrationNo);
+    const currentUpdateTime = record.updatedAt || "";
+
+    const existingExact = tempMap.get(exactKey);
+    if (!existingExact || currentUpdateTime >= existingExact.updatedAt) {
+      tempMap.set(exactKey, { registrationNo: record.registrationNo, updatedAt: currentUpdateTime });
+    }
+
+    const existingFallback = tempMap.get(fallbackKey);
+    if (!existingFallback || currentUpdateTime >= existingFallback.updatedAt) {
+      tempMap.set(fallbackKey, { registrationNo: record.registrationNo, updatedAt: currentUpdateTime });
+    }
   });
 
-  return map;
+  const finalMap = new Map<string, string>();
+  tempMap.forEach((value, key) => {
+    finalMap.set(key, value.registrationNo);
+  });
+
+  return finalMap;
 }
 
 function getAircraftRegistrationForRow(row: FlightRow, records: AircraftRegistrationRecord[]) {
@@ -745,7 +758,12 @@ function mergeAircraftRegistrationRecords(
   });
 
   incomingRecords.forEach((record) => {
-    map.set(buildAircraftRegistrationKey(record.date, record.flight, record.departureCode, record.arrivalCode), record);
+    const key = buildAircraftRegistrationKey(record.date, record.flight, record.departureCode, record.arrivalCode);
+    const existing = map.get(key);
+    
+    if (!existing || (record.updatedAt || "") >= (existing.updatedAt || "")) {
+      map.set(key, record);
+    }
   });
 
   return Array.from(map.values()).sort((a, b) => {
@@ -820,11 +838,10 @@ function getEditableHlValue(
     return drafts[flight];
   }
 
-  const mapped = mapping[flight];
-  if (mapped) return mapped;
-
   const current = getRegistrationNo(row);
-  return current === "-" ? "" : current;
+  if (current !== "-") return current;
+
+  return mapping[flight] || "";
 }
 
 function applyHlMappingToRows(rows: FlightRow[], mapping: Record<string, string>) {
