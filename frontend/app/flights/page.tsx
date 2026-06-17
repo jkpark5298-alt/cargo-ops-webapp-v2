@@ -530,18 +530,33 @@ function normalizeFlightsInput(rawInput: string) {
     });
 }
 
-function normalizeFlightKey(value: string) {
-  return value.replace(/\s+/g, "").toUpperCase();
-}
-
 function normalizeHlFlightKey(value: string) {
-  const normalized = value.replace(/\s+/g, "").toUpperCase();
-  if (/^\d{3,4}$/.test(normalized)) return `KJ${normalized}`;
+  let normalized = value.replace(/\s+/g, "").toUpperCase();
+  normalized = normalized.replace(/[^A-Z0-9]/g, "");
+
+  const match = normalized.match(/^([A-Z]{2,3})?0*([1-9]\d*)$/);
+  if (match) {
+    const prefix = match[1] || "KJ";
+    const num = match[2];
+    return `${prefix}${num}`;
+  }
+
+  const allZerosMatch = normalized.match(/^([A-Z]{2,3})?0+$/);
+  if (allZerosMatch) {
+    const prefix = allZerosMatch[1] || "KJ";
+    return `${prefix}0`;
+  }
+
   return normalized;
 }
 
+function normalizeFlightKey(value: string) {
+  return normalizeHlFlightKey(value);
+}
+
 function normalizeHlNumber(value: string) {
-  const normalized = value.replace(/\s+/g, "").toUpperCase();
+  let normalized = value.replace(/\s+/g, "").toUpperCase();
+  normalized = normalized.replace(/[^A-Z0-9]/g, "");
 
   if (/^\d{3,5}$/.test(normalized)) {
     return `HL${normalized}`;
@@ -595,18 +610,23 @@ function saveHlMappingText(value: string) {
 
 function normalizeAircraftRegistrationDate(value: unknown) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    const yyyy = value.getFullYear();
-    const mm = String(value.getMonth() + 1).padStart(2, "0");
-    const dd = String(value.getDate()).padStart(2, "0");
+    const kstDate = new Date(value.getTime() + 9 * 60 * 60 * 1000);
+    const yyyy = kstDate.getUTCFullYear();
+    const mm = String(kstDate.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(kstDate.getUTCDate()).padStart(2, "0");
     return `${yyyy}-${mm}-${dd}`;
   }
 
   const raw = String(value || "").trim();
   if (!raw) return "";
 
-  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
-  if (/^\d{4}\.\d{2}\.\d{2}/.test(raw)) return raw.slice(0, 10).replace(/\./g, "-");
-  if (/^\d{4}\/\d{2}\/\d{2}/.test(raw)) return raw.slice(0, 10).replace(/\//g, "-");
+  const match = raw.match(/^(\d{4})[-/.\s]+(\d{1,2})[-/.\s]+(\d{1,2})/);
+  if (match) {
+    const yyyy = match[1];
+    const mm = match[2].padStart(2, "0");
+    const dd = match[3].padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
 
   const digits = raw.replace(/\D/g, "");
   if (digits.length >= 8) return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
@@ -672,7 +692,7 @@ function getAircraftRegistrationForRow(row: FlightRow, records: AircraftRegistra
   const flight = getFlightDisplay(row);
   const exactKey = buildAircraftRegistrationKey(date, flight, row.departureCode, row.arrivalCode);
   const fallbackKey = buildAircraftRegistrationFlightDateKey(date, flight);
-  return map.get(fallbackKey) || map.get(exactKey) || "";
+  return map.get(exactKey) || map.get(fallbackKey) || "";
 }
 
 function applyAircraftRegistrationToRows(rows: FlightRow[], records: AircraftRegistrationRecord[]) {
@@ -796,14 +816,18 @@ function parseAircraftRegistrationRows(rawRows: Record<string, unknown>[]) {
     const flight = normalizeHlFlightKey(
       String(getAircraftRegistrationCell(row, ["편명", "flight", "flightid", "flightno"]) || ""),
     );
-    const departureCode = String(getAircraftRegistrationCell(row, ["출발코드", "출발", "departure", "dep"]) || "")
-      .replace(/\s+/g, "")
+    const departureCode = String(
+      getAircraftRegistrationCell(row, ["출발지코드", "출발코드", "출발지", "출발", "departure", "dep", "depcode"]) || ""
+    )
+      .replace(/[^A-Z0-9]/ig, "")
       .toUpperCase();
-    const arrivalCode = String(getAircraftRegistrationCell(row, ["도착코드", "도착", "arrival", "arr"]) || "")
-      .replace(/\s+/g, "")
+    const arrivalCode = String(
+      getAircraftRegistrationCell(row, ["도착지코드", "도착코드", "도착지", "도착", "arrival", "arr", "arrcode"]) || ""
+    )
+      .replace(/[^A-Z0-9]/ig, "")
       .toUpperCase();
     const registrationNo = normalizeHlNumber(
-      String(getAircraftRegistrationCell(row, ["등록기호", "hl", "hlnbr", "registration", "registrationno"]) || ""),
+      String(getAircraftRegistrationCell(row, ["등록기호", "등록", "기호", "hl", "hlnbr", "registration", "registrationno"]) || ""),
     );
 
     if (!date) return;
@@ -1265,13 +1289,24 @@ export default function FlightsPage() {
     setAircraftRegistrationRecords(localRecords);
 
     void fetchAircraftRegistrationRecordsFromServer()
-      .then((serverRecords) => {
-        setAircraftRegistrationRecords(serverRecords);
-        setRows((prevRows) => applyAircraftRegistrationToRows(prevRows, serverRecords));
+      .then(async (serverRecords) => {
+        let finalRecords = serverRecords;
+        if (serverRecords.length === 0 && localRecords.length > 0) {
+          try {
+            finalRecords = await saveAircraftRegistrationRecordsToServer(localRecords, "replace");
+            saveAircraftRegistrationRecords(finalRecords);
+          } catch (restoreError) {
+            console.error("Failed to restore records to server:", restoreError);
+            finalRecords = localRecords;
+          }
+        }
+
+        setAircraftRegistrationRecords(finalRecords);
+        setRows((prevRows) => applyAircraftRegistrationToRows(prevRows, finalRecords));
         setRooms((prevRooms) => {
           const nextRooms = prevRooms.map((room) => ({
             ...room,
-            rows: applyAircraftRegistrationToRows(room.rows || [], serverRecords),
+            rows: applyAircraftRegistrationToRows(room.rows || [], finalRecords),
           }));
           saveRooms(nextRooms);
           return nextRooms;
@@ -1308,7 +1343,8 @@ export default function FlightsPage() {
   const isSelectedFixedRoom = Boolean(selectedRoom?.fixed);
 
   const applyAllRegistrationSources = (targetRows: FlightRow[]) => {
-    return applyAircraftRegistrationToRows(applyHlMappingToRows(targetRows, hlNumberMap), aircraftRegistrationRecords);
+    const latestRecords = loadAircraftRegistrationRecords();
+    return applyAircraftRegistrationToRows(applyHlMappingToRows(targetRows, hlNumberMap), latestRecords);
   };
 
   const applyAllRegistrationSourcesToRoom = (room: MonitorRoom): MonitorRoom => ({
@@ -1352,51 +1388,71 @@ export default function FlightsPage() {
         return;
       }
 
-      let nextRecords = parsedRecords;
-      let serverSyncMessage = "";
+      // --- 1. Optimistic Update (Immediate) ---
+      setAircraftRegistrationRecords(parsedRecords);
+      saveAircraftRegistrationRecords(parsedRecords);
 
-      try {
-        nextRecords = await saveAircraftRegistrationRecordsToServer(parsedRecords, "replace");
-        serverSyncMessage = " · 서버 저장";
-      } catch (serverError) {
-        saveAircraftRegistrationRecords(nextRecords);
-        serverSyncMessage =
-          serverError instanceof Error
-            ? ` · 서버 저장 실패: ${serverError.message}`
-            : " · 서버 저장 실패";
-      }
-
-      setAircraftRegistrationRecords(nextRecords);
-
-      const nextRows = applyAircraftRegistrationToRows(rows, nextRecords);
-      const nextRooms = rooms.map((room) => ({
+      let nextRows = applyAircraftRegistrationToRows(rows, parsedRecords);
+      let nextRooms = rooms.map((room) => ({
         ...room,
-        rows: applyAircraftRegistrationToRows(room.rows || [], nextRecords),
+        rows: applyAircraftRegistrationToRows(room.rows || [], parsedRecords),
       }));
 
       setRows(nextRows);
       setRooms(nextRooms);
       saveRooms(nextRooms);
 
-      const nextSelectedRoom = selectedRoom
-        ? nextRooms.find((room) => room.id === selectedRoom.id) || null
-        : null;
+      setHlMappingStatus(`등록기호 엑셀 ${parsedRecords.length}건 읽기 완료 · 로컬 반영 완료 · 서버 저장 중...`);
 
-      if (nextSelectedRoom?.fixed) {
+      // --- 2. Background Sync ---
+      // We run the server sync asynchronously to keep the UI instant
+      void (async () => {
+        let serverSyncMessage = "";
+        let finalRecords = parsedRecords;
+
         try {
-          await saveLatestScheduleToServer(normalizeScheduleRoomRows(nextSelectedRoom));
-          setHlMappingStatus(`등록기호 엑셀 ${parsedRecords.length}건 업로드 · 총 ${nextRecords.length}건 관리${serverSyncMessage} · Schedule Lite/초기화면 반영`);
-        } catch (error) {
-          setHlMappingStatus(
-            error instanceof Error
-              ? `등록기호 엑셀 ${parsedRecords.length}건 로컬 반영 · 서버 반영 실패: ${error.message}`
-              : `등록기호 엑셀 ${parsedRecords.length}건 로컬 반영 · 서버 반영 실패`,
-          );
+          finalRecords = await saveAircraftRegistrationRecordsToServer(parsedRecords, "replace");
+          saveAircraftRegistrationRecords(finalRecords);
+          serverSyncMessage = " · 서버 저장 완료";
+        } catch (serverError) {
+          serverSyncMessage =
+            serverError instanceof Error
+              ? ` · 서버 저장 실패: ${serverError.message}`
+              : " · 서버 저장 실패";
         }
-        return;
-      }
 
-      setHlMappingStatus(`등록기호 엑셀 ${parsedRecords.length}건 업로드 · 총 ${nextRecords.length}건 관리${serverSyncMessage}`);
+        setAircraftRegistrationRecords(finalRecords);
+
+        nextRows = applyAircraftRegistrationToRows(rows, finalRecords);
+        nextRooms = rooms.map((room) => ({
+          ...room,
+          rows: applyAircraftRegistrationToRows(room.rows || [], finalRecords),
+        }));
+
+        setRows(nextRows);
+        setRooms(nextRooms);
+        saveRooms(nextRooms);
+
+        const nextSelectedRoom = selectedRoom
+          ? nextRooms.find((room) => room.id === selectedRoom.id) || null
+          : null;
+
+        if (nextSelectedRoom?.fixed) {
+          try {
+            await saveLatestScheduleToServer(normalizeScheduleRoomRows(nextSelectedRoom));
+            setHlMappingStatus(`등록기호 엑셀 ${parsedRecords.length}건 업로드 · 총 ${finalRecords.length}건 관리${serverSyncMessage} · Schedule Lite/초기화면 반영`);
+          } catch (error) {
+            setHlMappingStatus(
+              error instanceof Error
+                ? `등록기호 엑셀 ${parsedRecords.length}건 로컬 반영 · 서버 반영 실패: ${error.message}`
+                : `등록기호 엑셀 ${parsedRecords.length}건 로컬 반영 · 서버 반영 실패`,
+            );
+          }
+          return;
+        }
+
+        setHlMappingStatus(`등록기호 엑셀 ${parsedRecords.length}건 업로드 · 총 ${finalRecords.length}건 관리${serverSyncMessage}`);
+      })();
     } catch (error) {
       setHlMappingStatus(
         error instanceof Error
@@ -1466,8 +1522,9 @@ export default function FlightsPage() {
       })
       .filter((record): record is AircraftRegistrationRecord => Boolean(record));
 
+    const latestRecords = loadAircraftRegistrationRecords();
     let nextAircraftRegistrationRecords = mergeAircraftRegistrationRecords(
-      aircraftRegistrationRecords,
+      latestRecords,
       incomingRecords,
     );
     let serverRegistrationSyncMessage = "";

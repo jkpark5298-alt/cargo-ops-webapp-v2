@@ -586,14 +586,49 @@ function mergeScheduleRegistrationIntoRoom(
   };
 }
 
+function normalizeFlightKey(value: string) {
+  let normalized = value.replace(/\s+/g, "").toUpperCase();
+  normalized = normalized.replace(/[^A-Z0-9]/g, "");
+
+  const match = normalized.match(/^([A-Z]{2,3})?0*([1-9]\d*)$/);
+  if (match) {
+    const prefix = match[1] || "KJ";
+    const num = match[2];
+    return `${prefix}${num}`;
+  }
+
+  const allZerosMatch = normalized.match(/^([A-Z]{2,3})?0+$/);
+  if (allZerosMatch) {
+    const prefix = allZerosMatch[1] || "KJ";
+    return `${prefix}0`;
+  }
+
+  return normalized;
+}
+
 function normalizeAircraftRegistrationDate(value: unknown) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const kstDate = new Date(value.getTime() + 9 * 60 * 60 * 1000);
+    const yyyy = kstDate.getUTCFullYear();
+    const mm = String(kstDate.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(kstDate.getUTCDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
   const raw = String(value || "").trim();
   if (!raw) return "";
-  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
-  if (/^\d{4}\.\d{2}\.\d{2}/.test(raw)) return raw.slice(0, 10).replace(/\./g, "-");
-  if (/^\d{4}\/\d{2}\/\d{2}/.test(raw)) return raw.slice(0, 10).replace(/\//g, "-");
+
+  const match = raw.match(/^(\d{4})[-/.\s]+(\d{1,2})[-/.\s]+(\d{1,2})/);
+  if (match) {
+    const yyyy = match[1];
+    const mm = match[2].padStart(2, "0");
+    const dd = match[3].padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
   const digits = raw.replace(/\D/g, "");
   if (digits.length >= 8) return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+
   return raw;
 }
 
@@ -606,14 +641,14 @@ function getAircraftRegistrationDateFromRow(row: FlightRow) {
 function buildAircraftRegistrationKey(date: string, flight: string, departureCode = "", arrivalCode = "") {
   return [
     normalizeAircraftRegistrationDate(date),
-    String(flight || "").replace(/\s+/g, "").toUpperCase(),
+    normalizeFlightKey(flight),
     String(departureCode || "").replace(/\s+/g, "").toUpperCase(),
     String(arrivalCode || "").replace(/\s+/g, "").toUpperCase(),
   ].join("|");
 }
 
 function buildAircraftRegistrationFlightDateKey(date: string, flight: string) {
-  return [normalizeAircraftRegistrationDate(date), String(flight || "").replace(/\s+/g, "").toUpperCase()].join("|");
+  return [normalizeAircraftRegistrationDate(date), normalizeFlightKey(flight)].join("|");
 }
 
 function loadAircraftRegistrationRecords(): AircraftRegistrationRecord[] {
