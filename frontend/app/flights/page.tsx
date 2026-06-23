@@ -2075,6 +2075,18 @@ export default function FlightsPage() {
       setRows(cachedRows);
       setLastFetchedAt(`${cachedLookup.fetchedAt} · 캐시`);
       setError("최근 조회 결과를 먼저 표시했습니다. 최신 정보로 갱신 중입니다.");
+
+      const initialKeys: Record<string, boolean> = {};
+      const initialOrder: string[] = [];
+      cachedRows.forEach((row, idx) => {
+        if (!isFinalCompletedRow(row)) {
+          const key = getSelectionKey(row, idx);
+          initialKeys[key] = true;
+          initialOrder.push(key);
+        }
+      });
+      setSelectedScheduleKeys(initialKeys);
+      setSelectedScheduleOrder(initialOrder);
     } else {
       setRows([]);
       setLastFetchedAt("");
@@ -2108,6 +2120,18 @@ export default function FlightsPage() {
       setRows(nextRows);
       setLastFetchedAt(json.cached ? `${fetchedAt} · 서버 캐시` : fetchedAt);
       setExpandedDetailKeys({});
+
+      const initialKeys: Record<string, boolean> = {};
+      const initialOrder: string[] = [];
+      nextRows.forEach((row, idx) => {
+        if (!isFinalCompletedRow(row)) {
+          const key = getSelectionKey(row, idx);
+          initialKeys[key] = true;
+          initialOrder.push(key);
+        }
+      });
+      setSelectedScheduleKeys(initialKeys);
+      setSelectedScheduleOrder(initialOrder);
 
       if (keepScheduleContext && selectedRoom) {
         const mergedInput = mergeFlightsInput(selectedRoom.flightsInput, normalizedInput);
@@ -2168,6 +2192,18 @@ export default function FlightsPage() {
       setRows(cachedRows);
       setLastFetchedAt(`${cachedLookup.fetchedAt} · 캐시`);
       setError("최근 KJ 전체 조회 결과를 먼저 표시했습니다. 최신 정보로 갱신 중입니다.");
+
+      const initialKeys: Record<string, boolean> = {};
+      const initialOrder: string[] = [];
+      cachedRows.forEach((row, idx) => {
+        if (!isFinalCompletedRow(row)) {
+          const key = getSelectionKey(row, idx);
+          initialKeys[key] = true;
+          initialOrder.push(key);
+        }
+      });
+      setSelectedScheduleKeys(initialKeys);
+      setSelectedScheduleOrder(initialOrder);
     } else {
       setRows([]);
       setLastFetchedAt("");
@@ -2206,6 +2242,18 @@ export default function FlightsPage() {
       setRows(nextRows);
       setLastFetchedAt(json.cached ? `${fetchedAt} · 서버 캐시` : fetchedAt);
       setExpandedDetailKeys({});
+
+      const initialKeys: Record<string, boolean> = {};
+      const initialOrder: string[] = [];
+      nextRows.forEach((row, idx) => {
+        if (!isFinalCompletedRow(row)) {
+          const key = getSelectionKey(row, idx);
+          initialKeys[key] = true;
+          initialOrder.push(key);
+        }
+      });
+      setSelectedScheduleKeys(initialKeys);
+      setSelectedScheduleOrder(initialOrder);
     } catch (e: any) {
       setError(e.message || "KJ 전체 조회 실패");
     } finally {
