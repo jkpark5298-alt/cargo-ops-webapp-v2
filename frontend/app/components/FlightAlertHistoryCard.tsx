@@ -417,7 +417,7 @@ function buildAlertDescriptionLines(value?: string, checkedAt?: string): AlertDe
       .filter((part) => !/^API\s*확인/.test(part))
       .filter((part) => !part.includes("서버 알림"))
       .filter((part) => !part.includes("자동 확인"))
-      .filter((part) => !part.includes("Schedule Lite"))
+      .filter((part) => !part.includes("AFOCS SKD"))
       .map((part) =>
         part
           .replace("API 즉시 확인", "API 확인")
@@ -578,7 +578,7 @@ function splitAlertParts(value: string) {
     .map((line) => line.trim())
     .filter(Boolean)
     .filter((line) => !/^Schedule_/.test(line))
-    .filter((line) => !line.includes("Schedule Lite 저장 알림"))
+    .filter((line) => !line.includes("AFOCS SKD 저장 알림"))
     .filter((line) => !line.includes("푸시 자동 확인"))
     .filter((line) => !line.includes("앱 자동 확인"))
     .filter((line) => !line.includes("서버 알림"));

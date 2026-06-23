@@ -734,6 +734,18 @@ export default function FixedLitePage() {
   const [isDailySyncing, setIsDailySyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
 
+  const lastSavedValuesRef = useRef({
+    status: dailyStatus,
+    author,
+    note,
+    imagesJson: JSON.stringify(images),
+    workDate: dailyWorkDate,
+  });
+
+  const [manualOrder, setManualOrder] = useState<string[]>([]);
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+  const [startY, setStartY] = useState<number>(0);
+
   const loadDailyReportFromSupabase = async (dateStr: string) => {
     setIsDailySyncing(true);
     try {
@@ -745,9 +757,25 @@ export default function FixedLitePage() {
         setAuthor(json.report.author || "");
         setNote(json.report.note || "");
         setImages(Array.isArray(json.report.images) ? json.report.images : []);
+
+        lastSavedValuesRef.current = {
+          status: json.report.status === "issue" ? "issue" : "normal",
+          author: json.report.author || "",
+          note: json.report.note || "",
+          imagesJson: JSON.stringify(Array.isArray(json.report.images) ? json.report.images : []),
+          workDate: dateStr,
+        };
+
         setSyncMessage("동기화 완료");
       } else {
         setSyncMessage("저장된 일일 보고 없음");
+        lastSavedValuesRef.current = {
+          status: dailyStatus,
+          author: author,
+          note: note,
+          imagesJson: JSON.stringify(images),
+          workDate: dateStr,
+        };
       }
     } catch (e) {
       setSyncMessage("동기화 실패");
@@ -778,10 +806,19 @@ export default function FixedLitePage() {
       if (response.ok && json?.success) {
         setSyncMessage("저장 완료");
         if (json.report) {
-          setDailyStatus(json.report.status === "issue" ? "issue" : "normal");
-          setAuthor(json.report.author || "");
-          setNote(json.report.note || "");
-          setImages(Array.isArray(json.report.images) ? json.report.images : []);
+          const report = json.report;
+          setDailyStatus(report.status === "issue" ? "issue" : "normal");
+          setAuthor(report.author || "");
+          setNote(report.note || "");
+          setImages(Array.isArray(report.images) ? report.images : []);
+
+          lastSavedValuesRef.current = {
+            status: report.status === "issue" ? "issue" : "normal",
+            author: report.author || "",
+            note: report.note || "",
+            imagesJson: JSON.stringify(Array.isArray(report.images) ? report.images : []),
+            workDate: dailyWorkDate,
+          };
         }
       } else {
         setSyncMessage("저장 실패");
@@ -792,6 +829,34 @@ export default function FixedLitePage() {
       setIsDailySyncing(false);
     }
   };
+
+  // 1.5초 디바운스 자동 저장 효과
+  useEffect(() => {
+    const currentImagesJson = JSON.stringify(images);
+    const hasChanged =
+      dailyStatus !== lastSavedValuesRef.current.status ||
+      author !== lastSavedValuesRef.current.author ||
+      note !== lastSavedValuesRef.current.note ||
+      currentImagesJson !== lastSavedValuesRef.current.imagesJson ||
+      dailyWorkDate !== lastSavedValuesRef.current.workDate;
+
+    if (!hasChanged) return;
+
+    const timer = setTimeout(() => {
+      // update ref immediately to prevent multiple triggers
+      lastSavedValuesRef.current = {
+        status: dailyStatus,
+        author,
+        note,
+        imagesJson: currentImagesJson,
+        workDate: dailyWorkDate,
+      };
+
+      void saveDailyReportToSupabase();
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [dailyStatus, author, note, images, dailyWorkDate]);
 
   function resizeImageDataUrl(dataUrl: string, maxSize = 1280, quality = 0.72): Promise<string> {
     if (!dataUrl.startsWith("data:image/")) return Promise.resolve(dataUrl);
@@ -961,6 +1026,62 @@ export default function FixedLitePage() {
       return { ...formatFallbackDisplayItem(flight), excludeReason };
     });
   }, [selectedRoom, lastKnownItemsByRoom]);
+
+  const orderStorageKey = useMemo(
+    () => getScheduleFlightOrderStorageKey(selectedRoom),
+    [selectedRoom]
+  );
+
+  useEffect(() => {
+    setManualOrder(loadScheduleFlightOrder(orderStorageKey));
+  }, [orderStorageKey]);
+
+  const orderedDisplayItems = useMemo(
+    () => applyScheduleFlightOrder(displayItemsForSelectedRoom, manualOrder),
+    [displayItemsForSelectedRoom, manualOrder]
+  );
+
+  const startDrag = (e: React.PointerEvent<HTMLDivElement>, index: number) => {
+    if (e.button !== 0) return; // Only left-click/touch
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDraggingIndex(index);
+    setStartY(e.clientY);
+  };
+
+  const onDragMove = (e: React.PointerEvent<HTMLDivElement>, index: number) => {
+    if (draggingIndex === null || draggingIndex !== index) return;
+    const deltaY = e.clientY - startY;
+    const threshold = 40; // Swap items if dragged past 40px
+
+    if (deltaY > threshold) {
+      const nextIndex = draggingIndex + 1;
+      if (nextIndex < orderedDisplayItems.length) {
+        const nextOrder = [...orderedDisplayItems.map((item) => normalizeSummaryFlightKey(item.flight))];
+        const [moved] = nextOrder.splice(draggingIndex, 1);
+        nextOrder.splice(nextIndex, 0, moved);
+        setManualOrder(nextOrder);
+        saveScheduleFlightOrder(orderStorageKey, nextOrder);
+        setDraggingIndex(nextIndex);
+        setStartY(e.clientY);
+      }
+    } else if (deltaY < -threshold) {
+      const prevIndex = draggingIndex - 1;
+      if (prevIndex >= 0) {
+        const nextOrder = [...orderedDisplayItems.map((item) => normalizeSummaryFlightKey(item.flight))];
+        const [moved] = nextOrder.splice(draggingIndex, 1);
+        nextOrder.splice(prevIndex, 0, moved);
+        setManualOrder(nextOrder);
+        saveScheduleFlightOrder(orderStorageKey, nextOrder);
+        setDraggingIndex(prevIndex);
+        setStartY(e.clientY);
+      }
+    }
+  };
+
+  const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    setDraggingIndex(null);
+  };
 
   const activeItemsForSelectedRoom = useMemo(() => {
     if (!selectedRoom) return [];
@@ -1438,7 +1559,7 @@ export default function FixedLitePage() {
               letterSpacing: -0.3,
             }}
           >
-            Schedule Lite
+            AFOCS SKD
           </div>
 
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
@@ -1626,13 +1747,13 @@ export default function FixedLitePage() {
                 <div style={{ color: "#b8c7db", fontSize: 14 }}>조회중...</div>
               )}
 
-              {!error && displayItemsForSelectedRoom.length === 0 && (
+              {!error && orderedDisplayItems.length === 0 && (
                 <div style={{ color: "#b8c7db", fontSize: 14 }}>
                   표시할 편명이 없습니다.
                 </div>
               )}
 
-              {displayItemsForSelectedRoom.map((item) => {
+              {orderedDisplayItems.map((item, index) => {
                 const completed = isFinalCompletedStatus(item.status);
                 const focused = !completed && isItemInFocusWindow(item);
 
@@ -1641,11 +1762,16 @@ export default function FixedLitePage() {
                     key={`${item.flight}-${item.departureCode}-${item.arrivalCode}-${item.displayTime}-${item.gate}`}
                     style={{
                       background: "#091326",
-                      border: focused ? "1px solid #fbbf24" : "1px solid #1f2c43",
+                      border: focused ? "1px solid #fbbf24" : (draggingIndex === index ? "1px solid #3b82f6" : "1px solid #1f2c43"),
                       borderRadius: 14,
                       padding: 14,
                       marginBottom: 10,
-                      opacity: completed ? 0.88 : 1,
+                      opacity: completed ? 0.88 : (draggingIndex === index ? 0.72 : 1),
+                      transform: draggingIndex === index ? "scale(1.02)" : "scale(1)",
+                      boxShadow: draggingIndex === index ? "0 8px 24px rgba(0, 0, 0, 0.55)" : "none",
+                      transition: "transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease",
+                      zIndex: draggingIndex === index ? 10 : 1,
+                      position: "relative",
                     }}
                   >
                     <div
@@ -1662,6 +1788,7 @@ export default function FixedLitePage() {
                           fontSize: 18,
                           fontWeight: 900,
                           letterSpacing: -0.2,
+                          color: getFlightNoColor(item.departureCode, item.arrivalCode),
                         }}
                       >
                         {item.flight}
@@ -1693,6 +1820,33 @@ export default function FixedLitePage() {
                           justifyContent: "flex-end",
                         }}
                       >
+                        {/* Drag Handle */}
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            width: 34,
+                            height: 34,
+                            borderRadius: 8,
+                            background: draggingIndex === index ? "rgba(59, 130, 246, 0.25)" : "rgba(148, 163, 184, 0.08)",
+                            border: draggingIndex === index ? "1px solid #3b82f6" : "1px solid rgba(148, 163, 184, 0.16)",
+                            cursor: draggingIndex === index ? "grabbing" : "grab",
+                            touchAction: "none",
+                            userSelect: "none",
+                          }}
+                          onPointerDown={(e) => startDrag(e, index)}
+                          onPointerMove={(e) => onDragMove(e, index)}
+                          onPointerUp={endDrag}
+                          onPointerCancel={endDrag}
+                          title={`${item.flight} 드래그하여 순서 이동`}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={draggingIndex === index ? "#60a5fa" : "#94a3b8"} strokeWidth="2.5" strokeLinecap="round">
+                            <line x1="4" y1="8" x2="20" y2="8" />
+                            <line x1="4" y1="16" x2="20" y2="16" />
+                          </svg>
+                        </div>
+
                         <button
                           type="button"
                           onClick={() => void handleDeleteFlightFromSchedule(item.flight)}
@@ -2055,3 +2209,59 @@ const deleteFlightBtnStyle: CSSProperties = {
   lineHeight: 1,
   cursor: "pointer",
 };
+
+function getFlightNoColor(dep?: string, arr?: string): string {
+  const d = String(dep || "").trim().toUpperCase();
+  const a = String(arr || "").trim().toUpperCase();
+  if (d === "ICN" || d === "RKSI") return "#ef4444"; // 빨간색 (인천출발)
+  if (a === "ICN" || a === "RKSI") return "#3b82f6"; // 파란색 (인천도착)
+  return "#e2e8f0"; // 기본 흰색 계열
+}
+
+function normalizeSummaryFlightKey(value: string) {
+  return value.replace(/\s+/g, "").toUpperCase();
+}
+
+function getScheduleFlightOrderStorageKey(room: MonitorRoom | null) {
+  return `cargo_ops_schedule_flight_order_${room?.id || "latest"}`;
+}
+
+function loadScheduleFlightOrder(storageKey: string) {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed)
+      ? parsed.map((value) => normalizeSummaryFlightKey(String(value))).filter(Boolean)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveScheduleFlightOrder(storageKey: string, order: string[]) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(order));
+  } catch {
+    // 순서 저장 실패는 화면 동작을 막지 않습니다.
+  }
+}
+
+function applyScheduleFlightOrder<T extends { flight: string }>(items: T[], manualOrder: string[]) {
+  if (manualOrder.length === 0) return items;
+
+  const orderMap = new Map(manualOrder.map((key, index) => [key, index]));
+
+  return [...items].sort((a, b) => {
+    const aKey = normalizeSummaryFlightKey(a.flight);
+    const bKey = normalizeSummaryFlightKey(b.flight);
+    const aIndex = orderMap.has(aKey) ? orderMap.get(aKey)! : Number.MAX_SAFE_INTEGER;
+    const bIndex = orderMap.has(bKey) ? orderMap.get(bKey)! : Number.MAX_SAFE_INTEGER;
+
+    if (aIndex !== bIndex) return aIndex - bIndex;
+    return items.indexOf(a) - items.indexOf(b);
+  });
+}

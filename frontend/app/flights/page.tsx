@@ -1168,7 +1168,9 @@ function FixedResultsTable({
                       }}
                     />
                   </td>
-                  <td style={tdStyle}>{getFlightDisplay(row)}</td>
+                  <td style={{ ...tdStyle, color: getFlightNoColor(row.departureCode, row.arrivalCode) }}>
+                    {getFlightDisplay(row)}
+                  </td>
                   <td style={tdStyle}>
                     <input
                       value={getEditableHlValue(row, hlNumberMap, hlDrafts)}
@@ -1451,7 +1453,7 @@ export default function FlightsPage() {
         if (nextSelectedRoom?.fixed) {
           try {
             await saveLatestScheduleToServer(normalizeScheduleRoomRows(nextSelectedRoom));
-            setHlMappingStatus(`등록기호 엑셀 ${parsedRecords.length}건 업로드 · 총 ${finalRecords.length}건 관리${serverSyncMessage} · Schedule Lite/초기화면 반영`);
+            setHlMappingStatus(`등록기호 엑셀 ${parsedRecords.length}건 업로드 · 총 ${finalRecords.length}건 관리${serverSyncMessage} · AFOCS SKD/초기화면 반영`);
           } catch (error) {
             setHlMappingStatus(
               error instanceof Error
@@ -1527,7 +1529,7 @@ export default function FlightsPage() {
 
     try {
       await saveLatestScheduleToServer(updatedRoom);
-      setHlMappingStatus("AFOCS SKD 시간을 저장했습니다. Schedule Lite에 실시간 반영됩니다.");
+      setHlMappingStatus("AFOCS SKD 시간을 저장했습니다. AFOCS SKD에 실시간 반영됩니다.");
     } catch (syncError) {
       setHlMappingStatus(
         syncError instanceof Error
@@ -1721,7 +1723,7 @@ export default function FlightsPage() {
     if (nextSelectedRoom?.fixed) {
       try {
         await saveLatestScheduleToServer(normalizeScheduleRoomRows(nextSelectedRoom));
-        setHlMappingStatus(`등록기호 ${savedCount}건 저장${serverRegistrationSyncMessage} · Schedule Lite/초기화면 반영`);
+        setHlMappingStatus(`등록기호 ${savedCount}건 저장${serverRegistrationSyncMessage} · AFOCS SKD/초기화면 반영`);
       } catch (error) {
         setHlMappingStatus(
           error instanceof Error
@@ -1764,7 +1766,7 @@ export default function FlightsPage() {
 
     try {
       await saveLatestScheduleToServer(updatedRoom);
-      setError("Schedule Flight를 비웠습니다. 초기화면과 Schedule Lite에도 반영됩니다.");
+      setError("Schedule Flight를 비웠습니다. 초기화면과 AFOCS SKD에도 반영됩니다.");
     } catch (syncError) {
       setError(
         syncError instanceof Error
@@ -1808,8 +1810,8 @@ export default function FlightsPage() {
       await saveLatestScheduleToServer(updatedRoom);
       setError(
         normalizedFlights.length > 0
-          ? "Schedule Flight 편명 변경을 Schedule Lite와 최근 Schedule Flight에 동기화했습니다."
-          : "Schedule Flight 편명을 모두 비웠습니다. Schedule Lite와 최근 Schedule Flight도 비워졌습니다.",
+          ? "Schedule Flight 편명 변경을 AFOCS SKD와 최근 Schedule Flight에 동기화했습니다."
+          : "Schedule Flight 편명을 모두 비웠습니다. AFOCS SKD와 최근 Schedule Flight도 비워졌습니다.",
       );
     } catch (syncError) {
       setError(
@@ -2288,7 +2290,7 @@ export default function FlightsPage() {
 
       setError(
         hasRemaining
-          ? `선택한 편명(${targetFlights.join(", ")}) 삭제 완료. 초기화면과 Schedule Lite에도 반영됩니다.`
+          ? `선택한 편명(${targetFlights.join(", ")}) 삭제 완료. 초기화면과 AFOCS SKD에도 반영됩니다.`
           : `선택한 편명 삭제 완료. 남은 편명이 없어 Schedule Flight를 비웠습니다.`,
       );
     } catch (syncError) {
@@ -2427,8 +2429,8 @@ export default function FlightsPage() {
         missingFlights.length > 0
           ? `저장 완료. 조회 결과가 없는 편명은 제외했습니다: ${missingFlights.join(", ")}`
           : baseScheduleRoom
-            ? "저장 완료 · 초기화면/Schedule Lite 반영"
-            : "저장 완료 · 초기화면/Schedule Lite 반영",
+            ? "저장 완료 · 초기화면/AFOCS SKD 반영"
+            : "저장 완료 · 초기화면/AFOCS SKD 반영",
       );
     } catch (syncError) {
       setError(
@@ -2581,7 +2583,7 @@ export default function FlightsPage() {
           window.localStorage.removeItem(LAST_FIXED_ROOM_KEY);
           window.localStorage.setItem("cargo_ops_latest_schedule_updated_at", new Date().toISOString());
         }
-        setError("Schedule Flight 저장방을 삭제하고 서버 기준도 비웠습니다. 초기화면과 Schedule Lite에도 반영됩니다.");
+        setError("Schedule Flight 저장방을 삭제하고 서버 기준도 비웠습니다. 초기화면과 AFOCS SKD에도 반영됩니다.");
       } catch (error) {
         setError(
           error instanceof Error
@@ -2611,7 +2613,7 @@ export default function FlightsPage() {
     }));
   };
 
-  const openScheduleLite = () => {
+  const openAfocsSkd = () => {
     if (!selectedRoom) {
       setError("선택된 Schedule Flight가 없습니다.");
       return;
@@ -2813,7 +2815,7 @@ export default function FlightsPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={openScheduleLite}
+                  onClick={openAfocsSkd}
                   style={{
                     padding: "10px 18px",
                     background: "#1e293b",
@@ -2825,7 +2827,7 @@ export default function FlightsPage() {
                     cursor: "pointer",
                   }}
                 >
-                  Schedule Lite 열기
+                  AFOCS SKD 열기
                 </button>
                 <button
                   type="button"
@@ -3170,7 +3172,7 @@ export default function FlightsPage() {
                       PC 화면은 자동조회하지 않습니다.
                     </div>
                     <div style={{ color: "#93c5fd", marginTop: 4, fontSize: 13 }}>
-                      자동조회는 Schedule Lite에서만 {REFRESH_INTERVAL_MINUTES}분마다 적용됩니다.
+                      자동조회는 AFOCS SKD에서만 {REFRESH_INTERVAL_MINUTES}분마다 적용됩니다.
                     </div>
                   </div>
                 )}
@@ -3203,11 +3205,11 @@ export default function FlightsPage() {
                   </button>
 
                   <button
-                    onClick={openScheduleLite}
-                    style={scheduleLiteLinkBtn}
-                    title="아이폰용 Schedule Lite 화면 열기"
+                    onClick={openAfocsSkd}
+                    style={afocsSkdLinkBtn}
+                    title="아이폰용 AFOCS SKD 화면 열기"
                   >
-                    Schedule Lite 열기
+                    AFOCS SKD 열기
                   </button>
                 </div>
               </div>
@@ -3395,7 +3397,9 @@ export default function FlightsPage() {
                       >
                         {getComputedStatus(r)}
                       </td>
-                      <td style={tdStyle}>{getFlightDisplay(r)}</td>
+                      <td style={{ ...tdStyle, color: getFlightNoColor(r.departureCode, r.arrivalCode) }}>
+                        {getFlightDisplay(r)}
+                      </td>
                       <td style={tdStyle}>
                         <input
                           value={getEditableHlValue(r, hlNumberMap, hlInlineDrafts)}
@@ -3725,7 +3729,7 @@ const refreshBtn: CSSProperties = {
   fontWeight: 700,
 };
 
-const scheduleLiteLinkBtn: CSSProperties = {
+const afocsSkdLinkBtn: CSSProperties = {
   flex: 1,
   minWidth: 160,
   display: "inline-flex",
@@ -3786,3 +3790,15 @@ const clearScheduleButtonStyle: React.CSSProperties = {
   fontWeight: 900,
   cursor: "pointer",
 };
+
+function getFlightNoColor(dep?: string, arr?: string): string {
+  const d = String(dep || "").trim().toUpperCase();
+  const a = String(arr || "").trim().toUpperCase();
+  if (d === "ICN" || d === "RKSI") {
+    return "#ef4444"; // 빨간색 (인천출발)
+  }
+  if (a === "ICN" || a === "RKSI") {
+    return "#3b82f6"; // 파란색 (인천도착)
+  }
+  return "#e2e8f0"; // 기본 색상 (회백색)
+}

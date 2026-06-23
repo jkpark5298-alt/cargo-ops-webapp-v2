@@ -1034,6 +1034,15 @@ export default function HomePage() {
   const [serverFlightAlertStatus, setServerFlightAlertStatus] = useState("");
   const [dailyStatus, setDailyStatus] = useState<"normal" | "issue">("normal");
   const [author, setAuthor] = useState("jkpark");
+
+  const lastSavedValuesRef = useRef({
+    status: dailyStatus,
+    author: "jkpark",
+    note: "",
+    imagesJson: "[]",
+    workDate: "",
+  });
+
   const [issueFlight, setIssueFlight] = useState("");
   const [issueRoute, setIssueRoute] = useState("");
   const [issueHlnbr, setIssueHlnbr] = useState("");
@@ -2382,6 +2391,7 @@ export default function HomePage() {
     setAuthor(nextAuthor);
     setNote(nextNote);
 
+    const targetWorkDate = typeof record.workDate === "string" && record.workDate ? record.workDate : dailyWorkDate;
     if (typeof record.workDate === "string" && record.workDate) {
       setDailyWorkDate(record.workDate);
     }
@@ -2391,7 +2401,7 @@ export default function HomePage() {
       note: nextNote,
       status: nextStatus,
       author: nextAuthor,
-      workDate: typeof record.workDate === "string" && record.workDate ? record.workDate : dailyWorkDate,
+      workDate: targetWorkDate,
       savedAt: new Date().toISOString(),
     });
 
@@ -2399,6 +2409,14 @@ export default function HomePage() {
       setImages(nextImages);
       saveImages(nextImages);
     }
+
+    lastSavedValuesRef.current = {
+      status: nextStatus,
+      author: nextAuthor,
+      note: nextNote,
+      imagesJson: JSON.stringify(nextImages),
+      workDate: targetWorkDate,
+    };
 
     return true;
   };
@@ -2429,6 +2447,14 @@ export default function HomePage() {
 
       setDailyTextSyncStatus("Supabase 데이터 저장 완료");
       setNotice("Daily 업무보고 데이터를 Supabase에 공유 저장했습니다.");
+
+      lastSavedValuesRef.current = {
+        status: dailyStatus,
+        author,
+        note,
+        imagesJson: JSON.stringify(images),
+        workDate: dailyWorkDate,
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Daily 데이터 공유 저장 중 오류가 발생했습니다.";
       setDailyTextSyncStatus(message);
@@ -2476,6 +2502,14 @@ export default function HomePage() {
             setImages(serverImages);
             saveImages(serverImages);
           }
+
+          lastSavedValuesRef.current = {
+            status: serverStatus,
+            author: !isUserTyping && authorChanged ? serverAuthor : author,
+            note: !isUserTyping && noteChanged ? serverNote : note,
+            imagesJson: JSON.stringify(serverImages),
+            workDate: dailyWorkDate,
+          };
         }
       }
     } catch (e) {
@@ -2494,6 +2528,62 @@ export default function HomePage() {
 
     return () => clearInterval(interval);
   }, [dailyWorkDate, dailyStatus, author, note, images]);
+
+  // 1.5초 디바운스 자동 저장 효과
+  useEffect(() => {
+    const currentImagesJson = JSON.stringify(images);
+    const hasChanged =
+      dailyStatus !== lastSavedValuesRef.current.status ||
+      author !== lastSavedValuesRef.current.author ||
+      note !== lastSavedValuesRef.current.note ||
+      currentImagesJson !== lastSavedValuesRef.current.imagesJson ||
+      dailyWorkDate !== lastSavedValuesRef.current.workDate;
+
+    if (!hasChanged) return;
+
+    const timer = setTimeout(() => {
+      // update ref immediately to prevent multiple triggers
+      lastSavedValuesRef.current = {
+        status: dailyStatus,
+        author,
+        note,
+        imagesJson: currentImagesJson,
+        workDate: dailyWorkDate,
+      };
+
+      void (async () => {
+        setIsDailyTextSyncing(true);
+        setDailyTextSyncStatus("Supabase 자동 저장 중...");
+        try {
+          const response = await fetch(`${BACKEND_URL}/flights/daily-report-text`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              workDate: dailyWorkDate,
+              status: dailyStatus,
+              author,
+              note,
+              images,
+              savedAt: new Date().toISOString(),
+            }),
+          });
+          const json = await response.json().catch(() => null);
+          if (response.ok && json?.success) {
+            setDailyTextSyncStatus("Supabase 자동 저장 완료");
+          } else {
+            setDailyTextSyncStatus("자동 저장 실패");
+          }
+        } catch (error) {
+          console.error("Auto save error:", error);
+          setDailyTextSyncStatus("자동 저장 오류");
+        } finally {
+          setIsDailyTextSyncing(false);
+        }
+      })();
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [dailyStatus, author, note, images, dailyWorkDate]);
 
   const handleLoadDailyTextFromSupabase = async () => {
     setIsDailyTextSyncing(true);
@@ -2886,7 +2976,7 @@ export default function HomePage() {
         <ActionCard
           label="오늘 KJ 화물기 조회"
           title="편명조회"
-          description="개별 편명 확인과 KJ 전체 조회를 진행합니다. Schedule Lite는 위 카드에서 바로 열 수 있습니다."
+          description="개별 편명 확인과 KJ 전체 조회를 진행합니다. AFOCS SKD는 위 카드에서 바로 열 수 있습니다."
           buttonLabel="편명조회 열기"
           onClick={openFlights}
           accent="#2563eb"

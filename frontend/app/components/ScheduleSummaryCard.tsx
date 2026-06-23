@@ -55,7 +55,7 @@ export function ScheduleSummaryCard({
           {apiSyncLoading ? "API 즉시 확인 중..." : "API 즉시 확인"}
         </button>
         <button onClick={onOpenScheduleFlight} style={secondaryButtonStyle}>
-          Schedule Lite 열기
+          AFOCS SKD 열기
         </button>
       </div>
     </section>
@@ -142,7 +142,7 @@ function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
             <div style={flightRouteRowHeaderStyle}>
               <div style={flightRouteTextBlockStyle}>
                 <div style={flightRoutePrimaryLineStyle}>
-                  <span style={flightRouteNoStyle}>{item.flight}</span>
+                  <span style={{ ...flightRouteNoStyle, color: getFlightNoColor(item.departureCode, item.arrivalCode) }}>{item.flight}</span>
                   {item.gate && item.gate !== "-" ? (
                     <span
                       style={{
@@ -359,6 +359,8 @@ function getFlightRouteItems(room: MonitorRoom | null) {
         time: getFlightTimeDisplay(row),
         gate: getGateDisplay(row),
         hasResult: true,
+        departureCode: row.departureCode || "",
+        arrivalCode: row.arrivalCode || "",
       };
     })
     .filter(
@@ -371,6 +373,8 @@ function getFlightRouteItems(room: MonitorRoom | null) {
         time: string;
         gate: string;
         hasResult: boolean;
+        departureCode: string;
+        arrivalCode: string;
       } => Boolean(item),
     );
 
@@ -383,6 +387,8 @@ function getFlightRouteItems(room: MonitorRoom | null) {
     time: string;
     gate: string;
     hasResult: boolean;
+    departureCode: string;
+    arrivalCode: string;
   }>();
 
   rowItems.forEach((item) => {
@@ -422,6 +428,8 @@ function getFlightRouteItems(room: MonitorRoom | null) {
       time: "-",
       gate: "",
       hasResult: false,
+      departureCode: "",
+      arrivalCode: "",
     }));
 }
 
@@ -807,3 +815,15 @@ const secondaryButtonStyle: CSSProperties = {
   fontWeight: 950,
   cursor: "pointer",
 };
+
+function getFlightNoColor(dep?: string, arr?: string): string {
+  const d = String(dep || "").trim().toUpperCase();
+  const a = String(arr || "").trim().toUpperCase();
+  if (d === "ICN" || d === "RKSI") {
+    return "#ef4444"; // 빨간색 (인천출발)
+  }
+  if (a === "ICN" || a === "RKSI") {
+    return "#3b82f6"; // 파란색 (인천도착)
+  }
+  return "#e2e8f0"; // 기본 색상 (회백색)
+}

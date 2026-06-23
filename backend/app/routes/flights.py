@@ -2236,7 +2236,7 @@ async def check_push_and_save_latest_schedule(payload: LatestScheduleRequest) ->
                 errors.append(str(exc))
 
     if changed_items:
-        _append_notification_history(changed_items, current_room, "Schedule Lite 저장 알림")
+        _append_notification_history(changed_items, current_room, "AFOCS SKD 저장 알림")
 
     saved = _write_latest_schedule(_sanitize_latest_schedule_room(current_room))
     if prealert_keys_to_save:
@@ -2247,9 +2247,9 @@ async def check_push_and_save_latest_schedule(payload: LatestScheduleRequest) ->
         intervalMinutes=_get_auto_interval_minutes_for_room(current_room),
         lastRunAt=_now_kst_iso(),
         lastMessage=(
-            f"Schedule Lite 결과 저장 및 알림 확인 완료: 변경 {len(changed_items)}건, 푸시 {sent}건"
+            f"AFOCS SKD 결과 저장 및 알림 확인 완료: 변경 {len(changed_items)}건, 푸시 {sent}건"
             if changed_items
-            else "Schedule Lite 결과 저장 완료: 변경 없음"
+            else "AFOCS SKD 결과 저장 완료: 변경 없음"
         ),
         lastResult={
             "changed": len(changed_items),
