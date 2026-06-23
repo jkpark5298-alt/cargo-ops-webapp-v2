@@ -8,6 +8,7 @@ create table if not exists public.daily_report_texts (
   status text not null default 'normal',
   author text not null default '',
   note text not null default '',
+  images jsonb default '[]'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

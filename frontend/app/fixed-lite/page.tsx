@@ -14,6 +14,19 @@ const DEFAULT_REFRESH_MINUTES = 30;
 const FOCUS_REFRESH_MINUTES = 5;
 const COMPLETED_EXCLUDE_BUFFER_MINUTES = 10;
 
+type ImageSlotKey = "daily-schedule" | "aircraft-check" | "inspection-result" | "issue";
+
+type SavedImage = {
+  id: string;
+  type: ImageSlotKey;
+  label: string;
+  savedAt: string;
+  capturedAt?: string;
+  locationText?: string;
+  memo?: string;
+  dataUrl: string;
+};
+
 type FlightRow = {
   flightId?: string;
   flightNo?: string;
@@ -688,6 +701,184 @@ export default function FixedLitePage() {
 
   const timerRef = useRef<number | null>(null);
 
+  // Weather states & logic
+  const [weather, setWeather] = useState<any>(null);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+
+  const fetchWeather = async () => {
+    setWeatherLoading(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/weather/current`, { cache: "no-store" });
+      const json = await res.json();
+      if (res.ok) setWeather(json);
+    } catch (err) {
+      console.error("Mobile weather fetch error:", err);
+    } finally {
+      setWeatherLoading(false);
+    }
+  };
+
+  // Daily report states & logic
+  const [dailyStatus, setDailyStatus] = useState<"normal" | "issue">("normal");
+  const [author, setAuthor] = useState("");
+  const [note, setNote] = useState("");
+  const [images, setImages] = useState<SavedImage[]>([]);
+  const [dailyWorkDate, setDailyWorkDate] = useState(() => {
+    const now = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    return now.toISOString().split("T")[0];
+  });
+  const [isDailySyncing, setIsDailySyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState("");
+
+  const loadDailyReportFromSupabase = async (dateStr: string) => {
+    setIsDailySyncing(true);
+    try {
+      const query = new URLSearchParams({ workDate: dateStr });
+      const response = await fetch(`${BACKEND_URL}/flights/daily-report-text?${query.toString()}`, { cache: "no-store" });
+      const json = await response.json().catch(() => null);
+      if (response.ok && json?.success && json.report) {
+        setDailyStatus(json.report.status === "issue" ? "issue" : "normal");
+        setAuthor(json.report.author || "");
+        setNote(json.report.note || "");
+        setImages(Array.isArray(json.report.images) ? json.report.images : []);
+        setSyncMessage("동기화 완료");
+      } else {
+        setSyncMessage("저장된 일일 보고 없음");
+      }
+    } catch (e) {
+      setSyncMessage("동기화 실패");
+    } finally {
+      setIsDailySyncing(false);
+    }
+  };
+
+  const saveDailyReportToSupabase = async (statusOverride?: "normal" | "issue", imagesOverride?: SavedImage[]) => {
+    setIsDailySyncing(true);
+    setSyncMessage("저장 중...");
+    const targetStatus = statusOverride || dailyStatus;
+    const targetImages = imagesOverride || images;
+    try {
+      const response = await fetch(`${BACKEND_URL}/flights/daily-report-text`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workDate: dailyWorkDate,
+          status: targetStatus,
+          author: author || "현장 모바일",
+          note,
+          images: targetImages,
+          savedAt: new Date().toISOString(),
+        }),
+      });
+      const json = await response.json().catch(() => null);
+      if (response.ok && json?.success) {
+        setSyncMessage("저장 완료");
+        if (json.report) {
+          setDailyStatus(json.report.status === "issue" ? "issue" : "normal");
+          setAuthor(json.report.author || "");
+          setNote(json.report.note || "");
+          setImages(Array.isArray(json.report.images) ? json.report.images : []);
+        }
+      } else {
+        setSyncMessage("저장 실패");
+      }
+    } catch (e) {
+      setSyncMessage("저장 에러");
+    } finally {
+      setIsDailySyncing(false);
+    }
+  };
+
+  function resizeImageDataUrl(dataUrl: string, maxSize = 1280, quality = 0.72): Promise<string> {
+    if (!dataUrl.startsWith("data:image/")) return Promise.resolve(dataUrl);
+    return new Promise((resolve) => {
+      const image = new Image();
+      image.onload = () => {
+        try {
+          const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
+          const width = Math.max(1, Math.round(image.width * scale));
+          const height = Math.max(1, Math.round(image.height * scale));
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const context = canvas.getContext("2d");
+          if (!context) { resolve(dataUrl); return; }
+          context.drawImage(image, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", quality));
+        } catch {
+          resolve(dataUrl);
+        }
+      };
+      image.onerror = () => resolve(dataUrl);
+      image.src = dataUrl;
+    });
+  }
+
+  const handleCameraUpload = async (flightNo: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setSyncMessage("사진 처리 중...");
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const rawDataUrl = event.target?.result as string;
+      if (!rawDataUrl) return;
+
+      try {
+        const compressedUrl = await resizeImageDataUrl(rawDataUrl);
+
+        const now = new Date();
+        const hh = String(now.getHours()).padStart(2, "0");
+        const mm = String(now.getMinutes()).padStart(2, "0");
+        const capturedTime = `${hh}:${mm}`;
+
+        const newImage: SavedImage = {
+          id: "img_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9),
+          type: "issue",
+          label: `[${flightNo}] 화물 적재 / 주기장 상황`,
+          savedAt: now.toISOString(),
+          capturedAt: capturedTime,
+          dataUrl: compressedUrl,
+        };
+
+        const nextImages = [newImage, ...images].slice(0, 20);
+        setImages(nextImages);
+        setDailyStatus("issue");
+
+        await saveDailyReportToSupabase("issue", nextImages);
+        alert(`${flightNo} 화물 사진이 특이사항 이미지로 PC 대시보드에 업로드되었습니다!`);
+      } catch (err) {
+        console.error(err);
+        alert("사진 업로드 중 오류가 발생했습니다.");
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  useEffect(() => {
+    void fetchWeather();
+    void loadDailyReportFromSupabase(dailyWorkDate);
+
+    const weatherTimer = setInterval(() => {
+      void fetchWeather();
+    }, 60000);
+
+    const syncTimer = setInterval(() => {
+      const isUserTyping =
+        document.activeElement?.tagName === "TEXTAREA" ||
+        document.activeElement?.tagName === "INPUT";
+      if (!isUserTyping) {
+        void loadDailyReportFromSupabase(dailyWorkDate);
+      }
+    }, 15000);
+
+    return () => {
+      clearInterval(weatherTimer);
+      clearInterval(syncTimer);
+    };
+  }, [dailyWorkDate]);
+
   const fixedRooms = useMemo(
     () => rooms.filter((room) => room.fixed && isActiveScheduleRoom(room)),
     [rooms],
@@ -1077,6 +1268,119 @@ export default function FixedLitePage() {
           gap: 14,
         }}
       >
+        {/* 활주로 실시간 기상 (METAR) 위젯 */}
+        {weather && (
+          <div
+            style={{
+              background: "linear-gradient(135deg, #1e293b 0%, #0f172a 100%)",
+              border: "1px solid rgba(147, 197, 253, 0.25)",
+              borderRadius: 18,
+              padding: 16,
+              boxShadow: "0 8px 30px rgba(0, 0, 0, 0.4)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 12,
+                borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
+                paddingBottom: 8,
+              }}
+            >
+              <span style={{ fontSize: 14, fontWeight: 900, color: "#93c5fd", letterSpacing: -0.3 }}>
+                ✈️ 활주로 실시간 기상 (METAR)
+              </span>
+              <button
+                onClick={fetchWeather}
+                disabled={weatherLoading}
+                style={{
+                  background: "rgba(59, 130, 246, 0.2)",
+                  border: "1px solid rgba(59, 130, 246, 0.4)",
+                  color: "#60a5fa",
+                  borderRadius: 8,
+                  padding: "4px 8px",
+                  fontSize: 12,
+                  fontWeight: "bold",
+                  cursor: "pointer",
+                }}
+              >
+                {weatherLoading ? "조회중" : "🔄 갱신"}
+              </button>
+            </div>
+
+            <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+              <div style={{ textAlign: "center", minWidth: 90 }}>
+                <div style={{ fontSize: 44, lineHeight: 1 }}>{weather.icon || "☀️"}</div>
+                <div style={{ fontSize: 22, fontWeight: 900, marginTop: 6, letterSpacing: -0.5 }}>
+                  {weather.temperature || "-"}°C
+                </div>
+                <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2, fontWeight: 800 }}>
+                  {weather.condition || "-"}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  flex: 1,
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 10,
+                  fontSize: 12,
+                }}
+              >
+                <div style={{ background: "rgba(255, 255, 255, 0.03)", borderRadius: 10, padding: 8 }}>
+                  <div style={{ color: "#94a3b8", fontSize: 10, marginBottom: 2 }}>💨 풍향 / 풍속</div>
+                  <div style={{ fontWeight: 800, fontSize: 13, color: "white" }}>
+                    {weather.windDirectionText || "-"} {weather.windSpeed ? `${weather.windSpeed}m/s` : "-"}
+                    {weather.windGust ? (
+                      <span style={{ color: "#f87171", display: "block", fontSize: 10, marginTop: 2 }}>
+                        ⚠️ 돌풍 {weather.windGust}m/s
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div style={{ background: "rgba(255, 255, 255, 0.03)", borderRadius: 10, padding: 8 }}>
+                  <div style={{ color: "#94a3b8", fontSize: 10, marginBottom: 2 }}>👁️ 활주로 시정</div>
+                  <div style={{ fontWeight: 800, fontSize: 13, color: "white" }}>
+                    {weather.visibility || "-"}
+                  </div>
+                </div>
+
+                <div style={{ background: "rgba(255, 255, 255, 0.03)", borderRadius: 10, padding: 8 }}>
+                  <div style={{ color: "#94a3b8", fontSize: 10, marginBottom: 2 }}>💧 상대 습도</div>
+                  <div style={{ fontWeight: 800, fontSize: 13, color: "white" }}>
+                    {weather.humidity ? `${weather.humidity}%` : "-"}
+                  </div>
+                </div>
+
+                <div style={{ background: "rgba(255, 255, 255, 0.03)", borderRadius: 10, padding: 8 }}>
+                  <div style={{ color: "#94a3b8", fontSize: 10, marginBottom: 2 }}>☔ 강수 상태</div>
+                  <div style={{ fontWeight: 800, fontSize: 12, color: "white" }}>
+                    {weather.condition && (weather.condition.includes("비") || weather.condition.includes("눈") || weather.condition.includes("소나기") || weather.condition.includes("이슬비")) 
+                      ? "강수 감지" 
+                      : "강수 없음"}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                fontSize: 10,
+                color: "#64748b",
+                textAlign: "right",
+                marginTop: 10,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              인천공항(RKSI) {weather.baseTime || "-"} 기준 · {weather.source === "metar" ? "실시간 METAR" : "KMA 초단기실황"}
+            </div>
+          </div>
+        )}
+
         <section style={sectionStyle}>
           <div
             style={{
@@ -1424,12 +1728,162 @@ export default function FixedLitePage() {
                         {item.gate || "-"}
                       </div>
                     </div>
+
+                    {/* 현장 사진 업로드 연동 */}
+                    <div
+                      style={{
+                        borderTop: "1px dashed rgba(255, 255, 255, 0.1)",
+                        marginTop: 10,
+                        paddingTop: 10,
+                        display: "flex",
+                        justifyContent: "flex-end",
+                      }}
+                    >
+                      <label
+                        style={{
+                          background: "#0284c7",
+                          color: "white",
+                          borderRadius: 8,
+                          padding: "6px 12px",
+                          fontSize: 12,
+                          fontWeight: "bold",
+                          cursor: "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          boxShadow: "0 2px 4px rgba(0, 0, 0, 0.2)",
+                        }}
+                      >
+                        📸 사진 촬영/업로드
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          onChange={(e) => void handleCameraUpload(item.flight, e)}
+                          style={{ display: "none" }}
+                        />
+                      </label>
+                    </div>
                   </div>
                 );
               })}
             </section>
           </>
         )}
+
+        {/* 모바일 일일 업무 보고 및 메모 작성 섹션 */}
+        <section style={sectionStyle}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ fontSize: 16, fontWeight: 900, color: "#60a5fa" }}>📝 당일 업무 메모 및 보고</div>
+            <span style={{ fontSize: 11, color: isDailySyncing ? "#f59e0b" : "#b8c7db" }}>
+              {syncMessage || (isDailySyncing ? "동기화 중..." : "동기화 대기")}
+            </span>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 12, color: "#94a3b8", display: "block", marginBottom: 4 }}>작성자</label>
+              <input
+                type="text"
+                placeholder="이름 또는 부서 입력"
+                value={author}
+                onChange={(e) => setAuthor(e.target.value)}
+                style={{
+                  width: "100%",
+                  background: "#091326",
+                  border: "1px solid #1f2c43",
+                  color: "white",
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  fontSize: 14,
+                }}
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: 12, color: "#94a3b8", display: "block", marginBottom: 4 }}>업무 상태</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => {
+                    setDailyStatus("normal");
+                    void saveDailyReportToSupabase("normal");
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "8px",
+                    borderRadius: 8,
+                    border: dailyStatus === "normal" ? "1px solid #10b981" : "1px solid #1f2c43",
+                    background: dailyStatus === "normal" ? "#064e3b" : "#091326",
+                    color: dailyStatus === "normal" ? "#34d399" : "#94a3b8",
+                    fontSize: 13,
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                  }}
+                >
+                  🟢 이상 없음
+                </button>
+                <button
+                  onClick={() => {
+                    setDailyStatus("issue");
+                    void saveDailyReportToSupabase("issue");
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "8px",
+                    borderRadius: 8,
+                    border: dailyStatus === "issue" ? "1px solid #ef4444" : "1px solid #1f2c43",
+                    background: dailyStatus === "issue" ? "#7f1d1d" : "#091326",
+                    color: dailyStatus === "issue" ? "#fca5a5" : "#94a3b8",
+                    fontSize: 13,
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                  }}
+                >
+                  🔴 특이사항 있음
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: 12, color: "#94a3b8", display: "block", marginBottom: 4 }}>업무 메모 내용</label>
+              <textarea
+                placeholder="PC 대시보드와 실시간 연동되는 업무 메모 내용입니다."
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={4}
+                style={{
+                  width: "100%",
+                  background: "#091326",
+                  border: "1px solid #1f2c43",
+                  color: "white",
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  fontSize: 14,
+                  resize: "vertical",
+                }}
+              />
+            </div>
+
+            <button
+              onClick={() => void saveDailyReportToSupabase()}
+              style={{
+                width: "100%",
+                background: "#2563eb",
+                color: "white",
+                border: "none",
+                borderRadius: 10,
+                padding: "10px",
+                fontSize: 14,
+                fontWeight: "bold",
+                cursor: "pointer",
+                marginTop: 4,
+                boxShadow: "0 4px 6px -1px rgba(37, 99, 235, 0.4)",
+              }}
+            >
+              💾 Supabase에 저장 및 동기화
+            </button>
+          </div>
+        </section>
       </div>
     </div>
   );

@@ -2370,11 +2370,13 @@ export default function HomePage() {
       status?: string;
       author?: string;
       note?: string;
+      images?: SavedImage[];
     };
 
     const nextStatus = record.status === "issue" ? "issue" : "normal";
     const nextAuthor = typeof record.author === "string" ? record.author : author;
     const nextNote = typeof record.note === "string" ? record.note : "";
+    const nextImages = Array.isArray(record.images) ? record.images : [];
 
     setDailyStatus(nextStatus);
     setAuthor(nextAuthor);
@@ -2393,12 +2395,17 @@ export default function HomePage() {
       savedAt: new Date().toISOString(),
     });
 
+    if (Array.isArray(record.images)) {
+      setImages(nextImages);
+      saveImages(nextImages);
+    }
+
     return true;
   };
 
   const handleSaveDailyTextToSupabase = async () => {
     setIsDailyTextSyncing(true);
-    setDailyTextSyncStatus("Supabase 텍스트 저장 중...");
+    setDailyTextSyncStatus("Supabase 데이터 저장 중...");
 
     try {
       const response = await fetch(`${BACKEND_URL}/flights/daily-report-text`, {
@@ -2409,6 +2416,7 @@ export default function HomePage() {
           status: dailyStatus,
           author,
           note,
+          images,
           savedAt: new Date().toISOString(),
         }),
       });
@@ -2419,16 +2427,73 @@ export default function HomePage() {
         throw new Error(json?.message || "Daily 텍스트 공유 저장에 실패했습니다.");
       }
 
-      setDailyTextSyncStatus("Supabase 텍스트 저장 완료");
-      setNotice("Daily 업무보고 텍스트를 Supabase에 공유 저장했습니다.");
+      setDailyTextSyncStatus("Supabase 데이터 저장 완료");
+      setNotice("Daily 업무보고 데이터를 Supabase에 공유 저장했습니다.");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Daily 텍스트 공유 저장 중 오류가 발생했습니다.";
+      const message = error instanceof Error ? error.message : "Daily 데이터 공유 저장 중 오류가 발생했습니다.";
       setDailyTextSyncStatus(message);
       setNotice(message);
     } finally {
       setIsDailyTextSyncing(false);
     }
   };
+
+  const silentSyncDailyReportFromSupabase = async () => {
+    try {
+      const query = new URLSearchParams({ workDate: dailyWorkDate });
+      const response = await fetch(`${BACKEND_URL}/flights/daily-report-text?${query.toString()}`, {
+        cache: "no-store",
+      });
+      const json = await response.json().catch(() => null);
+      if (response.ok && json?.success && json.report) {
+        const report = json.report;
+        const serverStatus = report.status === "issue" ? "issue" : "normal";
+        const serverAuthor = report.author || "";
+        const serverNote = report.note || "";
+        const serverImages = Array.isArray(report.images) ? report.images : [];
+
+        const statusChanged = serverStatus !== dailyStatus;
+        const authorChanged = serverAuthor !== author;
+        const noteChanged = serverNote !== note;
+        const imagesChanged = JSON.stringify(serverImages) !== JSON.stringify(images);
+
+        if (statusChanged || authorChanged || noteChanged || imagesChanged) {
+          const isUserTyping =
+            document.activeElement?.tagName === "TEXTAREA" ||
+            document.activeElement?.tagName === "INPUT";
+
+          if (statusChanged) setDailyStatus(serverStatus);
+
+          if (!isUserTyping) {
+            if (authorChanged) setAuthor(serverAuthor);
+            if (noteChanged) {
+              setNote(serverNote);
+              saveNote(serverNote);
+            }
+          }
+
+          if (imagesChanged) {
+            setImages(serverImages);
+            saveImages(serverImages);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Background sync error:", e);
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    void silentSyncDailyReportFromSupabase();
+
+    const interval = setInterval(() => {
+      void silentSyncDailyReportFromSupabase();
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [dailyWorkDate, dailyStatus, author, note, images]);
 
   const handleLoadDailyTextFromSupabase = async () => {
     setIsDailyTextSyncing(true);

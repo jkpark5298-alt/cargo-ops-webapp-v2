@@ -387,6 +387,7 @@ class DailyReportTextSaveRequest(BaseModel):
     status: str = "normal"
     author: str = ""
     note: str = ""
+    images: Optional[List[Dict[str, Any]]] = None
     savedAt: Optional[str] = None
 
 
@@ -409,13 +410,16 @@ def _normalize_daily_report_text_date(value: Any) -> str:
 
 
 def _daily_report_text_to_supabase_row(report: Dict[str, Any]) -> Dict[str, Any]:
-    return {
+    row = {
         "work_date": _normalize_daily_report_text_date(report.get("workDate")),
         "status": str(report.get("status") or "normal"),
         "author": str(report.get("author") or ""),
         "note": str(report.get("note") or ""),
         "updated_at": _now_kst_iso(),
     }
+    if "images" in report:
+        row["images"] = report["images"]
+    return row
 
 
 def _daily_report_text_from_supabase_row(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -424,6 +428,7 @@ def _daily_report_text_from_supabase_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "status": str(row.get("status") or "normal"),
         "author": str(row.get("author") or ""),
         "note": str(row.get("note") or ""),
+        "images": row.get("images") if row.get("images") is not None else [],
         "savedAt": str(row.get("updated_at") or row.get("created_at") or ""),
     }
 
@@ -455,7 +460,7 @@ def _load_daily_report_text_from_supabase(work_date: str) -> Optional[Dict[str, 
     query = urllib.parse.urlencode(
         {
             "work_date": f"eq.{_normalize_daily_report_text_date(work_date)}",
-            "select": "work_date,status,author,note,created_at,updated_at",
+            "select": "work_date,status,author,note,images,created_at,updated_at",
             "limit": "1",
         }
     )
@@ -2348,6 +2353,7 @@ async def save_daily_report_text(payload: DailyReportTextSaveRequest) -> Dict[st
         "status": str(payload.status or "normal"),
         "author": str(payload.author or ""),
         "note": str(payload.note or ""),
+        "images": payload.images if payload.images is not None else [],
         "savedAt": payload.savedAt or _now_kst_iso(),
     }
 
