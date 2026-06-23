@@ -66,6 +66,8 @@ function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
   const baseItems = useMemo(() => getFlightRouteItems(room), [room]);
   const orderStorageKey = getScheduleFlightOrderStorageKey(room);
   const [manualOrder, setManualOrder] = useState<string[]>([]);
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+  const [startY, setStartY] = useState<number>(0);
 
   useEffect(() => {
     setManualOrder(loadScheduleFlightOrder(orderStorageKey));
@@ -76,27 +78,67 @@ function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
     [baseItems, manualOrder],
   );
 
-  const moveFlight = (flight: string, direction: -1 | 1) => {
-    const currentKeys = items.map((item) => normalizeSummaryFlightKey(item.flight));
-    const targetKey = normalizeSummaryFlightKey(flight);
-    const currentIndex = currentKeys.indexOf(targetKey);
-    const nextIndex = currentIndex + direction;
+  const startDrag = (e: React.PointerEvent<HTMLDivElement>, index: number) => {
+    if (e.button !== 0) return; // Only left-click/touch
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDraggingIndex(index);
+    setStartY(e.clientY);
+  };
 
-    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= currentKeys.length) return;
+  const onDragMove = (e: React.PointerEvent<HTMLDivElement>, index: number) => {
+    if (draggingIndex === null || draggingIndex !== index) return;
+    const deltaY = e.clientY - startY;
+    const threshold = 40; // Swap items if dragged past 40px
 
-    const nextOrder = [...currentKeys];
-    const [moved] = nextOrder.splice(currentIndex, 1);
-    nextOrder.splice(nextIndex, 0, moved);
+    if (deltaY > threshold) {
+      const nextIndex = draggingIndex + 1;
+      if (nextIndex < items.length) {
+        const nextOrder = [...items.map((item) => normalizeSummaryFlightKey(item.flight))];
+        const [moved] = nextOrder.splice(draggingIndex, 1);
+        nextOrder.splice(nextIndex, 0, moved);
+        setManualOrder(nextOrder);
+        saveScheduleFlightOrder(orderStorageKey, nextOrder);
+        setDraggingIndex(nextIndex);
+        setStartY(e.clientY);
+      }
+    } else if (deltaY < -threshold) {
+      const prevIndex = draggingIndex - 1;
+      if (prevIndex >= 0) {
+        const nextOrder = [...items.map((item) => normalizeSummaryFlightKey(item.flight))];
+        const [moved] = nextOrder.splice(draggingIndex, 1);
+        nextOrder.splice(prevIndex, 0, moved);
+        setManualOrder(nextOrder);
+        saveScheduleFlightOrder(orderStorageKey, nextOrder);
+        setDraggingIndex(prevIndex);
+        setStartY(e.clientY);
+      }
+    }
+  };
 
-    setManualOrder(nextOrder);
-    saveScheduleFlightOrder(orderStorageKey, nextOrder);
+  const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    setDraggingIndex(null);
   };
 
   return (
-    <div style={flightRouteOnlyBlockStyle}>
+    <div style={{ display: "grid", gap: 10, padding: "10px 0" }}>
       {items.length > 0 ? (
         items.map((item, index) => (
-          <div key={`${item.flight}-${item.route}-${index}`} style={flightRouteRowStyle}>
+          <div
+            key={`${item.flight}-${item.route}-${index}`}
+            style={{
+              ...flightRouteRowStyle,
+              background: draggingIndex === index ? "rgba(37, 99, 235, 0.22)" : "rgba(30, 41, 59, 0.45)",
+              border: draggingIndex === index ? "1px solid #3b82f6" : "1px solid rgba(148, 163, 184, 0.12)",
+              borderRadius: 12,
+              padding: "12px 14px",
+              transform: draggingIndex === index ? "scale(1.02)" : "scale(1)",
+              boxShadow: draggingIndex === index ? "0 8px 24px rgba(0, 0, 0, 0.55)" : "none",
+              transition: "transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease",
+              zIndex: draggingIndex === index ? 10 : 1,
+              position: "relative",
+            }}
+          >
             <div style={flightRouteRowHeaderStyle}>
               <div style={flightRouteTextBlockStyle}>
                 <div style={flightRoutePrimaryLineStyle}>
@@ -112,25 +154,31 @@ function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
                   {item.gate ? <span> · G{item.gate}</span> : null}
                 </div>
               </div>
-              <div style={flightMoveButtonGroupStyle}>
-                <button
-                  type="button"
-                  onClick={() => moveFlight(item.flight, -1)}
-                  disabled={index === 0}
-                  style={index === 0 ? flightMoveButtonDisabledStyle : flightMoveButtonStyle}
-                  aria-label={`${item.flight} 위로 이동`}
-                >
-                  ▲
-                </button>
-                <button
-                  type="button"
-                  onClick={() => moveFlight(item.flight, 1)}
-                  disabled={index === items.length - 1}
-                  style={index === items.length - 1 ? flightMoveButtonDisabledStyle : flightMoveButtonStyle}
-                  aria-label={`${item.flight} 아래로 이동`}
-                >
-                  ▼
-                </button>
+              
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 36,
+                  height: 36,
+                  borderRadius: 8,
+                  background: draggingIndex === index ? "rgba(59, 130, 246, 0.25)" : "rgba(148, 163, 184, 0.08)",
+                  border: draggingIndex === index ? "1px solid #3b82f6" : "1px solid rgba(148, 163, 184, 0.16)",
+                  cursor: draggingIndex === index ? "grabbing" : "grab",
+                  touchAction: "none",
+                  userSelect: "none",
+                }}
+                onPointerDown={(e) => startDrag(e, index)}
+                onPointerMove={(e) => onDragMove(e, index)}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
+                title={`${item.flight} 드래그하여 순서 이동`}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={draggingIndex === index ? "#60a5fa" : "#94a3b8"} strokeWidth="2.5" strokeLinecap="round">
+                  <line x1="4" y1="8" x2="20" y2="8" />
+                  <line x1="4" y1="16" x2="20" y2="16" />
+                </svg>
               </div>
             </div>
           </div>
@@ -627,32 +675,6 @@ const flightRouteRowHeaderStyle: CSSProperties = {
 
 const flightRouteTextBlockStyle: CSSProperties = {
   minWidth: 0,
-};
-
-const flightMoveButtonGroupStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(2, 32px)",
-  gap: 4,
-};
-
-const flightMoveButtonStyle: CSSProperties = {
-  width: 32,
-  height: 30,
-  border: "1px solid rgba(96, 165, 250, 0.48)",
-  borderRadius: 10,
-  background: "rgba(37, 99, 235, 0.22)",
-  color: "#dbeafe",
-  fontSize: 12,
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const flightMoveButtonDisabledStyle: CSSProperties = {
-  ...flightMoveButtonStyle,
-  background: "rgba(51, 65, 85, 0.62)",
-  border: "1px solid rgba(100, 116, 139, 0.34)",
-  color: "#94a3b8",
-  cursor: "not-allowed",
 };
 
 const flightRoutePrimaryLineStyle: CSSProperties = {
