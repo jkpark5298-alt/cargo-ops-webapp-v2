@@ -143,15 +143,62 @@ function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
               <div style={flightRouteTextBlockStyle}>
                 <div style={flightRoutePrimaryLineStyle}>
                   <span style={flightRouteNoStyle}>{item.flight}</span>
-                  <span style={flightRouteValueStyle}>{formatRouteInline(item.route)}</span>
-                  {item.registrationNo ? <span style={flightRouteHlStyle}>{item.registrationNo}</span> : null}
+                  {item.registrationNo ? (
+                    <span
+                      style={{
+                        marginLeft: 8,
+                        color: "#bfdbfe",
+                        fontSize: 15,
+                        fontWeight: 900,
+                        background: "rgba(191, 219, 254, 0.12)",
+                        padding: "2px 6px",
+                        borderRadius: 6,
+                        border: "1px solid rgba(191, 219, 254, 0.24)",
+                        display: "inline-block",
+                      }}
+                    >
+                      {item.registrationNo}
+                    </span>
+                  ) : null}
                 </div>
-                <div style={getFlightRouteMetaStyle(item.status)}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr auto",
+                    gap: 8,
+                    alignItems: "center",
+                    marginTop: 6,
+                    marginBottom: 6,
+                  }}
+                >
+                  <span style={{ fontSize: 16, fontWeight: 800, color: "#dbeafe" }}>
+                    {formatRouteInline(item.route)}
+                  </span>
+                  <span style={{ fontSize: 16, fontWeight: 800, color: "#fcd34d", fontVariantNumeric: "tabular-nums" }}>
+                    {item.time}
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 4, marginBottom: 8 }}>
                   {item.status && item.status !== "-" ? (
                     <span style={getStatusBadgeStyle(item.status)}>{item.status}</span>
                   ) : null}
-                  {item.time && item.time !== "-" ? <span>{item.status && item.status !== "-" ? " · " : ""}{item.time}</span> : null}
-                  {item.gate ? <span> · G{item.gate}</span> : null}
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    paddingTop: 8,
+                    borderTop: "1px solid rgba(148, 163, 184, 0.12)",
+                    marginTop: 8,
+                  }}
+                >
+                  <span style={{ color: "#92a7c5", fontSize: 12, fontWeight: 700 }}>
+                    주기장 / 게이트
+                  </span>
+                  <span style={{ fontSize: 14, fontWeight: 900, color: "#ffffff" }}>
+                    {item.gate || "-"}
+                  </span>
                 </div>
               </div>
               

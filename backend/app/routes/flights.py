@@ -475,10 +475,10 @@ def _normalize_aircraft_registration_date(value: Any) -> str:
     if not raw:
         return ""
 
-    match = re.match(r"^(\d{4})[-/.](\d{2})[-/.](\d{2})", raw)
+    match = re.match(r"^(\d{4})[-/.\s]+(\d{1,2})[-/.\s]+(\d{1,2})", raw)
     if match:
         year, month, day = match.groups()
-        return f"{year}-{month}-{day}"
+        return f"{year}-{int(month):02d}-{int(day):02d}"
 
     digits = re.sub(r"\D", "", raw)
     if len(digits) >= 8:
@@ -491,20 +491,33 @@ def _normalize_aircraft_registration_no(value: Any) -> str:
     raw = str(value or "").strip().upper().replace(" ", "")
     if not raw:
         return ""
+    
+    raw = re.sub(r"[^A-Z0-9]", "", raw)
 
     if re.fullmatch(r"\d{3,5}", raw):
         return f"HL{raw}"
-
-    if re.fullmatch(r"HL\d{3,5}", raw):
-        return raw
 
     return raw
 
 
 def _normalize_aircraft_flight(value: Any) -> str:
     raw = str(value or "").strip().upper().replace(" ", "")
-    if re.fullmatch(r"\d{3,4}", raw):
-        return f"KJ{raw}"
+    if not raw:
+        return ""
+
+    raw = re.sub(r"[^A-Z0-9]", "", raw)
+
+    match = re.match(r"^([A-Z]{2,3})?0*([1-9]\d*)$", raw)
+    if match:
+        prefix = match.group(1) or "KJ"
+        num = match.group(2)
+        return f"{prefix}{num}"
+
+    all_zeros = re.match(r"^([A-Z]{2,3})?0+$", raw)
+    if all_zeros:
+        prefix = all_zeros.group(1) or "KJ"
+        return f"{prefix}0"
+
     return raw
 
 
@@ -558,8 +571,25 @@ def _row_aircraft_registration(row: Dict[str, Any]) -> str:
 def _normalize_aircraft_registration_record(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     date = _normalize_aircraft_registration_date(raw.get("date") or raw.get("운항일자") or raw.get("일자"))
     flight = _normalize_aircraft_flight(raw.get("flight") or raw.get("편명"))
-    departure_code = str(raw.get("departureCode") or raw.get("출발코드") or raw.get("출발") or "").strip().upper()
-    arrival_code = str(raw.get("arrivalCode") or raw.get("도착코드") or raw.get("도착") or "").strip().upper()
+    
+    departure_code = str(
+        raw.get("departureCode")
+        or raw.get("출발지코드")
+        or raw.get("출발코드")
+        or raw.get("출발지")
+        or raw.get("출발")
+        or ""
+    ).strip().upper()
+    
+    arrival_code = str(
+        raw.get("arrivalCode")
+        or raw.get("도착지코드")
+        or raw.get("도착코드")
+        or raw.get("도착지")
+        or raw.get("도착")
+        or ""
+    ).strip().upper()
+    
     registration_no = _normalize_aircraft_registration_no(
         raw.get("registrationNo") or raw.get("등록기호") or raw.get("HL") or raw.get("hlnbr")
     )
@@ -706,7 +736,7 @@ def _apply_aircraft_registrations_to_rows(rows: List[Any]) -> List[Any]:
             row.get("arrivalCode") or "",
         )
         fallback_key = _aircraft_registration_flight_date_key(date, flight)
-        registration_no = lookup.get(fallback_key) or lookup.get(exact_key) or _row_aircraft_registration(row)
+        registration_no = lookup.get(exact_key) or lookup.get(fallback_key) or _row_aircraft_registration(row)
 
         if registration_no:
             next_row = dict(row)

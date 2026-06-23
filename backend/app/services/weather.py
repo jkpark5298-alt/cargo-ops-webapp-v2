@@ -1,3 +1,4 @@
+import asyncio
 import math
 import os
 from datetime import datetime, timedelta, timezone
@@ -203,25 +204,19 @@ async def _fetch_kma_weather(client: httpx.AsyncClient) -> dict[str, Any]:
     ncst_url = "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst"
     fcst_url = "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtFcst"
 
-    ncst_res = await client.get(ncst_url, params=common_params, timeout=12)
-    ncst_res.raise_for_status()
-    ncst_json = ncst_res.json()
-    ncst_items = (
-        ncst_json.get("response", {})
-        .get("body", {})
-        .get("items", {})
-        .get("item", [])
-    )
+    async def fetch_ncst():
+        res = await client.get(ncst_url, params=common_params, timeout=3.5)
+        res.raise_for_status()
+        js = res.json()
+        return js.get("response", {}).get("body", {}).get("items", {}).get("item", [])
 
-    fcst_res = await client.get(fcst_url, params=common_params, timeout=12)
-    fcst_res.raise_for_status()
-    fcst_json = fcst_res.json()
-    fcst_items = (
-        fcst_json.get("response", {})
-        .get("body", {})
-        .get("items", {})
-        .get("item", [])
-    )
+    async def fetch_fcst():
+        res = await client.get(fcst_url, params=common_params, timeout=3.5)
+        res.raise_for_status()
+        js = res.json()
+        return js.get("response", {}).get("body", {}).get("items", {}).get("item", [])
+
+    ncst_items, fcst_items = await asyncio.gather(fetch_ncst(), fetch_fcst())
 
     current = {item.get("category"): item.get("obsrValue") for item in ncst_items}
 
@@ -239,7 +234,6 @@ async def _fetch_kma_weather(client: httpx.AsyncClient) -> dict[str, Any]:
     sky = forecast.get("SKY")
     condition, icon = _weather_condition(str(pty) if pty is not None else None, str(sky) if sky is not None else None)
 
-    # Use temperature as feels-like placeholder until windchill/heat-index logic is added.
     feels_like = temperature
 
     return {
@@ -260,9 +254,8 @@ async def _fetch_airkorea(client: httpx.AsyncClient) -> dict[str, Any]:
         raise RuntimeError("AIRKOREA_API_KEY is empty")
 
     url = "https://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getMsrstnAcctoRltmMesureDnsty"
-    last_error: Exception | None = None
 
-    for station in [s for s in AIRKOREA_STATIONS if s]:
+    async def fetch_station(station: str) -> dict[str, Any]:
         params = {
             "serviceKey": key,
             "returnType": "json",
@@ -272,27 +265,32 @@ async def _fetch_airkorea(client: httpx.AsyncClient) -> dict[str, Any]:
             "dataTerm": "DAILY",
             "ver": "1.3",
         }
-        try:
-            res = await client.get(url, params=params, timeout=12)
-            res.raise_for_status()
-            data = res.json()
-            items = data.get("response", {}).get("body", {}).get("items", [])
-            if not items:
-                continue
-            item = items[0]
-            return {
-                "pm10Grade": _grade_text(item.get("pm10Grade")),
-                "pm25Grade": _grade_text(item.get("pm25Grade")),
-                "airStation": station,
-                "airBaseTime": item.get("dataTime"),
-            }
-        except Exception as exc:  # pragma: no cover - network dependent
-            last_error = exc
-            continue
+        res = await client.get(url, params=params, timeout=3.5)
+        res.raise_for_status()
+        data = res.json()
+        items = data.get("response", {}).get("body", {}).get("items", [])
+        if not items:
+            raise RuntimeError(f"No data for station {station}")
+        item = items[0]
+        return {
+            "pm10Grade": _grade_text(item.get("pm10Grade")),
+            "pm25Grade": _grade_text(item.get("pm25Grade")),
+            "airStation": station,
+            "airBaseTime": item.get("dataTime"),
+        }
 
-    if last_error:
-        raise last_error
-    raise RuntimeError("AirKorea station data not found")
+    stations = [s for s in AIRKOREA_STATIONS if s]
+    tasks = [fetch_station(station) for station in stations]
+
+    last_error: Exception = RuntimeError("AirKorea station data not found")
+    for future in asyncio.as_completed(tasks):
+        try:
+            result = await future
+            return result
+        except Exception as exc:
+            last_error = exc
+
+    raise last_error
 
 
 async def get_current_weather() -> dict[str, Any]:
@@ -300,23 +298,26 @@ async def get_current_weather() -> dict[str, Any]:
     errors: list[str] = []
 
     async with httpx.AsyncClient() as client:
-        try:
-            kma = await _fetch_kma_weather(client)
-            result.update(kma)
+        kma_task = _fetch_kma_weather(client)
+        air_task = _fetch_airkorea(client)
+
+        kma_res, air_res = await asyncio.gather(kma_task, air_task, return_exceptions=True)
+
+        if isinstance(kma_res, Exception):
+            errors.append(f"weather: {kma_res}")
+        elif isinstance(kma_res, dict):
+            result.update(kma_res)
             result["success"] = True
             result["source"] = "live"
             result["message"] = "실시간 날씨를 표시 중입니다."
-        except Exception as exc:
-            errors.append(f"weather: {exc}")
 
-        try:
-            air = await _fetch_airkorea(client)
-            result.update(air)
+        if isinstance(air_res, Exception):
+            errors.append(f"air: {air_res}")
+        elif isinstance(air_res, dict):
+            result.update(air_res)
             if result.get("success") is False:
                 result["success"] = True
                 result["source"] = "partial"
-        except Exception as exc:
-            errors.append(f"air: {exc}")
 
     result["location"] = "인천시 중구 운서동"
     if errors:
