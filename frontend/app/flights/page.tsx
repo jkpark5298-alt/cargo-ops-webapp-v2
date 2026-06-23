@@ -1066,7 +1066,6 @@ function FixedResultsTable({
   onHlDraftChange,
   onToggleDetail,
   onToggleSelect,
-  onDeleteFlight,
 }: {
   rows: FlightRow[];
   expandedKeys: Record<string, boolean>;
@@ -1076,7 +1075,6 @@ function FixedResultsTable({
   onHlDraftChange: (flight: string, value: string) => void;
   onToggleDetail: (key: string) => void;
   onToggleSelect: (row: FlightRow, idx: number) => void;
-  onDeleteFlight?: (flight: string) => void;
 }) {
   return (
     <div style={{ marginTop: 30, overflowX: "auto" }}>
@@ -1130,49 +1128,16 @@ function FixedResultsTable({
                   }}
                 >
                   <td style={tdStyle}>
-                    {onDeleteFlight ? (
-                      <button
-                        type="button"
-                        onClick={() => onDeleteFlight(getFlightDisplay(row))}
-                        title={`${getFlightDisplay(row)} Schedule Flight에서 삭제`}
-                        style={{
-                          width: 30,
-                          height: 30,
-                          borderRadius: 999,
-                          border: "1px solid rgba(248, 113, 113, 0.65)",
-                          background: "rgba(127, 29, 29, 0.72)",
-                          color: "#fecaca",
-                          fontWeight: 900,
-                          fontSize: 20,
-                          lineHeight: 1,
-                          cursor: "pointer",
-                        }}
-                      >
-                        -
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => onToggleSelect(row, idx)}
-                        disabled={finalCompleted}
-                        title={finalCompleted ? `${getRefreshExcludeReason(row)}으로 저장 제외` : selected ? "저장 선택 해제" : "저장할 항공편 선택"}
-                        style={{
-                          width: 30,
-                          height: 30,
-                          borderRadius: 999,
-                          border: selected ? "1px solid #60a5fa" : "1px solid #334155",
-                          background: selected ? "#2563eb" : "#111827",
-                          color: selected ? "#ffffff" : "#facc15",
-                          fontWeight: 900,
-                          fontSize: 20,
-                          lineHeight: 1,
-                          cursor: finalCompleted ? "not-allowed" : "pointer",
-                          opacity: finalCompleted ? 0.45 : 1,
-                        }}
-                      >
-                        {selected ? "✓" : "+"}
-                      </button>
-                    )}
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => onToggleSelect(row, idx)}
+                      style={{
+                        width: 18,
+                        height: 18,
+                        cursor: "pointer",
+                      }}
+                    />
                   </td>
                   <td style={tdStyle}>{getFlightDisplay(row)}</td>
                   <td style={tdStyle}>
@@ -2077,16 +2042,25 @@ export default function FlightsPage() {
     });
   };
 
-  const handleDeleteFlightFromSchedule = async (flight: string) => {
-    if (!selectedRoom?.fixed) return;
+  const handleDeleteSelectedFlightsFromSchedule = async () => {
+    if (!selectedRoom?.fixed || selectedScheduleRows.length === 0) return;
 
-    const targetFlight = normalizeFlightKey(flight);
-    if (!targetFlight) return;
+    const targetFlights = selectedScheduleRows
+      .map((r) => normalizeFlightKey(getFlightDisplay(r)))
+      .filter((f): f is string => Boolean(f));
 
-    const confirmed = window.confirm(`${targetFlight} 편명을 Schedule Flight에서 삭제할까요?`);
+    if (targetFlights.length === 0) return;
+
+    const confirmed = window.confirm(
+      `선택한 ${targetFlights.length}개 편명을 Schedule Flight에서 삭제할까요?`
+    );
     if (!confirmed) return;
 
-    const updatedRoom = removeFlightFromScheduleRoom(selectedRoom, targetFlight);
+    let updatedRoom = selectedRoom;
+    for (const flight of targetFlights) {
+      updatedRoom = removeFlightFromScheduleRoom(updatedRoom, flight);
+    }
+
     const hasRemaining = isActiveScheduleRoom(updatedRoom);
 
     const nextRooms = hasRemaining
@@ -2122,14 +2096,14 @@ export default function FlightsPage() {
 
       setError(
         hasRemaining
-          ? `${targetFlight} 삭제 완료. 초기화면과 Schedule Lite에도 반영됩니다.`
-          : `${targetFlight} 삭제 완료. 남은 편명이 없어 Schedule Flight를 비웠습니다.`,
+          ? `선택한 편명(${targetFlights.join(", ")}) 삭제 완료. 초기화면과 Schedule Lite에도 반영됩니다.`
+          : `선택한 편명 삭제 완료. 남은 편명이 없어 Schedule Flight를 비웠습니다.`,
       );
     } catch (syncError) {
       setError(
         syncError instanceof Error
-          ? `${targetFlight} 로컬 삭제 완료. 서버 동기화 실패: ${syncError.message}`
-          : `${targetFlight} 로컬 삭제 완료. 서버 동기화 중 오류가 발생했습니다.`,
+          ? `로컬 삭제 완료. 서버 동기화 실패: ${syncError.message}`
+          : `로컬 삭제 완료. 서버 동기화 중 오류가 발생했습니다.`,
       );
     }
   };
@@ -3071,6 +3045,16 @@ export default function FlightsPage() {
             <button type="button" onClick={() => void handleSaveInlineHlMapping()} style={hlMappingSaveButtonStyle}>
               등록기호 저장
             </button>
+            <button
+              type="button"
+              onClick={() => void handleDeleteSelectedFlightsFromSchedule()}
+              disabled={selectedScheduleRows.length === 0}
+              style={selectedScheduleRows.length > 0 ? hlMappingDeleteButtonStyle : disabledBtn}
+            >
+              {selectedScheduleRows.length > 0
+                ? `선택 ${selectedScheduleRows.length}건 삭제`
+                : "삭제할 항공편 선택"}
+            </button>
             <span style={hlInlineHelpStyle}>
               엑셀 업로드 또는 표 직접 입력 가능 · 숫자만 입력해도 HL이 자동으로 붙습니다. 예) 7423 → HL7423 · 관리 {aircraftRegistrationRecords.length}건
             </span>
@@ -3223,7 +3207,6 @@ export default function FlightsPage() {
             onHlDraftChange={handleHlInlineDraftChange}
             onToggleDetail={handleToggleDetail}
             onToggleSelect={handleToggleScheduleSelection}
-            onDeleteFlight={isSelectedFixedRoom ? handleDeleteFlightFromSchedule : undefined}
           />
         )}
 
@@ -3386,6 +3369,12 @@ const hlMappingButtonStyle: CSSProperties = {
 const hlMappingSaveButtonStyle: CSSProperties = {
   ...hlMappingButtonStyle,
   background: "#16a34a",
+  border: "none",
+};
+
+const hlMappingDeleteButtonStyle: CSSProperties = {
+  ...hlMappingButtonStyle,
+  background: "#dc2626",
   border: "none",
 };
 
