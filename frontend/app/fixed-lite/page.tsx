@@ -1617,16 +1617,21 @@ export default function FixedLitePage() {
                         }}
                       >
                         {item.flight}
-                        {item.registrationNo ? (
+                        {item.gate && item.gate !== "-" ? (
                           <span
                             style={{
                               marginLeft: 8,
                               color: "#bfdbfe",
                               fontSize: 15,
                               fontWeight: 900,
+                              background: "rgba(191, 219, 254, 0.12)",
+                              padding: "2px 6px",
+                              borderRadius: 6,
+                              border: "1px solid rgba(191, 219, 254, 0.24)",
+                              display: "inline-block",
                             }}
                           >
-                            {item.registrationNo}
+                            {item.gate}
                           </span>
                         ) : null}
                       </div>
@@ -1715,7 +1720,7 @@ export default function FixedLitePage() {
                       }}
                     >
                       <div style={{ color: "#92a7c5", fontSize: 12 }}>
-                        주기장 / 게이트
+                        등록 번호
                       </div>
                       <div
                         style={{
@@ -1725,7 +1730,7 @@ export default function FixedLitePage() {
                           fontVariantNumeric: "tabular-nums",
                         }}
                       >
-                        {item.gate || "-"}
+                        {item.registrationNo || "-"}
                       </div>
                     </div>
 

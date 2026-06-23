@@ -143,7 +143,7 @@ function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
               <div style={flightRouteTextBlockStyle}>
                 <div style={flightRoutePrimaryLineStyle}>
                   <span style={flightRouteNoStyle}>{item.flight}</span>
-                  {item.registrationNo ? (
+                  {item.gate && item.gate !== "-" ? (
                     <span
                       style={{
                         marginLeft: 8,
@@ -157,7 +157,7 @@ function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
                         display: "inline-block",
                       }}
                     >
-                      {item.registrationNo}
+                      {item.gate}
                     </span>
                   ) : null}
                 </div>
@@ -194,10 +194,10 @@ function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
                   }}
                 >
                   <span style={{ color: "#92a7c5", fontSize: 12, fontWeight: 700 }}>
-                    주기장 / 게이트
+                    등록 번호
                   </span>
                   <span style={{ fontSize: 14, fontWeight: 900, color: "#ffffff" }}>
-                    {item.gate || "-"}
+                    {item.registrationNo || "-"}
                   </span>
                 </div>
               </div>
