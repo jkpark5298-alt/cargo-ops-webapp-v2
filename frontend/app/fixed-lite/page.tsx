@@ -53,6 +53,7 @@ type FlightRow = {
   aircraftRegNo?: string;
   registrationNo?: string;
   hlnbr?: string;
+  afocsSkd?: string;
 };
 
 type MonitorRoom = {
@@ -84,6 +85,7 @@ type WidgetSummaryItem = {
   gate: string;
   registrationNo?: string;
   excludeReason?: string;
+  afocsSkd?: string;
 };
 
 type WidgetSummaryResponse = {
@@ -630,6 +632,7 @@ function formatDisplayItemFromRow(flight: string, row: FlightRow): WidgetSummary
       ) || "-",
     gate: row.gatenumber || "-",
     registrationNo: getRegistrationNo(row),
+    afocsSkd: row.afocsSkd || "",
   };
 }
 
@@ -642,6 +645,7 @@ function formatFallbackDisplayItem(flight: string): WidgetSummaryItem {
     displayTime: "-",
     gate: "-",
     registrationNo: "",
+    afocsSkd: "",
   };
 }
 
@@ -856,6 +860,49 @@ export default function FixedLitePage() {
     reader.readAsDataURL(file);
   };
 
+  const handleUpdateAfocsSkd = async (flight: string, val: string) => {
+    if (!selectedRoom) return;
+
+    const flightKey = normalizeFlightKey(flight);
+
+    const updatedRows = (selectedRoom.rows || []).map((row) => {
+      const rowFlightKey = normalizeFlightKey(row.flightId || row.flightNo || "");
+      if (rowFlightKey === flightKey) {
+        return { ...row, afocsSkd: val };
+      }
+      return row;
+    });
+
+    const exists = (selectedRoom.rows || []).some(
+      (row) => normalizeFlightKey(row.flightId || row.flightNo || "") === flightKey
+    );
+
+    let finalRows = updatedRows;
+    if (!exists) {
+      const newDummyRow: FlightRow = {
+        flightId: flight,
+        flightNo: flight,
+        afocsSkd: val,
+      };
+      finalRows = [...updatedRows, newDummyRow];
+    }
+
+    const updatedRoom = {
+      ...selectedRoom,
+      rows: finalRows,
+    };
+
+    const nextRooms = rooms.map((room) => (room.id === selectedRoom.id ? updatedRoom : room));
+    setRooms(nextRooms);
+    saveRooms(nextRooms);
+
+    try {
+      await saveLatestScheduleToServer(updatedRoom);
+    } catch (err) {
+      console.error("Failed to sync updated AFOCS SKD to server:", err);
+    }
+  };
+
   useEffect(() => {
     void fetchWeather();
     void loadDailyReportFromSupabase(dailyWorkDate);
@@ -905,7 +952,8 @@ export default function FixedLitePage() {
       const latestRow = latestRowMap.get(flight)?.row;
       if (known) {
         const registrationNo = latestRow ? getRegistrationNo(latestRow) : known.registrationNo || "";
-        return { ...known, registrationNo, excludeReason };
+        const afocsSkd = latestRow?.afocsSkd || known.afocsSkd || "";
+        return { ...known, registrationNo, afocsSkd, excludeReason };
       }
 
       if (latestRow) return { ...formatDisplayItemFromRow(flight, latestRow), excludeReason };
@@ -1702,12 +1750,32 @@ export default function FixedLitePage() {
 
                       <div
                         style={{
-                          fontSize: 16,
-                          fontWeight: 800,
-                          fontVariantNumeric: "tabular-nums",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
                         }}
                       >
-                        {item.displayTime}
+                        <span style={{ fontSize: 11, color: "#92a7c5", fontWeight: "bold" }}>
+                          AFOCS SKD:
+                        </span>
+                        <input
+                          type="text"
+                          value={item.afocsSkd || ""}
+                          placeholder={item.displayTime && item.displayTime !== "-" ? item.displayTime.split(" ").slice(-1)[0] : "시간 입력"}
+                          onChange={(e) => void handleUpdateAfocsSkd(item.flight, e.target.value)}
+                          style={{
+                            width: 85,
+                            background: "#091326",
+                            border: "1px solid #3b82f6",
+                            color: "#fcd34d",
+                            fontWeight: "extrabold",
+                            padding: "4px 6px",
+                            borderRadius: 8,
+                            fontSize: 13,
+                            textAlign: "center",
+                            fontFamily: "monospace",
+                          }}
+                        />
                       </div>
                     </div>
 

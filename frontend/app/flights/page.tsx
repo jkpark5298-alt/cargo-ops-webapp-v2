@@ -35,6 +35,7 @@ type FlightRow = {
   gateChanged?: boolean;
   sourceType?: string;
   fid?: string;
+  afocsSkd?: string;
 };
 
 type MonitorRoom = {
@@ -565,6 +566,29 @@ function normalizeHlNumber(value: string) {
   return normalized;
 }
 
+function formatExcelTimeValue(val: unknown): string {
+  if (!val) return "";
+  if (val instanceof Date) {
+    const hours = String(val.getHours()).padStart(2, "0");
+    const minutes = String(val.getMinutes()).padStart(2, "0");
+    return `${hours}:${minutes}`;
+  }
+  if (typeof val === "number") {
+    const totalMinutes = Math.round(val * 24 * 60);
+    const hours = String(Math.floor(totalMinutes / 60) % 24).padStart(2, "0");
+    const minutes = String(totalMinutes % 60).padStart(2, "0");
+    return `${hours}:${minutes}`;
+  }
+  const str = String(val).trim();
+  const timeMatch = str.match(/(\d{1,2}):(\d{2})/);
+  if (timeMatch) {
+    const hours = timeMatch[1].padStart(2, "0");
+    const minutes = timeMatch[2];
+    return `${hours}:${minutes}`;
+  }
+  return str;
+}
+
 function parseHlMappingText(text: string): Record<string, string> {
   const mapping: Record<string, string> = {};
 
@@ -1064,6 +1088,8 @@ function FixedResultsTable({
   hlNumberMap,
   hlDrafts,
   onHlDraftChange,
+  afocsSkdDrafts,
+  onAfocsSkdDraftChange,
   onToggleDetail,
   onToggleSelect,
 }: {
@@ -1073,6 +1099,8 @@ function FixedResultsTable({
   hlNumberMap: Record<string, string>;
   hlDrafts: Record<string, string>;
   onHlDraftChange: (flight: string, value: string) => void;
+  afocsSkdDrafts: Record<string, string>;
+  onAfocsSkdDraftChange: (flight: string, value: string) => void;
   onToggleDetail: (key: string) => void;
   onToggleSelect: (row: FlightRow, idx: number) => void;
 }) {
@@ -1092,6 +1120,7 @@ function FixedResultsTable({
             <th style={thStyle}>선택</th>
             <th style={thStyle}>편명</th>
             <th style={thStyle}>등록기호</th>
+            <th style={thStyle}>AFOCS SKD</th>
             <th style={thStyle}>구분</th>
             <th style={thStyle}>출발</th>
             <th style={thStyle}>도착</th>
@@ -1103,7 +1132,7 @@ function FixedResultsTable({
         <tbody>
           {rows.length === 0 && (
             <tr>
-              <td style={tdStyle} colSpan={9}>
+              <td style={tdStyle} colSpan={10}>
                 조회 결과가 없습니다.
               </td>
             </tr>
@@ -1150,6 +1179,21 @@ function FixedResultsTable({
                       style={hlInlineInputStyle}
                     />
                   </td>
+                  <td style={tdStyle}>
+                    <input
+                      value={afocsSkdDrafts[getFlightKeyFromRow(row)] ?? row.afocsSkd ?? ""}
+                      onChange={(event) =>
+                        onAfocsSkdDraftChange(getFlightKeyFromRow(row), event.target.value)
+                      }
+                      placeholder={getChangedDateTime(row).split(" ").slice(-1)[0] || "시간입력"}
+                      style={{
+                        ...hlInlineInputStyle,
+                        color: "#fcd34d",
+                        fontWeight: "bold",
+                        border: "1px solid rgba(59, 130, 246, 0.4)",
+                      }}
+                    />
+                  </td>
                   <td
                     style={{
                       ...tdStyle,
@@ -1173,7 +1217,7 @@ function FixedResultsTable({
 
                 {expanded && (
                   <tr style={{ background: "#0c1a31", borderBottom: "1px solid #2b4269" }}>
-                    <td colSpan={9} style={{ padding: 14 }}>
+                    <td colSpan={10} style={{ padding: 14 }}>
                       <table
                         style={{
                           width: "100%",
@@ -1236,6 +1280,8 @@ export default function FlightsPage() {
   const [hlMappingText, setHlMappingText] = useState("");
   const [hlMappingStatus, setHlMappingStatus] = useState("");
   const [hlInlineDrafts, setHlInlineDrafts] = useState<Record<string, string>>({});
+  const afocsExcelInputRef = useRef<HTMLInputElement | null>(null);
+  const [afocsSkdInlineDrafts, setAfocsSkdInlineDrafts] = useState<Record<string, string>>({});
   const [aircraftRegistrationRecords, setAircraftRegistrationRecords] = useState<AircraftRegistrationRecord[]>([]);
 
   const currentRangeText = useMemo(() => {
@@ -1435,6 +1481,152 @@ export default function FlightsPage() {
       ...prev,
       [key]: value,
     }));
+  };
+
+  const handleAfocsSkdInlineDraftChange = (flight: string, value: string) => {
+    const key = normalizeFlightKey(flight);
+    if (!key) return;
+
+    setAfocsSkdInlineDrafts((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  };
+
+  const handleSaveInlineAfocsSkd = async () => {
+    if (!selectedRoom || !selectedRoom.fixed) {
+      setHlMappingStatus("수정할 Schedule Flight 방이 선택되지 않았습니다.");
+      return;
+    }
+
+    const updatedRows = (selectedRoom.rows || []).map((row) => {
+      const flightKey = getFlightKeyFromRow(row);
+      if (Object.prototype.hasOwnProperty.call(afocsSkdInlineDrafts, flightKey)) {
+        return {
+          ...row,
+          afocsSkd: afocsSkdInlineDrafts[flightKey],
+        };
+      }
+      return row;
+    });
+
+    const updatedRoom: MonitorRoom = {
+      ...selectedRoom,
+      rows: updatedRows,
+      lastFetchedAt: new Date().toLocaleString("ko-KR"),
+    };
+
+    const nextRooms = rooms.map((room) =>
+      room.id === selectedRoom.id ? updatedRoom : room
+    );
+
+    setRooms(nextRooms);
+    saveRooms(nextRooms);
+    setRows(updatedRows);
+    setAfocsSkdInlineDrafts({});
+
+    try {
+      await saveLatestScheduleToServer(updatedRoom);
+      setHlMappingStatus("AFOCS SKD 시간을 저장했습니다. Schedule Lite에 실시간 반영됩니다.");
+    } catch (syncError) {
+      setHlMappingStatus(
+        syncError instanceof Error
+          ? `AFOCS SKD 로컬 저장 완료 · 서버 반영 실패: ${syncError.message}`
+          : "AFOCS SKD 로컬 저장 완료 · 서버 반영 실패",
+      );
+    }
+  };
+
+  const handleAfocsSkdExcelUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (!selectedRoom || !selectedRoom.fixed) {
+      setHlMappingStatus("업로드할 Schedule Flight 방이 활성화되어 있지 않습니다.");
+      return;
+    }
+
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+      const firstSheetName = workbook.SheetNames[0];
+      const firstSheet = firstSheetName ? workbook.Sheets[firstSheetName] : null;
+
+      if (!firstSheet) {
+        setHlMappingStatus("엑셀 시트를 찾지 못했습니다.");
+        return;
+      }
+
+      const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, { defval: "" });
+      
+      const excelMappings: Record<string, string> = {};
+      rawRows.forEach((row) => {
+        const flightVal = getAircraftRegistrationCell(row, ["편명", "flight", "flightid", "flightno", "flightnumber"]);
+        const timeVal = getAircraftRegistrationCell(row, ["시간", "AFOCSSKD", "AFOCS SKD", "time", "schedule", "scheduledatetime", "etd/eta", "etd", "eta"]);
+        
+        const flightKey = normalizeFlightKey(String(flightVal || ""));
+        const timeStr = formatExcelTimeValue(timeVal);
+        
+        if (flightKey && timeStr) {
+          excelMappings[flightKey] = timeStr;
+        }
+      });
+
+      const keys = Object.keys(excelMappings);
+      if (keys.length === 0) {
+        setHlMappingStatus("업로드된 엑셀에서 AFOCS SKD 데이터를 찾지 못했습니다. 편명/시간(또는 AFOCS SKD, ETD/ETA) 컬럼을 확인해 주세요.");
+        return;
+      }
+
+      let matchedCount = 0;
+      const updatedRows = (selectedRoom.rows || []).map((row) => {
+        const flightKey = getFlightKeyFromRow(row);
+        if (excelMappings[flightKey]) {
+          matchedCount++;
+          return {
+            ...row,
+            afocsSkd: excelMappings[flightKey],
+          };
+        }
+        return row;
+      });
+
+      if (matchedCount === 0) {
+        setHlMappingStatus(`엑셀에서 ${keys.length}건의 시간 데이터를 읽었으나, 현재 Schedule Flight 목록과 일치하는 편명이 없습니다.`);
+        return;
+      }
+
+      const updatedRoom: MonitorRoom = {
+        ...selectedRoom,
+        rows: updatedRows,
+        lastFetchedAt: new Date().toLocaleString("ko-KR"),
+      };
+
+      const nextRooms = rooms.map((room) =>
+        room.id === selectedRoom.id ? updatedRoom : room
+      );
+
+      setRooms(nextRooms);
+      saveRooms(nextRooms);
+      setRows(updatedRows);
+      
+      setAfocsSkdInlineDrafts((prev) => {
+        const next = { ...prev };
+        Object.keys(excelMappings).forEach((k) => {
+          delete next[k];
+        });
+        return next;
+      });
+
+      await saveLatestScheduleToServer(updatedRoom);
+      setHlMappingStatus(`AFOCS SKD 엑셀 업로드 성공: ${matchedCount}건의 시간이 반영 및 동기화되었습니다.`);
+    } catch (err) {
+      setHlMappingStatus(
+        err instanceof Error
+          ? `AFOCS SKD 엑셀 업로드 실패: ${err.message}`
+          : "AFOCS SKD 엑셀 업로드 중 오류가 발생했습니다."
+      );
+    }
   };
 
   const handleSaveInlineHlMapping = async () => {
@@ -3027,38 +3219,73 @@ export default function FlightsPage() {
         {error && <p style={{ marginTop: 20, color: "#f87171" }}>{error}</p>}
 
         {fixed && rows.length > 0 && (
-          <div style={hlInlineSaveRowStyle}>
-            <input
-              ref={registrationExcelInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={(event) => void handleAircraftRegistrationExcelUpload(event)}
-              style={{ display: "none" }}
-            />
-            <button
-              type="button"
-              onClick={() => registrationExcelInputRef.current?.click()}
-              style={hlExcelUploadButtonStyle}
-            >
-              등록기호 엑셀 업로드
-            </button>
-            <button type="button" onClick={() => void handleSaveInlineHlMapping()} style={hlMappingSaveButtonStyle}>
-              등록기호 저장
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleDeleteSelectedFlightsFromSchedule()}
-              disabled={selectedScheduleRows.length === 0}
-              style={selectedScheduleRows.length > 0 ? hlMappingDeleteButtonStyle : disabledBtn}
-            >
-              {selectedScheduleRows.length > 0
-                ? `선택 ${selectedScheduleRows.length}건 삭제`
-                : "삭제할 항공편 선택"}
-            </button>
-            <span style={hlInlineHelpStyle}>
-              엑셀 업로드 또는 표 직접 입력 가능 · 숫자만 입력해도 HL이 자동으로 붙습니다. 예) 7423 → HL7423 · 관리 {aircraftRegistrationRecords.length}건
-            </span>
-          </div>
+          <>
+            <div style={hlInlineSaveRowStyle}>
+              <input
+                ref={registrationExcelInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={(event) => void handleAircraftRegistrationExcelUpload(event)}
+                style={{ display: "none" }}
+              />
+              <button
+                type="button"
+                onClick={() => registrationExcelInputRef.current?.click()}
+                style={hlExcelUploadButtonStyle}
+              >
+                등록기호 엑셀 업로드
+              </button>
+              <button type="button" onClick={() => void handleSaveInlineHlMapping()} style={hlMappingSaveButtonStyle}>
+                등록기호 저장
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDeleteSelectedFlightsFromSchedule()}
+                disabled={selectedScheduleRows.length === 0}
+                style={selectedScheduleRows.length > 0 ? hlMappingDeleteButtonStyle : disabledBtn}
+              >
+                {selectedScheduleRows.length > 0
+                  ? `선택 ${selectedScheduleRows.length}건 삭제`
+                  : "삭제할 항공편 선택"}
+              </button>
+              <span style={hlInlineHelpStyle}>
+                엑셀 업로드 또는 표 직접 입력 가능 · 숫자만 입력해도 HL이 자동으로 붙습니다. 예) 7423 → HL7423 · 관리 {aircraftRegistrationRecords.length}건
+              </span>
+            </div>
+            <div style={{ ...hlInlineSaveRowStyle, marginTop: 12 }}>
+              <input
+                ref={afocsExcelInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={(event) => void handleAfocsSkdExcelUpload(event)}
+                style={{ display: "none" }}
+              />
+              <button
+                type="button"
+                onClick={() => afocsExcelInputRef.current?.click()}
+                style={{
+                  ...hlExcelUploadButtonStyle,
+                  background: "#7c3aed",
+                  border: "1px solid rgba(196, 181, 253, 0.45)",
+                }}
+              >
+                AFOCS SKD 엑셀 업로드
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSaveInlineAfocsSkd()}
+                style={{
+                  ...hlMappingSaveButtonStyle,
+                  background: "#d97706",
+                }}
+              >
+                AFOCS SKD 저장
+              </button>
+              <span style={hlInlineHelpStyle}>
+                시간은 엑셀 업로드 또는 표에 직접 수동 입력 가능 · 시간 형식: HH:MM 또는 YYYY-MM-DD HH:MM
+              </span>
+            </div>
+          </>
         )}
 
         {hlMappingStatus ? <div style={hlMappingStatusStyle}>{hlMappingStatus}</div> : null}
@@ -3205,6 +3432,8 @@ export default function FlightsPage() {
             hlNumberMap={hlNumberMap}
             hlDrafts={hlInlineDrafts}
             onHlDraftChange={handleHlInlineDraftChange}
+            afocsSkdDrafts={afocsSkdInlineDrafts}
+            onAfocsSkdDraftChange={handleAfocsSkdInlineDraftChange}
             onToggleDetail={handleToggleDetail}
             onToggleSelect={handleToggleScheduleSelection}
           />
