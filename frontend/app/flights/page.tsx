@@ -2603,164 +2603,267 @@ export default function FlightsPage() {
       </aside>
 
       <main style={{ flex: 1, padding: 40 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <h2 style={{ fontSize: 28, marginBottom: 20 }}>✈️ 편명 조회</h2>
-        </div>
-
-        <div style={queryButtonRowStyle}>
-          <button
-            onClick={switchToManualMode}
-            style={queryMode === "manual" ? modeActiveBtn : modeBtn}
-          >
-            편명 직접 조회
-          </button>
-          <button
-            onClick={switchToKjAllMode}
-            style={queryMode === "kj-all" ? modeActiveBtn : modeBtn}
-          >
-            KJ 전체 조회
-          </button>
-          <button onClick={() => router.push("/")} style={homeButtonStyle}>
-            초기화면
-          </button>
-        </div>
-
-        {queryMode === "manual" ? (
+        {fixed ? (
+          // ==========================================
+          // 1) Schedule Flight 관리 모드
+          // ==========================================
           <>
-            <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-              <input
-                value={input}
-                onChange={(e) => handleFlightsInputChange(e.target.value)}
-                onBlur={() => {
-                  if (isSelectedFixedRoom && input.trim() === "") {
-                    void clearSelectedScheduleFlight();
-                    return;
-                  }
-
-                  void syncFixedRoomFlightsInput();
-                }}
-                placeholder="예: 247,972 또는 KJ247,KJ972"
-                style={{
-                  flex: 1,
-                  padding: 12,
-                  background: "#111",
-                  border: "1px solid #444",
-                  borderRadius: 6,
-                  color: "white",
-                  fontSize: 16,
-                }}
-              />
-            </div>
-
-            <div style={{ marginTop: 8, color: "#9fb3c8", fontSize: 13 }}>
-              숫자 3~4자리만 입력하면 KJ를 자동으로 붙여 조회합니다.
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                alignItems: "center",
+                flexWrap: "wrap",
+                marginBottom: 20,
+              }}
+            >
+              <div>
+                <h2 style={{ fontSize: 28, margin: 0 }}>✈️ Schedule Flight 관리</h2>
+                <p style={{ color: "#9fb3c8", margin: "6px 0 0 0", fontSize: 14 }}>
+                  저장된 항공편 목록을 관리하고 등록기호를 입력합니다.
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFixed(false);
+                    setExpandedDetailKeys({});
+                  }}
+                  style={{
+                    padding: "10px 18px",
+                    background: "#2563eb",
+                    color: "white",
+                    border: "none",
+                    borderRadius: 10,
+                    fontSize: 15,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    boxShadow: "0 4px 12px rgba(37, 99, 235, 0.3)",
+                  }}
+                >
+                  + 편명 추가/조회
+                </button>
+                <button
+                  type="button"
+                  onClick={openScheduleLite}
+                  style={{
+                    padding: "10px 18px",
+                    background: "#1e293b",
+                    color: "#bfdbfe",
+                    border: "1px solid rgba(96, 165, 250, 0.3)",
+                    borderRadius: 10,
+                    fontSize: 15,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                  }}
+                >
+                  Schedule Lite 열기
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.push("/")}
+                  style={{
+                    padding: "10px 18px",
+                    background: "#334155",
+                    color: "#f8fafc",
+                    border: "none",
+                    borderRadius: 10,
+                    fontSize: 15,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                  }}
+                >
+                  초기화면
+                </button>
+              </div>
             </div>
           </>
         ) : (
-          <div style={{ marginTop: 14, color: "#93c5fd", fontSize: 14, lineHeight: 1.55 }}>
-            기본 24시간 범위의 KJ 화물기를 전체 조회합니다. 시작/종료 시간은 아래에서 변경할 수 있습니다.
-            <br />
-            KJ 전체 조회로 전환하면 기존 편명 직접 조회 결과는 비우고 새 조회 결과만 표시합니다.
-            <br />
-            remark가 도착 또는 결항으로 확정된 항목은 Schedule Flight 선택 대상에서 제외됩니다.
-          </div>
-        )}
-
-        {!isSelectedFixedRoom && (
+          // ==========================================
+          // 2) 편명 검색 및 추가 모드
+          // ==========================================
           <>
             <div
               style={{
-                display: "grid",
-                gridTemplateColumns: "90px 180px 90px 140px",
+                display: "flex",
+                justifyContent: "space-between",
                 gap: 12,
-                marginTop: 16,
                 alignItems: "center",
+                flexWrap: "wrap",
+                marginBottom: 20,
               }}
             >
-              <label>시작일</label>
-              <input
-                type="date"
-                value={getDatePart(startDateTime)}
-                onChange={(e) => handleStartDateChange(e.target.value)}
-                style={dateInputStyle}
-              />
-
-              <label>시작시간</label>
-              <TimeSelect24
-                value={getTimePart(startDateTime)}
-                onChange={handleStartTimeChange}
-              />
+              <div>
+                <h2 style={{ fontSize: 28, margin: 0 }}>✈️ 편명 추가/조회</h2>
+                <p style={{ color: "#9fb3c8", margin: "6px 0 0 0", fontSize: 14 }}>
+                  편명을 조회하고 Schedule Flight 목록에 추가할 항공편을 선택합니다.
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => setFixed(true)}
+                  style={{
+                    padding: "10px 18px",
+                    background: "#475569",
+                    color: "#f8fafc",
+                    border: "none",
+                    borderRadius: 10,
+                    fontSize: 15,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                  }}
+                >
+                  ◀ 목록으로 돌아가기
+                </button>
+              </div>
             </div>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "90px 180px 90px 140px",
-                gap: 12,
-                marginTop: 12,
-                alignItems: "center",
-              }}
-            >
-              <label>종료일</label>
-              <input
-                type="date"
-                value={getDatePart(endDateTime)}
-                onChange={(e) => handleEndDateChange(e.target.value)}
-                style={dateInputStyle}
-              />
-
-              <label>종료시간</label>
-              <TimeSelect24
-                value={getTimePart(endDateTime)}
-                onChange={handleEndTimeChange}
-              />
+            <div style={queryButtonRowStyle}>
+              <button
+                onClick={switchToManualMode}
+                style={queryMode === "manual" ? modeActiveBtn : modeBtn}
+              >
+                편명 직접 조회
+              </button>
+              <button
+                onClick={switchToKjAllMode}
+                style={queryMode === "kj-all" ? modeActiveBtn : modeBtn}
+              >
+                KJ 전체 조회
+              </button>
+              <button onClick={() => router.push("/")} style={homeButtonStyle}>
+                초기화면
+              </button>
             </div>
 
-            <div style={{ marginTop: 10, color: "#9fb3c8", fontSize: 14 }}>
-              현재 조회 범위: {currentRangeText}
+            {queryMode === "manual" ? (
+              <>
+                <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+                  <input
+                    value={input}
+                    onChange={(e) => handleFlightsInputChange(e.target.value)}
+                    onBlur={() => {
+                      if (isSelectedFixedRoom && input.trim() === "") {
+                        void clearSelectedScheduleFlight();
+                        return;
+                      }
+
+                      void syncFixedRoomFlightsInput();
+                    }}
+                    placeholder="예: 247,972 또는 KJ247,KJ972"
+                    style={{
+                      flex: 1,
+                      padding: 12,
+                      background: "#111",
+                      border: "1px solid #444",
+                      borderRadius: 6,
+                      color: "white",
+                      fontSize: 16,
+                    }}
+                  />
+                </div>
+
+                <div style={{ marginTop: 8, color: "#9fb3c8", fontSize: 13 }}>
+                  숫자 3~4자리만 입력하면 KJ를 자동으로 붙여 조회합니다.
+                </div>
+              </>
+            ) : (
+              <div style={{ marginTop: 14, color: "#93c5fd", fontSize: 14, lineHeight: 1.55 }}>
+                기본 24시간 범위의 KJ 화물기를 전체 조회합니다. 시작/종료 시간은 아래에서 변경할 수 있습니다.
+                <br />
+                KJ 전체 조회로 전환하면 기존 편명 직접 조회 결과는 비우고 새 조회 결과만 표시합니다.
+                <br />
+                remark가 도착 또는 결항으로 확정된 항목은 Schedule Flight 선택 대상에서 제외됩니다.
+              </div>
+            )}
+
+            {!isSelectedFixedRoom && (
+              <>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "90px 180px 90px 140px",
+                    gap: 12,
+                    marginTop: 16,
+                    alignItems: "center",
+                  }}
+                >
+                  <label>시작일</label>
+                  <input
+                    type="date"
+                    value={getDatePart(startDateTime)}
+                    onChange={(e) => handleStartDateChange(e.target.value)}
+                    style={dateInputStyle}
+                  />
+
+                  <label>시작시간</label>
+                  <TimeSelect24
+                    value={getTimePart(startDateTime)}
+                    onChange={handleStartTimeChange}
+                  />
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "90px 180px 90px 140px",
+                    gap: 12,
+                    marginTop: 12,
+                    alignItems: "center",
+                  }}
+                >
+                  <label>종료일</label>
+                  <input
+                    type="date"
+                    value={getDatePart(endDateTime)}
+                    onChange={(e) => handleEndDateChange(e.target.value)}
+                    style={dateInputStyle}
+                  />
+
+                  <label>종료시간</label>
+                  <TimeSelect24
+                    value={getTimePart(endDateTime)}
+                    onChange={handleEndTimeChange}
+                  />
+                </div>
+
+                <div style={{ marginTop: 10, color: "#9fb3c8", fontSize: 14 }}>
+                  현재 조회 범위: {currentRangeText}
+                </div>
+              </>
+            )}
+
+            {isSelectedFixedRoom && (
+              <div style={scheduleSaveGuideStyle}>
+                기존 Schedule Flight에 추가 저장합니다. 결과 행의 <b style={{ color: "#facc15" }}>+</b> 선택 후 저장하세요.
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
+              {queryMode === "manual" ? (
+                <button onClick={() => void fetchFlights()} disabled={loading} style={primaryBtn}>
+                  편명 조회
+                </button>
+              ) : (
+                <button onClick={() => void fetchAllKjFlights()} disabled={loading} style={primaryBtn}>
+                  KJ 전체 조회
+                </button>
+              )}
+
+              <button
+                onClick={() => void handleSaveSelectedSchedule()}
+                disabled={selectedScheduleRows.length === 0}
+                style={selectedScheduleRows.length > 0 ? saveScheduleBtn : disabledBtn}
+              >
+                {selectedScheduleRows.length > 0
+                  ? `선택 ${selectedScheduleRows.length}건 저장`
+                  : "저장할 항공편 선택"}
+              </button>
             </div>
           </>
-        )}
-
-        {isSelectedFixedRoom && (
-          <div style={scheduleSaveGuideStyle}>
-            기존 Schedule Flight에 추가 저장합니다. 결과 행의 <b style={{ color: "#facc15" }}>+</b> 선택 후 저장하세요.
-          </div>
-        )}
-
-        <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
-          {queryMode === "manual" ? (
-            <button onClick={() => void fetchFlights()} disabled={loading} style={primaryBtn}>
-              편명 조회
-            </button>
-          ) : (
-            <button onClick={() => void fetchAllKjFlights()} disabled={loading} style={primaryBtn}>
-              KJ 전체 조회
-            </button>
-          )}
-
-          <button
-            onClick={handleToggleFixed}
-            style={fixed ? fixedOnBtn : fixedOffBtn}
-          >
-            Schedule Flight
-          </button>
-
-          <button
-            onClick={() => void handleSaveSelectedSchedule()}
-            disabled={selectedScheduleRows.length === 0}
-            style={selectedScheduleRows.length > 0 ? saveScheduleBtn : disabledBtn}
-          >
-            {selectedScheduleRows.length > 0
-              ? `선택 ${selectedScheduleRows.length}건 저장`
-              : "저장할 항공편 선택"}
-          </button>
-        </div>
-
-        {fixed && (
-          <div style={{ marginTop: 6, color: "#facc15", fontSize: 14 }}>
-            Schedule Flight 관리 중 · D로 상세 확인
-          </div>
         )}
 
         {lastFetchedAt && (
@@ -2788,7 +2891,7 @@ export default function FlightsPage() {
             )}
         </div>
 
-        {rows.length > 0 && (
+        {!fixed && rows.length > 0 && (
           <div style={scheduleSaveStatusStyle}>
             저장 선택 {selectedScheduleRows.length}건
             <div style={scheduleSaveStatusSubStyle}>
@@ -2949,7 +3052,7 @@ export default function FlightsPage() {
         {loading && <p style={{ marginTop: 20 }}>조회중...</p>}
         {error && <p style={{ marginTop: 20, color: "#f87171" }}>{error}</p>}
 
-        {rows.length > 0 && (
+        {fixed && rows.length > 0 && (
           <div style={hlInlineSaveRowStyle}>
             <input
               ref={registrationExcelInputRef}
