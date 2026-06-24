@@ -1816,46 +1816,9 @@ export default function FixedLitePage() {
                           display: "flex",
                           gap: 8,
                           alignItems: "center",
-                          flexWrap: "wrap",
                           justifyContent: "flex-end",
                         }}
                       >
-                        {/* Drag Handle */}
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            width: 34,
-                            height: 34,
-                            borderRadius: 8,
-                            background: draggingIndex === index ? "rgba(59, 130, 246, 0.25)" : "rgba(148, 163, 184, 0.08)",
-                            border: draggingIndex === index ? "1px solid #3b82f6" : "1px solid rgba(148, 163, 184, 0.16)",
-                            cursor: draggingIndex === index ? "grabbing" : "grab",
-                            touchAction: "none",
-                            userSelect: "none",
-                          }}
-                          onPointerDown={(e) => startDrag(e, index)}
-                          onPointerMove={(e) => onDragMove(e, index)}
-                          onPointerUp={endDrag}
-                          onPointerCancel={endDrag}
-                          title={`${item.flight} 드래그하여 순서 이동`}
-                        >
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={draggingIndex === index ? "#60a5fa" : "#94a3b8"} strokeWidth="2.5" strokeLinecap="round">
-                            <line x1="4" y1="8" x2="20" y2="8" />
-                            <line x1="4" y1="16" x2="20" y2="16" />
-                          </svg>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => void handleDeleteFlightFromSchedule(item.flight)}
-                          title={`${item.flight} Schedule Flight에서 삭제`}
-                          style={deleteFlightBtnStyle}
-                        >
-                          -
-                        </button>
-
                         {focused && (
                           <span style={focusBadgeStyle}>집중조회</span>
                         )}
@@ -1866,20 +1829,19 @@ export default function FixedLitePage() {
                           </span>
                         )}
 
-                        <div
+                        <span
                           style={{
-                            color: statusColor(item.status),
-                            background: `${statusColor(item.status)}22`,
-                            border: `1px solid ${statusColor(item.status)}55`,
-                            borderRadius: 999,
-                            padding: "5px 10px",
-                            fontSize: 12,
-                            fontWeight: 800,
-                            whiteSpace: "nowrap",
+                            fontSize: 13,
+                            color: "#93c5fd",
+                            fontWeight: "bold",
+                            background: "rgba(59, 130, 246, 0.14)",
+                            border: "1px solid rgba(59, 130, 246, 0.3)",
+                            borderRadius: 6,
+                            padding: "4px 8px",
                           }}
                         >
-                          {item.status}
-                        </div>
+                          변경 {item.displayTime || "-"}
+                        </span>
                       </div>
                     </div>
 
@@ -1956,7 +1918,7 @@ export default function FixedLitePage() {
                       </div>
                     </div>
 
-                    {/* 현장 사진 업로드 연동 */}
+                    {/* 현장 사진 업로드 연동 및 순서 드래그 핸들 */}
                     <div
                       style={{
                         borderTop: "1px dashed rgba(255, 255, 255, 0.1)",
@@ -1964,6 +1926,8 @@ export default function FixedLitePage() {
                         paddingTop: 10,
                         display: "flex",
                         justifyContent: "flex-end",
+                        alignItems: "center",
+                        gap: 10,
                       }}
                     >
                       <label
@@ -1990,6 +1954,33 @@ export default function FixedLitePage() {
                           style={{ display: "none" }}
                         />
                       </label>
+
+                      {/* Drag Handle */}
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: 34,
+                          height: 34,
+                          borderRadius: 8,
+                          background: draggingIndex === index ? "rgba(59, 130, 246, 0.25)" : "rgba(148, 163, 184, 0.08)",
+                          border: draggingIndex === index ? "1px solid #3b82f6" : "1px solid rgba(148, 163, 184, 0.16)",
+                          cursor: draggingIndex === index ? "grabbing" : "grab",
+                          touchAction: "none",
+                          userSelect: "none",
+                        }}
+                        onPointerDown={(e) => startDrag(e, index)}
+                        onPointerMove={(e) => onDragMove(e, index)}
+                        onPointerUp={endDrag}
+                        onPointerCancel={endDrag}
+                        title={`${item.flight} 드래그하여 순서 이동`}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={draggingIndex === index ? "#60a5fa" : "#94a3b8"} strokeWidth="2.5" strokeLinecap="round">
+                          <line x1="4" y1="8" x2="20" y2="8" />
+                          <line x1="4" y1="16" x2="20" y2="16" />
+                        </svg>
+                      </div>
                     </div>
                   </div>
                 );
