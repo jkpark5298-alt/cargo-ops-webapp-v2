@@ -2096,12 +2096,38 @@ export default function HomePage() {
       }
 
       setNotice(successMessage);
-      return;
+    } else {
+      setNotice(
+        "이미지를 화면에는 올렸지만, 기기 저장공간 제한으로 재실행 후 복원되지 않을 수 있습니다. 더 작은 사진으로 다시 저장해 주세요.",
+      );
     }
 
-    setNotice(
-      "이미지를 화면에는 올렸지만, 기기 저장공간 제한으로 재실행 후 복원되지 않을 수 있습니다. 더 작은 사진으로 다시 저장해 주세요.",
-    );
+    // 이미지 변경(추가/삭제/수정) 즉시 Supabase에 자동 저장 → 15초 자동싱크 덮어쓰기 방지
+    void (async () => {
+      try {
+        const resp = await fetch(`${BACKEND_URL}/flights/daily-report-text`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            workDate: dailyWorkDate,
+            status: dailyStatus,
+            author,
+            note,
+            images: nextImages,
+            savedAt: new Date().toISOString(),
+          }),
+        });
+        const json = await resp.json().catch(() => null);
+        if (resp.ok && json?.success) {
+          lastSavedValuesRef.current = {
+            ...lastSavedValuesRef.current,
+            imagesJson: JSON.stringify(nextImages),
+          };
+        }
+      } catch {
+        // 네트워크 오류 시 무시 (이미 localStorage에 저장됨)
+      }
+    })();
   };
 
   const saveImageFileToSlot = (
@@ -2189,6 +2215,7 @@ export default function HomePage() {
       setImageViewerImage((current) =>
         current?.type === slotKey ? savedImage : current,
       );
+
     };
 
     reader.onerror = () => {
