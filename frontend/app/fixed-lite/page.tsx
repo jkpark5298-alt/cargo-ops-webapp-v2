@@ -6,6 +6,7 @@ const BACKEND_URL =
   process.env.NEXT_PUBLIC_API_URL || "https://cargo-ops-backend.onrender.com";
 
 const STORAGE_KEY = "cargo_ops_monitor_rooms_v6";
+const DAILY_IMAGES_CACHE_KEY = "cargo_ops_daily_images_cache_v1";
 const AIRCRAFT_REGISTRATION_STORAGE_KEY = "cargo_ops_aircraft_registration_records_v1";
 
 const LAST_FIXED_ROOM_KEY = "last_fixed_room_id";
@@ -702,6 +703,7 @@ export default function FixedLitePage() {
   const [lastKnownItemsByRoom, setLastKnownItemsByRoom] = useState<
     Record<string, WidgetSummaryItem[]>
   >({});
+  const [showAllFlights, setShowAllFlights] = useState(false);
 
   const timerRef = useRef<number | null>(null);
 
@@ -753,21 +755,53 @@ export default function FixedLitePage() {
       const response = await fetch(`${BACKEND_URL}/flights/daily-report-text?${query.toString()}`, { cache: "no-store" });
       const json = await response.json().catch(() => null);
       if (response.ok && json?.success && json.report) {
+        const loadedImages = Array.isArray(json.report.images) ? json.report.images : [];
         setDailyStatus(json.report.status === "issue" ? "issue" : "normal");
         setAuthor(json.report.author || "");
         setNote(json.report.note || "");
-        setImages(Array.isArray(json.report.images) ? json.report.images : []);
+        setImages(loadedImages);
+
+        // 이미지를 로컬스토리지에도 백업 (앱 재진입 시 복구용)
+        if (typeof window !== "undefined" && loadedImages.length > 0) {
+          try {
+            localStorage.setItem(
+              `${DAILY_IMAGES_CACHE_KEY}_${dateStr}`,
+              JSON.stringify(loadedImages),
+            );
+          } catch {/* 무시 */}
+        }
 
         lastSavedValuesRef.current = {
           status: json.report.status === "issue" ? "issue" : "normal",
           author: json.report.author || "",
           note: json.report.note || "",
-          imagesJson: JSON.stringify(Array.isArray(json.report.images) ? json.report.images : []),
+          imagesJson: JSON.stringify(loadedImages),
           workDate: dateStr,
         };
 
         setSyncMessage("동기화 완료");
       } else {
+        // 서버 데이터 없을 때 로컬스토리지 캐시에서 이미지 복구
+        if (typeof window !== "undefined") {
+          try {
+            const cachedRaw = localStorage.getItem(`${DAILY_IMAGES_CACHE_KEY}_${dateStr}`);
+            if (cachedRaw) {
+              const cachedImages = JSON.parse(cachedRaw) as SavedImage[];
+              if (Array.isArray(cachedImages) && cachedImages.length > 0) {
+                setImages(cachedImages);
+                setSyncMessage("로컬 이미지 복구됨");
+                lastSavedValuesRef.current = {
+                  status: dailyStatus,
+                  author: author,
+                  note: note,
+                  imagesJson: JSON.stringify(cachedImages),
+                  workDate: dateStr,
+                };
+                return;
+              }
+            }
+          } catch {/* 무시 */}
+        }
         setSyncMessage("저장된 일일 보고 없음");
         lastSavedValuesRef.current = {
           status: dailyStatus,
@@ -778,6 +812,18 @@ export default function FixedLitePage() {
         };
       }
     } catch (e) {
+      // 네트워크 오류 시 로컬스토리지 캐시에서 이미지 복구
+      if (typeof window !== "undefined") {
+        try {
+          const cachedRaw = localStorage.getItem(`${DAILY_IMAGES_CACHE_KEY}_${dateStr}`);
+          if (cachedRaw) {
+            const cachedImages = JSON.parse(cachedRaw) as SavedImage[];
+            if (Array.isArray(cachedImages) && cachedImages.length > 0) {
+              setImages(cachedImages);
+            }
+          }
+        } catch {/* 무시 */}
+      }
       setSyncMessage("동기화 실패");
     } finally {
       setIsDailySyncing(false);
@@ -915,6 +961,16 @@ export default function FixedLitePage() {
         setImages(nextImages);
         setDailyStatus("issue");
 
+        // 로컬스토리지에도 즉시 백업 (앱 나가도 유지)
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem(
+              `${DAILY_IMAGES_CACHE_KEY}_${dailyWorkDate}`,
+              JSON.stringify(nextImages),
+            );
+          } catch {/* 무시 */}
+        }
+
         await saveDailyReportToSupabase("issue", nextImages);
         alert(`${flightNo} 화물 사진이 특이사항 이미지로 PC 대시보드에 업로드되었습니다!`);
       } catch (err) {
@@ -1039,6 +1095,22 @@ export default function FixedLitePage() {
   const orderedDisplayItems = useMemo(
     () => applyScheduleFlightOrder(displayItemsForSelectedRoom, manualOrder),
     [displayItemsForSelectedRoom, manualOrder]
+  );
+
+  // 완료 / 진행중 편수 계산
+  const completedItems = useMemo(
+    () => orderedDisplayItems.filter((item) => isFinalCompletedStatus(item.status)),
+    [orderedDisplayItems]
+  );
+  const activeItems = useMemo(
+    () => orderedDisplayItems.filter((item) => !isFinalCompletedStatus(item.status)),
+    [orderedDisplayItems]
+  );
+
+  // 화면에 표시할 항목: showAllFlights=false 이면 진행중만 표시
+  const visibleDisplayItems = useMemo(
+    () => showAllFlights ? orderedDisplayItems : activeItems,
+    [showAllFlights, orderedDisplayItems, activeItems]
   );
 
   const startDrag = (e: React.PointerEvent<HTMLDivElement>, index: number) => {
@@ -1593,6 +1665,49 @@ export default function FixedLitePage() {
             Schedule Flight 선택
           </div>
 
+          {/* 통계 요약 */}
+          {selectedRoom && orderedDisplayItems.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                marginBottom: 12,
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
+              <span style={{ fontSize: 13, color: "#b8c7db", fontWeight: 700 }}>
+                총 {orderedDisplayItems.length}편
+              </span>
+              <span
+                style={{
+                  fontSize: 13,
+                  color: "#34d399",
+                  fontWeight: 700,
+                  background: "rgba(52,211,153,0.10)",
+                  border: "1px solid rgba(52,211,153,0.25)",
+                  borderRadius: 6,
+                  padding: "2px 8px",
+                }}
+              >
+                완료 {completedItems.length}편
+              </span>
+              <span
+                style={{
+                  fontSize: 13,
+                  color: "#f87171",
+                  fontWeight: 700,
+                  background: "rgba(248,113,113,0.10)",
+                  border: "1px solid rgba(248,113,113,0.25)",
+                  borderRadius: 6,
+                  padding: "2px 8px",
+                }}
+              >
+                진행중 {activeItems.length}편
+              </span>
+            </div>
+          )}
+
           {serverSyncLoading ? (
             <div style={{ color: "#b8c7db", fontSize: 14 }}>
               최근 Schedule Flight 기준을 동기화 중입니다.
@@ -1611,35 +1726,56 @@ export default function FixedLitePage() {
                 gap: 10,
               }}
             >
-              {fixedRooms.map((room) => (
-                <button
-                  key={room.id}
-                  onClick={() => {
-                    setSelectedRoomId(room.id);
-                    localStorage.setItem(LAST_FIXED_ROOM_KEY, room.id);
-                  }}
-                  style={roomButtonStyle(room.id === selectedRoomId)}
-                >
-                  <div
-                    style={{
-                      fontSize: 15,
-                      fontWeight: 800,
-                      marginBottom: 4,
+              {fixedRooms.map((room) => {
+                // 각 room의 편명 목록에서 통계 계산
+                const roomFlights = normalizeFlightsInput(room.flightsInput);
+                const roomCompletedSet = getCompletedFlightSetFromRows(room.rows || []);
+                const roomKnownItems = lastKnownItemsByRoom[room.id] || [];
+                const roomCompletedFromSummary = new Set(
+                  roomKnownItems.filter((it) => isFinalCompletedStatus(it.status)).map((it) => it.flight)
+                );
+                const roomTotalCount = roomFlights.length;
+                const roomCompletedCount = roomFlights.filter(
+                  (f) => roomCompletedSet.has(f) || roomCompletedFromSummary.has(f)
+                ).length;
+                const roomActiveCount = roomTotalCount - roomCompletedCount;
+
+                return (
+                  <button
+                    key={room.id}
+                    onClick={() => {
+                      setSelectedRoomId(room.id);
+                      localStorage.setItem(LAST_FIXED_ROOM_KEY, room.id);
                     }}
+                    style={roomButtonStyle(room.id === selectedRoomId)}
                   >
-                    {room.name}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: "#b8c7db",
-                      wordBreak: "break-all",
-                    }}
-                  >
-                    {room.flightsInput}
-                  </div>
-                </button>
-              ))}
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        marginBottom: 4,
+                      }}
+                    >
+                      <div style={{ fontSize: 15, fontWeight: 800 }}>{room.name}</div>
+                      <div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8 }}>
+                        <span style={{ fontSize: 11, color: "#b8c7db", fontWeight: 700 }}>총 {roomTotalCount}</span>
+                        <span style={{ fontSize: 11, color: "#34d399", fontWeight: 700 }}>✓{roomCompletedCount}</span>
+                        <span style={{ fontSize: 11, color: "#f87171", fontWeight: 700 }}>▶{roomActiveCount}</span>
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: "#b8c7db",
+                        wordBreak: "break-all",
+                      }}
+                    >
+                      {room.flightsInput}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
         </section>
@@ -1722,13 +1858,43 @@ export default function FixedLitePage() {
             <section style={sectionStyle}>
               <div
                 style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
                   fontSize: 15,
                   fontWeight: 800,
-                  marginBottom: 12,
+                  marginBottom: 8,
                 }}
               >
-                핵심 요약
+                <span>핵심 요약</span>
+                {completedItems.length > 0 && (
+                  <button
+                    onClick={() => setShowAllFlights((prev) => !prev)}
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      padding: "4px 10px",
+                      borderRadius: 8,
+                      border: showAllFlights
+                        ? "1px solid rgba(52,211,153,0.5)"
+                        : "1px solid rgba(147,197,253,0.35)",
+                      background: showAllFlights ? "rgba(52,211,153,0.12)" : "#0f172a",
+                      color: showAllFlights ? "#34d399" : "#93c5fd",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {showAllFlights ? `총편수보기 ON (${orderedDisplayItems.length}편)` : `총편수보기 (완료 ${completedItems.length}편 숨김)`}
+                  </button>
+                )}
               </div>
+
+              {/* 진행중/완료 미니 통계 */}
+              {orderedDisplayItems.length > 0 && (
+                <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12, color: "#f87171", fontWeight: 700 }}>진행중 {activeItems.length}편</span>
+                  <span style={{ fontSize: 12, color: "#34d399", fontWeight: 700 }}>완료 {completedItems.length}편</span>
+                </div>
+              )}
 
               {error && (
                 <div
@@ -1747,13 +1913,15 @@ export default function FixedLitePage() {
                 <div style={{ color: "#b8c7db", fontSize: 14 }}>조회중...</div>
               )}
 
-              {!error && orderedDisplayItems.length === 0 && (
+              {!error && visibleDisplayItems.length === 0 && !loading && (
                 <div style={{ color: "#b8c7db", fontSize: 14 }}>
-                  표시할 편명이 없습니다.
+                  {orderedDisplayItems.length > 0
+                    ? "모든 편이 완료되었습니다. '총편수보기'를 눌러 전체 확인."
+                    : "표시할 편명이 없습니다."}
                 </div>
               )}
 
-              {orderedDisplayItems.map((item, index) => {
+              {visibleDisplayItems.map((item, index) => {
                 const completed = isFinalCompletedStatus(item.status);
                 const focused = !completed && isItemInFocusWindow(item);
 
