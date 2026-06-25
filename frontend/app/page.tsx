@@ -1043,6 +1043,9 @@ export default function HomePage() {
     workDate: "",
   });
 
+  // Supabase 이미지 전송 중 플래그 → 자동 싱크 이미지 덮어쓰기 방지
+  const imagesSavingRef = useRef(false);
+
   const [issueFlight, setIssueFlight] = useState("");
   const [issueRoute, setIssueRoute] = useState("");
   const [issueHlnbr, setIssueHlnbr] = useState("");
@@ -2103,6 +2106,7 @@ export default function HomePage() {
     }
 
     // 이미지 변경(추가/삭제/수정) 즉시 Supabase에 자동 저장 → 15초 자동싱크 덮어쓰기 방지
+    imagesSavingRef.current = true;
     void (async () => {
       try {
         const resp = await fetch(`${BACKEND_URL}/flights/daily-report-text`, {
@@ -2126,6 +2130,8 @@ export default function HomePage() {
         }
       } catch {
         // 네트워크 오류 시 무시 (이미 localStorage에 저장됨)
+      } finally {
+        imagesSavingRef.current = false;
       }
     })();
   };
@@ -2525,7 +2531,8 @@ export default function HomePage() {
             }
           }
 
-          if (imagesChanged) {
+          if (imagesChanged && !imagesSavingRef.current) {
+            // Supabase 이미지 전송 중이면 덮어쓰기 스킵 (타이밍 충돌 방지)
             setImages(serverImages);
             saveImages(serverImages);
           }
