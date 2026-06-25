@@ -62,12 +62,27 @@ export function ScheduleSummaryCard({
   );
 }
 
+function isFinalCompletedFlightStatus(status: string) {
+  if (!status || status === "-") return false;
+  const s = status.toLowerCase();
+  return (
+    s.includes("도착") ||
+    s.includes("결항") ||
+    s.includes("회항") ||
+    s === "arrival" ||
+    s === "cancel" ||
+    s === "cancelled" ||
+    s === "divert"
+  );
+}
+
 function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
   const baseItems = useMemo(() => getFlightRouteItems(room), [room]);
   const orderStorageKey = getScheduleFlightOrderStorageKey(room);
   const [manualOrder, setManualOrder] = useState<string[]>([]);
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [startY, setStartY] = useState<number>(0);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     setManualOrder(loadScheduleFlightOrder(orderStorageKey));
@@ -77,6 +92,16 @@ function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
     () => applyScheduleFlightOrder(baseItems, manualOrder),
     [baseItems, manualOrder],
   );
+
+  const completedItems = useMemo(
+    () => items.filter((item) => isFinalCompletedFlightStatus(item.status)),
+    [items],
+  );
+  const activeItems = useMemo(
+    () => items.filter((item) => !isFinalCompletedFlightStatus(item.status)),
+    [items],
+  );
+  const visibleItems = showAll ? items : activeItems;
 
   const startDrag = (e: React.PointerEvent<HTMLDivElement>, index: number) => {
     if (e.button !== 0) return; // Only left-click/touch
@@ -92,8 +117,8 @@ function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
 
     if (deltaY > threshold) {
       const nextIndex = draggingIndex + 1;
-      if (nextIndex < items.length) {
-        const nextOrder = [...items.map((item) => normalizeSummaryFlightKey(item.flight))];
+      if (nextIndex < visibleItems.length) {
+        const nextOrder = [...visibleItems.map((item) => normalizeSummaryFlightKey(item.flight))];
         const [moved] = nextOrder.splice(draggingIndex, 1);
         nextOrder.splice(nextIndex, 0, moved);
         setManualOrder(nextOrder);
@@ -104,7 +129,7 @@ function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
     } else if (deltaY < -threshold) {
       const prevIndex = draggingIndex - 1;
       if (prevIndex >= 0) {
-        const nextOrder = [...items.map((item) => normalizeSummaryFlightKey(item.flight))];
+        const nextOrder = [...visibleItems.map((item) => normalizeSummaryFlightKey(item.flight))];
         const [moved] = nextOrder.splice(draggingIndex, 1);
         nextOrder.splice(prevIndex, 0, moved);
         setManualOrder(nextOrder);
@@ -122,8 +147,73 @@ function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
 
   return (
     <div style={{ display: "grid", gap: 10, padding: "10px 0" }}>
-      {items.length > 0 ? (
-        items.map((item, index) => (
+      {/* 스탈 통계 + 총편수보기 토글 */}
+      {items.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+            paddingBottom: 8,
+            borderBottom: "1px solid rgba(148, 163, 184, 0.12)",
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "#b8c7db", fontWeight: 700 }}>예정 {items.length}편</span>
+            <span
+              style={{
+                fontSize: 12,
+                color: "#34d399",
+                fontWeight: 700,
+                background: "rgba(52,211,153,0.10)",
+                border: "1px solid rgba(52,211,153,0.25)",
+                borderRadius: 6,
+                padding: "1px 7px",
+              }}
+            >
+              완료 {completedItems.length}편
+            </span>
+            <span
+              style={{
+                fontSize: 12,
+                color: "#f87171",
+                fontWeight: 700,
+                background: "rgba(248,113,113,0.10)",
+                border: "1px solid rgba(248,113,113,0.25)",
+                borderRadius: 6,
+                padding: "1px 7px",
+              }}
+            >
+              진행중 {activeItems.length}편
+            </span>
+          </div>
+          {completedItems.length > 0 && (
+            <button
+              onClick={() => setShowAll((prev) => !prev)}
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                padding: "3px 9px",
+                borderRadius: 7,
+                border: showAll
+                  ? "1px solid rgba(52,211,153,0.5)"
+                  : "1px solid rgba(147,197,253,0.35)",
+                background: showAll ? "rgba(52,211,153,0.12)" : "rgba(15,23,42,0.6)",
+                color: showAll ? "#34d399" : "#93c5fd",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {showAll ? `총편수보기 ON` : `총편수보기 (완료 ${completedItems.length}편 숨김)`}
+            </button>
+          )}
+        </div>
+      )}
+
+      {visibleItems.length > 0 ? (
+        visibleItems.map((item, index) => (
           <div
             key={`${item.flight}-${item.route}-${index}`}
             style={{
@@ -137,6 +227,7 @@ function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
               transition: "transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease",
               zIndex: draggingIndex === index ? 10 : 1,
               position: "relative",
+              opacity: isFinalCompletedFlightStatus(item.status) ? 0.7 : 1,
             }}
           >
             <div style={flightRouteRowHeaderStyle}>
@@ -230,6 +321,10 @@ function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
             </div>
           </div>
         ))
+      ) : items.length > 0 ? (
+        <div style={{ ...infoValueStyle, color: "#b8c7db", fontSize: 13 }}>
+          모든 편이 완료되었습니다. '총편수보기'를 눌러 전체 확인하세요.
+        </div>
       ) : (
         <div style={infoValueStyle}>저장된 Schedule Flight가 없습니다.</div>
       )}
