@@ -529,7 +529,14 @@ function getRefreshExcludeReasonFromRow(row: FlightRow) {
 }
 
 function isFinalCompletedStatus(status: string) {
-  return status === "도착" || status === "결항";
+  if (!status || status === "-") return false;
+  const s = status;
+  // 출발(지연) 포함 - 이미 출발했으므로 지상 작업 완료
+  return (
+    s.includes("도착") ||
+    s.includes("출발") ||
+    s.includes("결항")
+  );
 }
 
 function getLatestRowsByFlight(rows: FlightRow[]) {

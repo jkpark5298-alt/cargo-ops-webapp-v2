@@ -67,12 +67,12 @@ function isFinalCompletedFlightStatus(status: string) {
   const s = status.toLowerCase();
   return (
     s.includes("도착") ||
+    s.includes("출발") ||
     s.includes("결항") ||
-    s.includes("회항") ||
     s === "arrival" ||
+    s === "departure" ||
     s === "cancel" ||
-    s === "cancelled" ||
-    s === "divert"
+    s === "cancelled"
   );
 }
 
