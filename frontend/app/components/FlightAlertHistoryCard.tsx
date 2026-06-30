@@ -318,7 +318,7 @@ const deleteItemButtonStyle: CSSProperties = {
 };
 
 
-function formatAlertTitle(value?: string, description?: string) {
+export function formatAlertTitle(value?: string, description?: string) {
   const raw = (value || "출도착 변경").trim();
   const combined = `${raw} ${description || ""}`;
   const flight = combined.match(/\b[A-Z]{2}\d{2,4}\b/)?.[0];
@@ -339,7 +339,7 @@ type AlertDescriptionLine = {
   highlight?: boolean;
 };
 
-function renderAlertDescription(value?: string, checkedAt?: string) {
+export function renderAlertDescription(value?: string, checkedAt?: string) {
   const lines = buildAlertDescriptionLines(value, checkedAt);
 
   return (
@@ -763,7 +763,7 @@ function formatHistoryFullTime(value?: string) {
 }
 
 
-function formatHistoryTime(value?: string, withKst = false) {
+export function formatHistoryTime(value?: string, withKst = false) {
   if (!value) return "-";
 
   const raw = String(value).trim();

@@ -1602,7 +1602,8 @@ export default function HomePage() {
       };
     });
 
-    const nextHistory = [...historyItems, ...flightAlertHistory].slice(0, 20);
+    const currentHistory = loadFlightAlertHistory();
+    const nextHistory = [...historyItems, ...currentHistory].slice(0, 20);
     setFlightAlertHistory(nextHistory);
     setServerFlightAlertChangeCount(nextHistory.length);
     setFlightAlertDetailsVisible(false);
@@ -1649,10 +1650,6 @@ export default function HomePage() {
       if (!serverRoom) {
         setFlightAlertSnapshot(null);
         if (typeof window !== "undefined") localStorage.removeItem("cargo_ops_flight_alert_snapshot_v1");
-        setFlightAlertHistory([]);
-        setServerFlightAlertChangeCount(0);
-        setFlightAlertDetailsVisible(false);
-        clearFlightAlertHistory();
 
         const checkedAt = getCurrentSyncLabel();
         setScheduleSyncCheckedAt(checkedAt);
@@ -1674,10 +1671,6 @@ export default function HomePage() {
         setNotice(`Schedule Flight 동기화 확인 · ${checkedAt}`);
       }
 
-      setFlightAlertHistory([]);
-      setServerFlightAlertChangeCount(0);
-      setFlightAlertDetailsVisible(false);
-      clearFlightAlertHistory();
       await fetchAutoPushStatus();
     } catch (error) {
       if (showNotice) {
@@ -3005,6 +2998,8 @@ export default function HomePage() {
           apiSyncLoading={scheduleApiSyncLoading}
           onOpenScheduleFlight={openScheduleFlight}
           onRefreshLatestSchedule={handleRefreshLatestSchedule}
+          flightAlertHistory={flightAlertHistory}
+          onDeleteAlertHistoryItem={handleDeleteFlightAlertHistoryItem}
         />
 
         <ActionCard

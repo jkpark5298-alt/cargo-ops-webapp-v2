@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { FlightRow, MonitorRoom } from "../page";
+import type { FlightAlertHistoryItem } from "../lib/flight-alerts";
+import { formatAlertTitle, renderAlertDescription, formatHistoryTime } from "./FlightAlertHistoryCard";
 
 type ScheduleSummaryCardProps = {
   latestRoom: MonitorRoom | null;
@@ -10,6 +12,8 @@ type ScheduleSummaryCardProps = {
   apiSyncLoading: boolean;
   onOpenScheduleFlight: () => void;
   onRefreshLatestSchedule: () => void;
+  flightAlertHistory?: FlightAlertHistoryItem[];
+  onDeleteAlertHistoryItem?: (item: FlightAlertHistoryItem) => void;
 };
 
 export function ScheduleSummaryCard({
@@ -19,6 +23,8 @@ export function ScheduleSummaryCard({
   apiSyncLoading,
   onOpenScheduleFlight,
   onRefreshLatestSchedule,
+  flightAlertHistory = [],
+  onDeleteAlertHistoryItem,
 }: ScheduleSummaryCardProps) {
   return (
     <section style={cardStyle}>
@@ -35,7 +41,11 @@ export function ScheduleSummaryCard({
 
 
       <div style={infoListStyle}>
-        <FlightRouteRows room={latestRoom} />
+        <FlightRouteRows
+          room={latestRoom}
+          flightAlertHistory={flightAlertHistory}
+          onDeleteAlertHistoryItem={onDeleteAlertHistoryItem}
+        />
       </div>
       {apiSyncStatus ? <div style={apiSyncStatusStyle}>{apiSyncStatus}</div> : null}
       {syncCheckedAt ? <div style={syncStatusStyle}>초기화면 반영 확인 · {syncCheckedAt}</div> : null}
@@ -76,13 +86,30 @@ function isFinalCompletedFlightStatus(status: string) {
   );
 }
 
-function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
+function FlightRouteRows({
+  room,
+  flightAlertHistory = [],
+  onDeleteAlertHistoryItem,
+}: {
+  room: MonitorRoom | null;
+  flightAlertHistory?: FlightAlertHistoryItem[];
+  onDeleteAlertHistoryItem?: (item: FlightAlertHistoryItem) => void;
+}) {
   const baseItems = useMemo(() => getFlightRouteItems(room), [room]);
   const orderStorageKey = getScheduleFlightOrderStorageKey(room);
   const [manualOrder, setManualOrder] = useState<string[]>([]);
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [startY, setStartY] = useState<number>(0);
   const [showAll, setShowAll] = useState(false);
+  const [expandedFlights, setExpandedFlights] = useState<Record<string, boolean>>({});
+
+  const toggleExpandFlight = (flight: string) => {
+    const key = normalizeSummaryFlightKey(flight);
+    setExpandedFlights((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
 
   useEffect(() => {
     setManualOrder(loadScheduleFlightOrder(orderStorageKey));
@@ -291,6 +318,187 @@ function FlightRouteRows({ room }: { room: MonitorRoom | null }) {
                     {item.registrationNo || "-"}
                   </span>
                 </div>
+
+                {/* 편명별 알림 이력 표시 영역 */}
+                {(() => {
+                  const flightKey = item.flight.replace(/\s+/g, "").toUpperCase();
+                  const matchedAlerts = flightAlertHistory.filter((alert) => {
+                    const keyMatch = alert.key.replace(/\s+/g, "").toUpperCase().includes(flightKey);
+                    const titleMatch = alert.title.replace(/\s+/g, "").toUpperCase().includes(flightKey);
+                    const descMatch = alert.description.replace(/\s+/g, "").toUpperCase().includes(flightKey);
+                    return keyMatch || titleMatch || descMatch;
+                  });
+
+                  if (matchedAlerts.length === 0) return null;
+
+                  const isExpanded = expandedFlights[normalizeSummaryFlightKey(item.flight)];
+                  const previewAlert = matchedAlerts.length > 1 ? matchedAlerts[1] : matchedAlerts[0];
+
+                  return (
+                    <div
+                      style={{
+                        marginTop: 10,
+                        padding: "8px 10px",
+                        borderRadius: 10,
+                        background: "rgba(30, 41, 59, 0.5)",
+                        border: "1px solid rgba(148, 163, 184, 0.15)",
+                      }}
+                    >
+                      {/* 최근 1건의 알림 항상 노출 (이전 단계의 알림을 우선 노출) */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        <div
+                          style={{
+                            color: "#fde68a",
+                            fontSize: 12,
+                            fontWeight: 900,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                        >
+                          <span style={{ fontSize: 13 }}>⚠️</span>
+                          <span>{formatAlertTitle(previewAlert.title, previewAlert.description)}</span>
+                        </div>
+                        <div
+                          style={{
+                            color: "#93c5fd",
+                            fontSize: 12,
+                            lineHeight: 1.4,
+                            fontWeight: 750,
+                            paddingLeft: 18,
+                          }}
+                        >
+                          {renderAlertDescription(previewAlert.description, previewAlert.checkedAt)}
+                        </div>
+                      </div>
+
+                      {/* 아코디언 토글 버튼 */}
+                      <div style={{ marginTop: 6, paddingLeft: 18 }}>
+                        <button
+                          type="button"
+                          onClick={() => toggleExpandFlight(item.flight)}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                            padding: "3px 8px",
+                            borderRadius: 6,
+                            border: "1px solid rgba(147, 197, 253, 0.25)",
+                            background: "rgba(147, 197, 253, 0.08)",
+                            color: "#93c5fd",
+                            fontSize: 11,
+                            fontWeight: 850,
+                            cursor: "pointer",
+                            transition: "all 0.15s ease",
+                          }}
+                        >
+                          <span>🔔</span>
+                          <span>
+                            {isExpanded
+                              ? "상세 알림 접기"
+                              : `알림 이력 전체 보기 (${matchedAlerts.length}건)`}
+                          </span>
+                          <span
+                            style={{
+                              display: "inline-block",
+                              transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                              transition: "transform 0.15s ease",
+                              fontSize: 8,
+                              marginLeft: 2,
+                            }}
+                          >
+                            ▼
+                          </span>
+                        </button>
+                      </div>
+
+                      {/* 아코디언 전개 시 전체 목록 표시 */}
+                      {isExpanded && (
+                        <div
+                          style={{
+                            marginTop: 8,
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 6,
+                            paddingTop: 8,
+                            borderTop: "1px solid rgba(148, 163, 184, 0.15)",
+                            paddingLeft: 18,
+                          }}
+                        >
+                          {matchedAlerts.map((alert, alertIndex) => (
+                            <div
+                              key={`${alert.key}-${alertIndex}`}
+                              style={{
+                                padding: "6px 8px",
+                                borderRadius: 8,
+                                background: "rgba(15, 23, 42, 0.35)",
+                                border: "1px solid rgba(148, 163, 184, 0.08)",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                  marginBottom: 4,
+                                  gap: 6,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    color: "#94a3b8",
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {formatHistoryTime(alert.checkedAt, true)}
+                                </span>
+                                {onDeleteAlertHistoryItem && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onDeleteAlertHistoryItem(alert)}
+                                    style={{
+                                      padding: "2px 6px",
+                                      borderRadius: 4,
+                                      background: "rgba(239, 68, 68, 0.15)",
+                                      border: "1px solid rgba(239, 68, 68, 0.3)",
+                                      color: "#fca5a5",
+                                      fontSize: 10,
+                                      fontWeight: 900,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    삭제
+                                  </button>
+                                )}
+                              </div>
+                              <div
+                                style={{
+                                  color: "#fef3c7",
+                                  fontSize: 12,
+                                  fontWeight: 900,
+                                  marginBottom: 2,
+                                }}
+                              >
+                                {formatAlertTitle(alert.title, alert.description)}
+                              </div>
+                              <div
+                                style={{
+                                  color: "#fde68a",
+                                  fontSize: 11,
+                                  lineHeight: 1.4,
+                                  fontWeight: 750,
+                                }}
+                              >
+                                {renderAlertDescription(alert.description, alert.checkedAt)}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
               
               <div
