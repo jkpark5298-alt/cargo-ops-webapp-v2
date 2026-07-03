@@ -1084,6 +1084,14 @@ def _delete_schedule_slot_from_supabase(slot: str) -> None:
         return
 
 
+def _read_schedule_slots_without_migration() -> Dict[str, Optional[Dict[str, Any]]]:
+    supabase_payload = _read_schedule_slots_from_supabase()
+    if supabase_payload is not None:
+        return supabase_payload
+
+    return _read_schedule_slots_from_file()
+
+
 def _read_schedule_slots() -> Dict[str, Optional[Dict[str, Any]]]:
     supabase_payload = _read_schedule_slots_from_supabase()
     if supabase_payload is not None:
@@ -1118,7 +1126,7 @@ def _read_schedule_slots() -> Dict[str, Optional[Dict[str, Any]]]:
 
 
 def _write_schedule_slot_entry(slot: str, entry: Optional[Dict[str, Any]]) -> None:
-    slots = _read_schedule_slots()
+    slots = _read_schedule_slots_without_migration()
     slots[slot] = entry
     _write_schedule_slots_to_file(slots)
     if entry and isinstance(entry.get("room"), dict):
