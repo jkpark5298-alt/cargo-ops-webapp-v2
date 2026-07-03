@@ -5,6 +5,20 @@ export const dynamic = "force-dynamic";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import * as XLSX from "xlsx";
 import { useRouter } from "next/navigation";
+import { FlightsModeTabs } from "./components/FlightsModeTabs";
+import { ScheduleSlotCards } from "./components/ScheduleSlotCards";
+import {
+  deleteScheduleSlotOnServer,
+  formatScheduleCardName,
+  isActiveScheduleRoom as isActiveScheduleSlotRoom,
+  loadScheduleSlotsFromServer,
+  saveScheduleSlotToServer,
+  slotsToRooms,
+  swapScheduleSlotsOnServer,
+  type FlightMode,
+  type ScheduleSlotKey,
+  type ScheduleSlotsState,
+} from "./lib/schedule-slots";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_API_URL || "https://cargo-ops-backend.onrender.com";
@@ -162,10 +176,7 @@ function saveFlightLookupCache(key: string, rows: FlightRow[], fetchedAt: string
 }
 
 function isActiveScheduleRoom(room?: MonitorRoom | null) {
-  if (!room) return false;
-  const flightsInput = String(room.flightsInput || "").trim();
-  const rows = Array.isArray(room.rows) ? room.rows : [];
-  return Boolean(flightsInput || rows.length > 0);
+  return isActiveScheduleSlotRoom(room);
 }
 
 function removeEmptyScheduleRooms(rooms: MonitorRoom[]) {
@@ -1262,6 +1273,12 @@ function FragmentRow({ children }: { children: ReactNode }) {
 export default function FlightsPage() {
   const router = useRouter();
   const registrationExcelInputRef = useRef<HTMLInputElement | null>(null);
+  const [flightMode, setFlightMode] = useState<FlightMode>("query");
+  const [scheduleSlots, setScheduleSlots] = useState<ScheduleSlotsState>({
+    active: null,
+    archive: null,
+  });
+  const [selectedSlotKey, setSelectedSlotKey] = useState<ScheduleSlotKey | null>(null);
   const [queryMode, setQueryMode] = useState<"manual" | "kj-all">("manual");
   const [input, setInput] = useState("");
   const [rows, setRows] = useState<FlightRow[]>([]);
@@ -1354,6 +1371,140 @@ export default function FlightsPage() {
   );
 
   const isSelectedFixedRoom = Boolean(selectedRoom?.fixed);
+
+  const applyScheduleSlotsState = (slots: ScheduleSlotsState, preferredSlot?: ScheduleSlotKey | null) => {
+    setScheduleSlots(slots);
+    const nextRooms = slotsToRooms(slots);
+    setRooms(nextRooms);
+    saveRooms(nextRooms);
+
+    const slotOrder: ScheduleSlotKey[] = preferredSlot
+      ? [preferredSlot, preferredSlot === "active" ? "archive" : "active"]
+      : ["active", "archive"];
+    const nextSelectedSlot =
+      slotOrder.find((slotKey) => {
+        const entry = slots[slotKey];
+        return entry && isActiveScheduleRoom(entry.room);
+      }) || null;
+
+    setSelectedSlotKey(nextSelectedSlot);
+    if (nextSelectedSlot && slots[nextSelectedSlot]) {
+      const room = slots[nextSelectedSlot]!.room;
+      setSelectedRoomId(room.id);
+    } else {
+      setSelectedRoomId("");
+    }
+  };
+
+  const loadScheduleSlots = async (preferredSlot?: ScheduleSlotKey | null) => {
+    const slots = await loadScheduleSlotsFromServer();
+    applyScheduleSlotsState(slots, preferredSlot);
+    return slots;
+  };
+
+  const handleSelectSlot = (slotKey: ScheduleSlotKey) => {
+    const entry = scheduleSlots[slotKey];
+    if (!entry || !isActiveScheduleRoom(entry.room)) return;
+
+    setSelectedSlotKey(slotKey);
+    setSelectedRoomId(entry.room.id);
+    setInput(entry.room.flightsInput);
+    setStartDateTime(entry.room.startDateTime);
+    setEndDateTime(entry.room.endDateTime);
+    setFixed(true);
+    setLastFetchedAt(entry.room.lastFetchedAt);
+    setRows(entry.room.rows || []);
+    setQueryMode("manual");
+    setSelectedScheduleKeys({});
+    setSelectedScheduleOrder([]);
+    setExpandedDetailKeys({});
+    setError("");
+  };
+
+  const handleDeleteSlot = async (slotKey: ScheduleSlotKey) => {
+    const entry = scheduleSlots[slotKey];
+    if (!entry) return;
+
+    const confirmed = window.confirm(
+      slotKey === "active"
+        ? "활성 Schedule Flight 카드를 삭제할까요? 직전 보관 카드가 있으면 활성으로 승격됩니다."
+        : "직전 보관 Schedule Flight 카드를 삭제할까요?",
+    );
+    if (!confirmed) return;
+
+    try {
+      const nextSlots = await deleteScheduleSlotOnServer(slotKey);
+      applyScheduleSlotsState(nextSlots);
+      if (selectedSlotKey === slotKey) {
+        resetLookupView();
+        setFixed(false);
+      }
+      clearFlightAlertBaselineAndHistory();
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("cargo_ops_latest_schedule_updated_at", new Date().toISOString());
+      }
+      setError(
+        slotKey === "active"
+          ? "활성 Schedule Flight 카드를 삭제했습니다. 초기화면과 AFOCS SKD에도 반영됩니다."
+          : "직전 보관 Schedule Flight 카드를 삭제했습니다.",
+      );
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Schedule Flight 카드 삭제 중 오류가 발생했습니다.",
+      );
+    }
+  };
+
+  const handleRestoreArchiveSlot = async () => {
+    if (!scheduleSlots.archive) {
+      setError("복원할 직전 보관 카드가 없습니다.");
+      return;
+    }
+
+    try {
+      const nextSlots = await swapScheduleSlotsOnServer();
+      applyScheduleSlotsState(nextSlots, "active");
+      const activeRoom = nextSlots.active?.room;
+      if (activeRoom) {
+        setInput(activeRoom.flightsInput);
+        setRows(activeRoom.rows || []);
+        setLastFetchedAt(activeRoom.lastFetchedAt);
+        setFixed(true);
+      }
+      clearFlightAlertBaselineAndHistory();
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("cargo_ops_latest_schedule_updated_at", new Date().toISOString());
+      }
+      setError("직전 보관 카드를 활성 Schedule Flight로 복원했습니다.");
+    } catch (restoreError) {
+      setError(
+        restoreError instanceof Error
+          ? restoreError.message
+          : "Schedule Flight 카드 복원 중 오류가 발생했습니다.",
+      );
+    }
+  };
+
+  const handleSelectAllScheduleRows = () => {
+    const initialKeys: Record<string, boolean> = {};
+    const initialOrder: string[] = [];
+    rows.forEach((row, idx) => {
+      if (!isFinalCompletedRow(row)) {
+        const key = getSelectionKey(row, idx);
+        initialKeys[key] = true;
+        initialOrder.push(key);
+      }
+    });
+    setSelectedScheduleKeys(initialKeys);
+    setSelectedScheduleOrder(initialOrder);
+  };
+
+  const handleClearAllScheduleRows = () => {
+    setSelectedScheduleKeys({});
+    setSelectedScheduleOrder([]);
+  };
 
   const applyAllRegistrationSources = (targetRows: FlightRow[]) => {
     const latestRecords = loadAircraftRegistrationRecords();
@@ -1947,58 +2098,45 @@ export default function FlightsPage() {
     const savedRooms = loadRooms();
     setRooms(savedRooms);
 
-    void loadLatestScheduleFromServer()
-      .then((serverRoom) => {
-        const mergedRooms = mergeLatestScheduleRoom(loadRooms(), serverRoom);
-        setRooms(mergedRooms);
-        saveRooms(mergedRooms);
+    void loadScheduleSlots()
+      .then((slots) => {
+        const activeRoom = slots.active?.room;
+        if (activeRoom && isActiveScheduleRoom(activeRoom)) {
+          mergeLatestScheduleRoom(loadRooms(), activeRoom);
+        }
       })
       .catch(() => {
-        // 서버 기준 조회 실패 시 기기 저장값을 유지합니다.
+        void loadLatestScheduleFromServer()
+          .then((serverRoom) => {
+            const mergedRooms = mergeLatestScheduleRoom(loadRooms(), serverRoom);
+            setRooms(mergedRooms);
+            saveRooms(mergedRooms);
+          })
+          .catch(() => {
+            // 서버 기준 조회 실패 시 기기 저장값을 유지합니다.
+          });
       });
 
     if (typeof window === "undefined") return;
 
     const params = new URLSearchParams(window.location.search);
+    const modeParam = params.get("mode");
+    if (modeParam === "edit" || modeParam === "registration" || modeParam === "query") {
+      setFlightMode(modeParam);
+    }
     const q = params.get("flight");
     const roomId = params.get("roomId");
 
     if (roomId) {
-      const foundRoom = savedRooms.find((room) => room.id === roomId);
-      if (foundRoom) {
-        setSelectedRoomId(foundRoom.id);
-        setInput(foundRoom.flightsInput);
-        setStartDateTime(foundRoom.startDateTime);
-        setEndDateTime(foundRoom.endDateTime);
-        setFixed(foundRoom.fixed);
-        setLastFetchedAt(foundRoom.lastFetchedAt);
-        setRows(foundRoom.rows);
-        setExpandedDetailKeys({});
-      }
-
-      void loadLatestScheduleFromServer()
-        .then((serverRoom) => {
-          const mergedRooms = mergeLatestScheduleRoom(loadRooms(), serverRoom);
-          setRooms(mergedRooms);
-          saveRooms(mergedRooms);
-
-          if (serverRoom && (serverRoom.id === roomId || serverRoom.fixed)) {
-            setSelectedRoomId(serverRoom.id);
-            setInput(serverRoom.flightsInput);
-            setStartDateTime(serverRoom.startDateTime);
-            setEndDateTime(serverRoom.endDateTime);
-            setFixed(serverRoom.fixed);
-            setLastFetchedAt(serverRoom.lastFetchedAt);
-            setRows(serverRoom.rows || []);
-            setExpandedDetailKeys({});
-          } else if (!serverRoom) {
-            resetLookupView();
-          }
-        })
-        .catch(() => {
-          // 서버 기준 조회 실패 시 현재 화면을 유지합니다.
-        });
-
+      setFlightMode("edit");
+      void loadScheduleSlots().then((slots) => {
+        const matchedSlot =
+          (slots.active?.room.id === roomId ? "active" : null) ||
+          (slots.archive?.room.id === roomId ? "archive" : null);
+        if (matchedSlot) {
+          handleSelectSlot(matchedSlot);
+        }
+      });
       return;
     }
 
@@ -2328,7 +2466,14 @@ export default function FlightsPage() {
     }
 
     try {
-      await saveLatestScheduleToServer(updatedRoom);
+      const result = await saveScheduleSlotToServer(updatedRoom, {
+        rotate: false,
+        slot: selectedSlotKey || "active",
+      });
+      applyScheduleSlotsState(
+        { active: result.active, archive: result.archive },
+        selectedSlotKey || "active",
+      );
       if (typeof window !== "undefined") {
         if (!hasRemaining) {
           window.localStorage.removeItem(LAST_FIXED_ROOM_KEY);
@@ -2417,7 +2562,7 @@ export default function FlightsPage() {
       setError(
         missingFlights.length > 0
           ? `조회 결과가 없는 편명은 Schedule Flight에 저장할 수 없습니다: ${missingFlights.join(", ")}`
-          : "결과 행의 +를 눌러 저장할 항공편을 선택하세요.",
+          : "저장할 항공편을 선택하세요.",
       );
       return;
     }
@@ -2431,7 +2576,13 @@ export default function FlightsPage() {
 
     const missingFlights = getMissingInputFlights(input, rows);
     const now = new Date();
-    const baseScheduleRoom = selectedRoom?.fixed ? normalizeScheduleRoomRows(selectedRoom) : null;
+    const editBaseRoom =
+      flightMode === "edit" && selectedSlotKey
+        ? scheduleSlots[selectedSlotKey]?.room
+        : flightMode === "edit" && selectedRoom?.fixed
+          ? selectedRoom
+          : null;
+    const baseScheduleRoom = editBaseRoom ? normalizeScheduleRoomRows(editBaseRoom) : null;
     const selectedOnlyRows = buildScheduleRowsForFlights(selectedRowsWithHl, selectedFlights);
     const baseRows = baseScheduleRoom
       ? buildScheduleRowsForFlights(baseScheduleRoom.rows || [], normalizeFlightsInput(baseScheduleRoom.flightsInput))
@@ -2443,7 +2594,9 @@ export default function FlightsPage() {
 
     const baseRoom: MonitorRoom = normalizeScheduleRoomRows({
       id: baseScheduleRoom?.id || `${now.getTime()}`,
-      name: baseScheduleRoom?.name || `Schedule_${formatMonitorRoomName(now).replace("Monitor_", "")}`,
+      name:
+        baseScheduleRoom?.name ||
+        formatScheduleCardName(baseScheduleRoom?.startDateTime || startDateTime, now),
       flightsInput: mergedFlightsInput,
       startDateTime: baseScheduleRoom?.startDateTime || startDateTime,
       endDateTime: baseScheduleRoom?.endDateTime || endDateTime,
@@ -2452,51 +2605,64 @@ export default function FlightsPage() {
       rows: mergedRows,
     });
 
+    const shouldRotate = flightMode === "query";
+    const targetSlot =
+      flightMode === "edit" ? selectedSlotKey || "active" : undefined;
+
+    if (flightMode === "edit" && !targetSlot) {
+      setError("수정할 Schedule Flight 카드를 먼저 선택하세요.");
+      return;
+    }
+
     setError(
-      baseScheduleRoom
-        ? "선택 편명을 Schedule Flight에 저장 중입니다."
-        : "선택한 Schedule Flight를 저장 중입니다.",
+      shouldRotate
+        ? "Schedule Flight 활성 카드로 저장 중입니다. 기존 활성 카드는 직전 보관으로 이동합니다."
+        : "선택한 Schedule Flight 카드에 저장 중입니다.",
     );
 
     let finalRoom = baseRoom;
 
     try {
-      const serverRoom = await saveLatestScheduleToServer(baseRoom);
-      finalRoom = normalizeScheduleRoomRows({
-        ...baseRoom,
-        ...serverRoom,
-        fixed: true,
-        rows: Array.isArray(serverRoom.rows) ? serverRoom.rows : baseRoom.rows,
-        flightsInput: serverRoom.flightsInput || baseRoom.flightsInput,
-        startDateTime: serverRoom.startDateTime || baseRoom.startDateTime,
-        endDateTime: serverRoom.endDateTime || baseRoom.endDateTime,
-        lastFetchedAt: serverRoom.lastFetchedAt || baseRoom.lastFetchedAt,
+      const result = await saveScheduleSlotToServer(baseRoom, {
+        rotate: shouldRotate,
+        slot: targetSlot,
       });
+      applyScheduleSlotsState(
+        { active: result.active, archive: result.archive },
+        shouldRotate ? "active" : targetSlot || "active",
+      );
+
+      finalRoom =
+        (shouldRotate ? result.active?.room : result[targetSlot || "active"]?.room) || baseRoom;
+      finalRoom = normalizeScheduleRoomRows(finalRoom);
 
       setError(
         missingFlights.length > 0
-          ? `저장 완료. 조회 결과가 없는 편명은 제외했습니다: ${missingFlights.join(", ")}`
-          : baseScheduleRoom
-            ? "저장 완료 · 초기화면/AFOCS SKD 반영"
-            : "저장 완료 · 초기화면/AFOCS SKD 반영",
+          ? `저장 완료. 조회 결과가 없는 편명은 제외했습니다: ${missingFlights.join(", ")}${
+              result.rotated ? " · 직전 활성 카드는 보관 슬롯으로 이동했습니다." : ""
+            }`
+          : result.rotated
+            ? "저장 완료 · 활성 카드 갱신 · 직전 활성은 보관 · 초기화면/AFOCS SKD 반영"
+            : "저장 완료 · 선택 카드 반영 · 초기화면/AFOCS SKD 반영",
       );
     } catch (syncError) {
+      const nextRooms = mergeLatestScheduleRoom(rooms, baseRoom);
+      setRooms(nextRooms);
+      saveRooms(nextRooms);
       setError(
         syncError instanceof Error
           ? `서버 동기화 실패. 이 기기에는 저장했습니다: ${syncError.message}`
           : "서버 동기화 실패. 이 기기에는 저장했습니다.",
       );
+      finalRoom = baseRoom;
     }
 
-    const nextRooms = mergeLatestScheduleRoom(rooms, finalRoom);
-    setRooms(nextRooms);
-    saveRooms(nextRooms);
     clearFlightAlertBaselineAndHistory();
     setSelectedRoomId(finalRoom.id);
     setInput(finalRoom.flightsInput);
     setRows(finalRoom.rows);
     setLastFetchedAt(finalRoom.lastFetchedAt);
-    setFixed(true);
+    setFixed(flightMode !== "query");
     setSelectedScheduleKeys({});
     setSelectedScheduleOrder([]);
     setExpandedDetailKeys({});
@@ -2670,6 +2836,29 @@ export default function FlightsPage() {
     router.push("/fixed-lite");
   };
 
+  const handleFlightModeChange = (mode: FlightMode) => {
+    setFlightMode(mode);
+    setError("");
+
+    if (mode === "query") {
+      setFixed(false);
+      setSelectedScheduleKeys({});
+      setSelectedScheduleOrder([]);
+      return;
+    }
+
+    const preferredSlot =
+      selectedSlotKey ||
+      (scheduleSlots.active ? "active" : scheduleSlots.archive ? "archive" : null);
+
+    if (!preferredSlot) {
+      setError("먼저 ① 편명 조회 및 저장에서 Schedule Flight 카드를 저장하세요.");
+      return;
+    }
+
+    handleSelectSlot(preferredSlot);
+  };
+
   const selectedRoomCounts = useMemo(
     () => (selectedRoom ? getAlertCounts(selectedRoom.rows) : null),
     [selectedRoom]
@@ -2692,137 +2881,37 @@ export default function FlightsPage() {
           background: "#06101f",
         }}
       >
-        <h3 style={{ fontSize: 20, marginBottom: 16 }}>Monitor</h3>
+        <h3 style={{ fontSize: 20, marginBottom: 8 }}>Schedule Flight</h3>
+        <p style={{ color: "#94a3b8", fontSize: 12, lineHeight: 1.5, marginBottom: 16 }}>
+          최대 2장(활성 + 직전 보관). 새 저장 시 기존 활성 카드는 보관으로 이동합니다.
+        </p>
 
-        <button
-          onClick={handleCreateMonitor}
-          style={{
-            width: "100%",
-            padding: "10px 12px",
-            background: "#16a34a",
-            color: "white",
-            border: "none",
-            borderRadius: 6,
-            cursor: "pointer",
-            fontWeight: 700,
-            marginBottom: 16,
-          }}
-        >
-          현재 조회 저장
-        </button>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {rooms.length === 0 && (
-            <div style={{ color: "#94a3b8", fontSize: 14 }}>
-              저장된 Monitor 방이 없습니다.
-            </div>
-          )}
-
-          {rooms.map((room) => {
-            const counts = getAlertCounts(room.rows);
-            const totalAlerts =
-              counts.delay + counts.gateChanged + counts.canceled;
-
-            return (
-              <div
-                key={room.id}
-                style={{
-                  border:
-                    room.id === selectedRoomId
-                      ? "1px solid #60a5fa"
-                      : "1px solid #23314f",
-                  borderRadius: 8,
-                  padding: 12,
-                  background:
-                    room.id === selectedRoomId ? "#0b1b35" : "#0a1528",
-                }}
-              >
-                <div
-                  onClick={() => handleSelectRoom(room)}
-                  style={{ cursor: "pointer" }}
-                >
-                  <div style={{ fontWeight: 700, marginBottom: 6 }}>
-                    {room.name}
-                  </div>
-
-                  <div
-                    style={{
-                      color: "#cbd5e1",
-                      fontSize: 13,
-                      wordBreak: "break-all",
-                    }}
-                  >
-                    {room.flightsInput}
-                  </div>
-
-                  <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 6 }}>
-                    {room.startDateTime.replace("T", " ")} ~{" "}
-                    {room.endDateTime.replace("T", " ")}
-                  </div>
-
-                  <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>
-                    마지막 조회: {room.lastFetchedAt || "-"}
-                  </div>
-
-                  <div
-                    style={{
-                      color: room.fixed ? "#facc15" : "#94a3b8",
-                      fontSize: 12,
-                      marginTop: 4,
-                    }}
-                  >
-                    {room.fixed ? "Schedule Flight" : "일반"}
-                  </div>
-
-                  <div
-                    style={{
-                      marginTop: 8,
-                      display: "flex",
-                      gap: 6,
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    {counts.delay > 0 && (
-                      <span style={badgeOrange}>지연 {counts.delay}</span>
-                    )}
-                    {counts.gateChanged > 0 && (
-                      <span style={badgePurple}>게이트 {counts.gateChanged}</span>
-                    )}
-                    {counts.canceled > 0 && (
-                      <span style={badgeRed}>결항 {counts.canceled}</span>
-                    )}
-                    {totalAlerts === 0 && (
-                      <span style={badgeNormal}>이상 없음</span>
-                    )}
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => void handleDeleteRoom(room.id)}
-                  style={{
-                    marginTop: 10,
-                    width: "100%",
-                    padding: "8px 10px",
-                    background: "#334155",
-                    color: "white",
-                    border: "none",
-                    borderRadius: 4,
-                    cursor: "pointer",
-                  }}
-                >
-                  삭제
-                </button>
-              </div>
-            );
-          })}
-        </div>
+        <ScheduleSlotCards
+          slots={scheduleSlots}
+          selectedSlot={selectedSlotKey}
+          onSelect={handleSelectSlot}
+          onDelete={(slotKey) => void handleDeleteSlot(slotKey)}
+          onRestore={() => void handleRestoreArchiveSlot()}
+          showRestore={flightMode === "edit"}
+        />
       </aside>
 
       <main style={{ flex: 1, padding: 40 }}>
-        {fixed ? (
-          // ==========================================
-          // 1) Schedule Flight 관리 모드
-          // ==========================================
+        <FlightsModeTabs mode={flightMode} onChange={handleFlightModeChange} />
+
+        {flightMode === "edit" && !selectedSlotKey && (
+          <div style={{ color: "#94a3b8", marginBottom: 16, fontSize: 14 }}>
+            왼쪽에서 수정할 Schedule Flight 카드를 선택하세요.
+          </div>
+        )}
+
+        {flightMode === "registration" && !selectedSlotKey && (
+          <div style={{ color: "#94a3b8", marginBottom: 16, fontSize: 14 }}>
+            왼쪽에서 등록번호/AFOCS를 수정할 Schedule Flight 카드를 선택하세요.
+          </div>
+        )}
+
+        {flightMode === "edit" && selectedSlotKey && fixed ? (
           <>
             <div
               style={{
@@ -2835,9 +2924,9 @@ export default function FlightsPage() {
               }}
             >
               <div>
-                <h2 style={{ fontSize: 28, margin: 0 }}>✈️ Schedule Flight 관리</h2>
+                <h2 style={{ fontSize: 28, margin: 0 }}>✈️ 편명 수정</h2>
                 <p style={{ color: "#9fb3c8", margin: "6px 0 0 0", fontSize: 14 }}>
-                  저장된 항공편 목록을 관리하고 등록기호를 입력합니다.
+                  선택한 Schedule Flight 카드의 편명을 추가·삭제합니다.
                 </p>
               </div>
               <div style={{ display: "flex", gap: 10 }}>
@@ -2896,10 +2985,9 @@ export default function FlightsPage() {
               </div>
             </div>
           </>
-        ) : (
-          // ==========================================
-          // 2) 편명 검색 및 추가 모드
-          // ==========================================
+        ) : null}
+
+        {flightMode === "registration" && selectedSlotKey && (
           <>
             <div
               style={{
@@ -2912,27 +3000,59 @@ export default function FlightsPage() {
               }}
             >
               <div>
-                <h2 style={{ fontSize: 28, margin: 0 }}>✈️ 편명 추가/조회</h2>
+                <h2 style={{ fontSize: 28, margin: 0 }}>✈️ 등록번호 / AFOCS 저장</h2>
                 <p style={{ color: "#9fb3c8", margin: "6px 0 0 0", fontSize: 14 }}>
-                  편명을 조회하고 Schedule Flight 목록에 추가할 항공편을 선택합니다.
+                  선택한 Schedule Flight 카드의 등록번호와 AFOCS SKD를 입력·저장합니다.
                 </p>
               </div>
               <div style={{ display: "flex", gap: 10 }}>
-                <button
-                  type="button"
-                  onClick={() => setFixed(true)}
-                  style={{
-                    padding: "10px 18px",
-                    background: "#475569",
-                    color: "#f8fafc",
-                    border: "none",
-                    borderRadius: 10,
-                    fontSize: 15,
-                    fontWeight: 800,
-                    cursor: "pointer",
-                  }}
-                >
-                  ◀ 목록으로 돌아가기
+                <button type="button" onClick={openAfocsSkd} style={homeButtonStyle}>
+                  AFOCS SKD 열기
+                </button>
+                <button type="button" onClick={() => router.push("/")} style={homeButtonStyle}>
+                  초기화면
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {(flightMode === "query" || (flightMode === "edit" && !fixed)) && (
+          <>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                alignItems: "center",
+                flexWrap: "wrap",
+                marginBottom: 20,
+              }}
+            >
+              <div>
+                <h2 style={{ fontSize: 28, margin: 0 }}>
+                  {flightMode === "query" ? "✈️ 편명 조회 및 저장" : "✈️ 편명 추가/조회"}
+                </h2>
+                <p style={{ color: "#9fb3c8", margin: "6px 0 0 0", fontSize: 14 }}>
+                  {flightMode === "query"
+                    ? "편명 또는 KJ 전체를 조회한 뒤 선택 항목을 Schedule Flight 활성 카드로 저장합니다."
+                    : "추가할 편명을 조회한 뒤 선택 카드에 병합 저장합니다."}
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                {flightMode === "edit" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedSlotKey) handleSelectSlot(selectedSlotKey);
+                    }}
+                    style={homeButtonStyle}
+                  >
+                    ◀ 편명 목록으로
+                  </button>
+                )}
+                <button type="button" onClick={() => router.push("/")} style={homeButtonStyle}>
+                  초기화면
                 </button>
               </div>
             </div>
@@ -3052,9 +3172,16 @@ export default function FlightsPage() {
               </>
             )}
 
-            {isSelectedFixedRoom && (
+            {flightMode === "edit" && isSelectedFixedRoom && (
               <div style={scheduleSaveGuideStyle}>
-                기존 Schedule Flight에 추가 저장합니다. 결과 행의 <b style={{ color: "#facc15" }}>+</b> 선택 후 저장하세요.
+                선택한 Schedule Flight 카드에 병합 저장합니다. 필요 시 체크를 해제해 제외하세요.
+              </div>
+            )}
+
+            {flightMode === "query" && scheduleSlots.active && (
+              <div style={scheduleSaveGuideStyle}>
+                저장 시 기존 <b style={{ color: "#facc15" }}>활성</b> 카드는{" "}
+                <b style={{ color: "#94a3b8" }}>직전 보관</b>으로 이동하고, 선택 항목이 새 활성 카드가 됩니다.
               </div>
             )}
 
@@ -3069,13 +3196,26 @@ export default function FlightsPage() {
                 </button>
               )}
 
+              {rows.length > 0 && (
+                <>
+                  <button type="button" onClick={handleSelectAllScheduleRows} style={modeBtn}>
+                    전체 선택
+                  </button>
+                  <button type="button" onClick={handleClearAllScheduleRows} style={modeBtn}>
+                    전체 해제
+                  </button>
+                </>
+              )}
+
               <button
                 onClick={() => void handleSaveSelectedSchedule()}
                 disabled={selectedScheduleRows.length === 0}
                 style={selectedScheduleRows.length > 0 ? saveScheduleBtn : disabledBtn}
               >
                 {selectedScheduleRows.length > 0
-                  ? `선택 ${selectedScheduleRows.length}건 저장`
+                  ? flightMode === "query"
+                    ? `선택 ${selectedScheduleRows.length}건 활성 카드 저장`
+                    : `선택 ${selectedScheduleRows.length}건 카드에 저장`
                   : "저장할 항공편 선택"}
               </button>
             </div>
@@ -3107,7 +3247,7 @@ export default function FlightsPage() {
             )}
         </div>
 
-        {!fixed && rows.length > 0 && (
+        {(flightMode === "query" || (flightMode === "edit" && !fixed)) && rows.length > 0 && (
           <div style={scheduleSaveStatusStyle}>
             저장 선택 {selectedScheduleRows.length}건
             <div style={scheduleSaveStatusSubStyle}>
@@ -3116,7 +3256,7 @@ export default function FlightsPage() {
           </div>
         )}
 
-        {selectedRoom && (
+        {selectedRoom && flightMode !== "query" && (
           <div
             style={{
               marginTop: 20,
@@ -3268,7 +3408,23 @@ export default function FlightsPage() {
         {loading && <p style={{ marginTop: 20 }}>조회중...</p>}
         {error && <p style={{ marginTop: 20, color: "#f87171" }}>{error}</p>}
 
-        {fixed && rows.length > 0 && (
+        {flightMode === "edit" && fixed && rows.length > 0 && (
+          <div style={hlInlineSaveRowStyle}>
+            <button
+              type="button"
+              onClick={() => void handleDeleteSelectedFlightsFromSchedule()}
+              disabled={selectedScheduleRows.length === 0}
+              style={selectedScheduleRows.length > 0 ? hlMappingDeleteButtonStyle : disabledBtn}
+            >
+              {selectedScheduleRows.length > 0
+                ? `선택 ${selectedScheduleRows.length}건 삭제`
+                : "삭제할 항공편 선택"}
+            </button>
+            <span style={hlInlineHelpStyle}>편명 삭제 후 저장하려면 조회 결과에서 선택하고 저장하거나, 여기서 바로 삭제할 수 있습니다.</span>
+          </div>
+        )}
+
+        {flightMode === "registration" && selectedSlotKey && rows.length > 0 && (
           <>
             <div style={hlInlineSaveRowStyle}>
               <input
@@ -3340,7 +3496,7 @@ export default function FlightsPage() {
 
         {hlMappingStatus ? <div style={hlMappingStatusStyle}>{hlMappingStatus}</div> : null}
 
-        {!fixed && (
+        {(flightMode === "query" || (flightMode === "edit" && !fixed)) && (
           <div style={{ marginTop: 30, overflowX: "auto" }}>
             <table
               style={{
@@ -3407,26 +3563,6 @@ export default function FlightsPage() {
                             disabled={finalCompleted}
                             onChange={() => handleToggleScheduleSelection(r, i)}
                           />
-                          {!finalCompleted && (
-                            <span
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                width: 22,
-                                height: 22,
-                                borderRadius: 999,
-                                background: selected ? "#2563eb" : "#1e293b",
-                                color: selected ? "#ffffff" : "#93c5fd",
-                                border: selected ? "1px solid #60a5fa" : "1px solid #334155",
-                                fontWeight: 900,
-                                fontSize: 16,
-                                lineHeight: 1,
-                              }}
-                            >
-                              +
-                            </span>
-                          )}
                         </label>
                         {finalCompleted && (
                           <div style={{ color: "#94a3b8", fontSize: 11, marginTop: 4 }}>
@@ -3476,7 +3612,7 @@ export default function FlightsPage() {
           </div>
         )}
 
-        {fixed && (
+        {(flightMode === "edit" || flightMode === "registration") && fixed && (
           <FixedResultsTable
             rows={rows}
             expandedKeys={expandedDetailKeys}

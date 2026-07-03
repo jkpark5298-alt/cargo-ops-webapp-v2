@@ -27,6 +27,10 @@ router = APIRouter()
 LATEST_SCHEDULE_FILE = Path(
     os.getenv("LATEST_SCHEDULE_FILE", "/tmp/cargo_ops_latest_schedule.json")
 )
+SCHEDULE_SLOTS_FILE = Path(
+    os.getenv("SCHEDULE_SLOTS_FILE", "/tmp/cargo_ops_schedule_slots.json")
+)
+SCHEDULE_SLOT_KEYS = ("active", "archive")
 PUSH_SUBSCRIPTIONS_FILE = Path(
     os.getenv("PUSH_SUBSCRIPTIONS_FILE", "/tmp/cargo_ops_push_subscriptions.json")
 )
@@ -346,6 +350,16 @@ class AutoPushConfigRequest(BaseModel):
 
 
 class LatestScheduleRequest(BaseModel):
+    room: Dict[str, Any]
+
+
+class ScheduleSlotSaveRequest(BaseModel):
+    room: Dict[str, Any]
+    rotate: bool = True
+    slot: Optional[str] = None
+
+
+class ScheduleSlotUpdateRequest(BaseModel):
     room: Dict[str, Any]
 
 
@@ -880,6 +894,350 @@ def _write_latest_schedule(room: Dict[str, Any]) -> Dict[str, Any]:
     file_payload = _write_latest_schedule_to_file(room)
     supabase_payload = _write_latest_schedule_to_supabase(file_payload["room"])
     return supabase_payload or file_payload
+
+
+def _format_schedule_period_date(start_date_time: str) -> str:
+    raw = str(start_date_time or "").strip().replace("T", " ")
+    match = re.match(r"^(\d{4})[-/.](\d{2})[-/.](\d{2})", raw)
+    if match:
+        year, month, day = match.groups()
+        return f"{year}.{month}.{day}"
+    return _now_kst().strftime("%Y.%m.%d")
+
+
+def _format_schedule_saved_short(saved_at: Optional[datetime] = None) -> str:
+    dt = saved_at or _now_kst()
+    return dt.strftime("'%y.%m.%d %H:%M")
+
+
+def _build_schedule_card_name(start_date_time: str, saved_at: Optional[datetime] = None) -> str:
+    period_date = _format_schedule_period_date(start_date_time)
+    saved_short = _format_schedule_saved_short(saved_at)
+    return f"{period_date} Schedule Flight ({saved_short})"
+
+
+def _is_active_schedule_room(room: Optional[Dict[str, Any]]) -> bool:
+    if not isinstance(room, dict):
+        return False
+    flights_input = str(room.get("flightsInput") or "").strip()
+    rows = room.get("rows") if isinstance(room.get("rows"), list) else []
+    return bool(flights_input or rows)
+
+
+def _schedule_slot_payload(
+    slot: str,
+    name: str,
+    room: Dict[str, Any],
+    saved_at: Optional[str] = None,
+) -> Dict[str, Any]:
+    saved = saved_at or _now_kst_iso()
+    return {
+        "slot": slot,
+        "name": name,
+        "room": room,
+        "savedAt": saved,
+    }
+
+
+def _schedule_slot_from_supabase_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    slot = str(row.get("slot") or "")
+    room = row.get("room")
+    if slot not in SCHEDULE_SLOT_KEYS or not isinstance(room, dict):
+        return None
+
+    saved_at = str(row.get("saved_at") or row.get("updated_at") or "")
+    name = str(row.get("name") or _build_schedule_card_name(str(room.get("startDateTime") or "")))
+    return _schedule_slot_payload(
+        slot,
+        name,
+        _apply_aircraft_registrations_to_room(room) or room,
+        saved_at,
+    )
+
+
+def _empty_schedule_slots_payload() -> Dict[str, Optional[Dict[str, Any]]]:
+    return {"active": None, "archive": None}
+
+
+def _read_schedule_slots_from_file() -> Dict[str, Optional[Dict[str, Any]]]:
+    try:
+        if not SCHEDULE_SLOTS_FILE.exists():
+            return _empty_schedule_slots_payload()
+
+        data = json.loads(SCHEDULE_SLOTS_FILE.read_text(encoding="utf-8"))
+        result = _empty_schedule_slots_payload()
+        for slot in SCHEDULE_SLOT_KEYS:
+            entry = data.get(slot)
+            if not isinstance(entry, dict):
+                continue
+            room = entry.get("room")
+            if not isinstance(room, dict):
+                continue
+            saved_at = str(entry.get("savedAt") or "")
+            name = str(entry.get("name") or _build_schedule_card_name(str(room.get("startDateTime") or "")))
+            result[slot] = _schedule_slot_payload(
+                slot,
+                name,
+                _apply_aircraft_registrations_to_room(room) or room,
+                saved_at,
+            )
+        return result
+    except Exception:
+        return _empty_schedule_slots_payload()
+
+
+def _write_schedule_slots_to_file(slots: Dict[str, Optional[Dict[str, Any]]]) -> None:
+    payload: Dict[str, Any] = {}
+    for slot in SCHEDULE_SLOT_KEYS:
+        entry = slots.get(slot)
+        if not isinstance(entry, dict):
+            continue
+        payload[slot] = {
+            "name": entry.get("name") or "",
+            "room": entry.get("room") or {},
+            "savedAt": entry.get("savedAt") or _now_kst_iso(),
+        }
+
+    SCHEDULE_SLOTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SCHEDULE_SLOTS_FILE.write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def _read_schedule_slots_from_supabase() -> Optional[Dict[str, Optional[Dict[str, Any]]]]:
+    if not _supabase_usage_enabled():
+        return None
+
+    query = urllib.parse.urlencode(
+        {
+            "slot": f"in.({','.join(SCHEDULE_SLOT_KEYS)})",
+            "select": "slot,name,room,saved_at,updated_at",
+        }
+    )
+
+    try:
+        rows = _supabase_request("GET", f"/rest/v1/schedule_flight_slots?{query}")
+    except Exception:
+        return None
+
+    if not isinstance(rows, list):
+        return None
+
+    result = _empty_schedule_slots_payload()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        slot_payload = _schedule_slot_from_supabase_row(row)
+        if slot_payload:
+            result[str(slot_payload["slot"])] = slot_payload
+    return result
+
+
+def _write_schedule_slot_to_supabase(
+    slot: str,
+    name: str,
+    room: Dict[str, Any],
+    saved_at: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    if slot not in SCHEDULE_SLOT_KEYS:
+        return None
+    if not _supabase_usage_enabled():
+        return None
+
+    room_with_registration = _apply_aircraft_registrations_to_room(room) or room
+    saved = saved_at or _now_kst_iso()
+    row = {
+        "slot": slot,
+        "name": name,
+        "room": room_with_registration,
+        "saved_at": saved,
+        "updated_at": saved,
+    }
+
+    try:
+        result = _supabase_request(
+            "POST",
+            "/rest/v1/schedule_flight_slots?on_conflict=slot",
+            row,
+            {
+                "Prefer": "resolution=merge-duplicates,return=representation",
+            },
+        )
+    except Exception:
+        return None
+
+    if isinstance(result, list) and result and isinstance(result[0], dict):
+        return _schedule_slot_from_supabase_row(result[0])
+
+    return _schedule_slot_payload(slot, name, room_with_registration, saved)
+
+
+def _delete_schedule_slot_from_supabase(slot: str) -> None:
+    if slot not in SCHEDULE_SLOT_KEYS or not _supabase_usage_enabled():
+        return
+
+    query = urllib.parse.urlencode({"slot": f"eq.{slot}"})
+    try:
+        _supabase_request("DELETE", f"/rest/v1/schedule_flight_slots?{query}")
+    except Exception:
+        return
+
+
+def _read_schedule_slots() -> Dict[str, Optional[Dict[str, Any]]]:
+    supabase_payload = _read_schedule_slots_from_supabase()
+    if supabase_payload is not None:
+        if supabase_payload.get("active") or supabase_payload.get("archive"):
+            return supabase_payload
+
+        latest_payload = _read_latest_schedule_from_supabase() or _read_latest_schedule_from_file()
+        latest_room = latest_payload.get("room") if latest_payload else None
+        if _is_active_schedule_room(latest_room):
+            saved_at = str((latest_payload or {}).get("savedAt") or _now_kst_iso())
+            name = _build_schedule_card_name(str(latest_room.get("startDateTime") or ""))
+            active_slot = _schedule_slot_payload("active", name, latest_room, saved_at)
+            _write_schedule_slot_entry("active", active_slot)
+            return {"active": active_slot, "archive": None}
+
+        return supabase_payload
+
+    file_payload = _read_schedule_slots_from_file()
+    if file_payload.get("active") or file_payload.get("archive"):
+        return file_payload
+
+    latest_payload = _read_latest_schedule_from_file()
+    latest_room = latest_payload.get("room") if latest_payload else None
+    if _is_active_schedule_room(latest_room):
+        saved_at = str((latest_payload or {}).get("savedAt") or _now_kst_iso())
+        name = _build_schedule_card_name(str(latest_room.get("startDateTime") or ""))
+        active_slot = _schedule_slot_payload("active", name, latest_room, saved_at)
+        _write_schedule_slot_entry("active", active_slot)
+        return {"active": active_slot, "archive": None}
+
+    return _empty_schedule_slots_payload()
+
+
+def _write_schedule_slot_entry(slot: str, entry: Optional[Dict[str, Any]]) -> None:
+    slots = _read_schedule_slots()
+    slots[slot] = entry
+    _write_schedule_slots_to_file(slots)
+    if entry and isinstance(entry.get("room"), dict):
+        _write_schedule_slot_to_supabase(
+            slot,
+            str(entry.get("name") or ""),
+            entry["room"],
+            str(entry.get("savedAt") or _now_kst_iso()),
+        )
+    else:
+        _delete_schedule_slot_from_supabase(slot)
+
+
+def _prepare_schedule_room_for_save(room: Dict[str, Any]) -> Dict[str, Any]:
+    prepared = dict(room or {})
+    if not prepared.get("fixed"):
+        prepared["fixed"] = True
+    if not prepared.get("id"):
+        prepared["id"] = str(int(_now_kst().timestamp() * 1000))
+    return _sanitize_latest_schedule_room(prepared)
+
+
+def _save_schedule_slots_with_rotate(room: Dict[str, Any]) -> Dict[str, Any]:
+    prepared = _prepare_schedule_room_for_save(room)
+    saved_at = _now_kst_iso()
+    saved_dt = _now_kst()
+    name = _build_schedule_card_name(str(prepared.get("startDateTime") or ""), saved_dt)
+
+    current = _read_schedule_slots()
+    archive_entry = current.get("active") if _is_active_schedule_room((current.get("active") or {}).get("room")) else None
+
+    active_entry = _schedule_slot_payload("active", name, prepared, saved_at)
+    _write_schedule_slot_entry("active", active_entry)
+    if archive_entry:
+        _write_schedule_slot_entry("archive", archive_entry)
+    else:
+        _write_schedule_slot_entry("archive", None)
+
+    latest_saved = _write_latest_schedule(prepared)
+    return {
+        "active": active_entry,
+        "archive": archive_entry,
+        "savedAt": latest_saved.get("savedAt") or saved_at,
+    }
+
+
+def _update_schedule_slot(slot: str, room: Dict[str, Any]) -> Dict[str, Any]:
+    if slot not in SCHEDULE_SLOT_KEYS:
+        raise HTTPException(status_code=400, detail="slot은 active 또는 archive만 가능합니다.")
+
+    prepared = _prepare_schedule_room_for_save(room)
+    saved_at = _now_kst_iso()
+    current = _read_schedule_slots()
+    existing = current.get(slot) or {}
+    name = str(existing.get("name") or _build_schedule_card_name(str(prepared.get("startDateTime") or "")))
+    entry = _schedule_slot_payload(slot, name, prepared, saved_at)
+    _write_schedule_slot_entry(slot, entry)
+
+    if slot == "active":
+        _write_latest_schedule(prepared)
+
+    return entry
+
+
+def _clear_schedule_slot(slot: str) -> Dict[str, Optional[Dict[str, Any]]]:
+    if slot not in SCHEDULE_SLOT_KEYS:
+        raise HTTPException(status_code=400, detail="slot은 active 또는 archive만 가능합니다.")
+
+    _write_schedule_slot_entry(slot, None)
+    remaining = _read_schedule_slots()
+
+    if slot == "active":
+        archive_entry = remaining.get("archive")
+        if _is_active_schedule_room((archive_entry or {}).get("room")):
+            promoted = dict(archive_entry)
+            promoted["slot"] = "active"
+            _write_schedule_slot_entry("active", promoted)
+            _write_schedule_slot_entry("archive", None)
+            _write_latest_schedule(promoted["room"])
+            remaining = _read_schedule_slots()
+        else:
+            empty_room = {
+                "id": str(int(_now_kst().timestamp() * 1000)),
+                "name": "Schedule_Empty",
+                "flightsInput": "",
+                "startDateTime": _now_kst().replace(microsecond=0).isoformat(),
+                "endDateTime": (_now_kst() + timedelta(hours=24)).replace(microsecond=0).isoformat(),
+                "fixed": True,
+                "lastFetchedAt": _now_kst_iso(),
+                "rows": [],
+            }
+            _write_latest_schedule(empty_room)
+            remaining = _read_schedule_slots()
+
+    return remaining
+
+
+def _swap_schedule_slots() -> Dict[str, Optional[Dict[str, Any]]]:
+    current = _read_schedule_slots()
+    active_entry = current.get("active")
+    archive_entry = current.get("archive")
+
+    if not _is_active_schedule_room((archive_entry or {}).get("room")):
+        raise HTTPException(status_code=400, detail="교체할 직전 보관 카드가 없습니다.")
+
+    new_active = dict(archive_entry)
+    new_active["slot"] = "active"
+    new_active["savedAt"] = _now_kst_iso()
+
+    new_archive = None
+    if _is_active_schedule_room((active_entry or {}).get("room")):
+        new_archive = dict(active_entry)
+        new_archive["slot"] = "archive"
+        new_archive["savedAt"] = _now_kst_iso()
+
+    _write_schedule_slot_entry("active", new_active)
+    _write_schedule_slot_entry("archive", new_archive)
+    _write_latest_schedule(new_active["room"])
+    return _read_schedule_slots()
 
 
 def _sanitize_latest_schedule_room(room: Dict[str, Any]) -> Dict[str, Any]:
@@ -2442,6 +2800,14 @@ async def save_latest_schedule(payload: LatestScheduleRequest) -> Dict[str, Any]
     room = _sanitize_latest_schedule_room(room)
 
     saved = _write_latest_schedule(room)
+    saved_at = saved.get("savedAt") or _now_kst_iso()
+    active_entry = _schedule_slot_payload(
+        "active",
+        _build_schedule_card_name(str(room.get("startDateTime") or "")),
+        saved.get("room") or room,
+        saved_at,
+    )
+    _write_schedule_slot_entry("active", active_entry)
     _update_auto_push_status(
         enabled=True,
         intervalMinutes=_get_auto_interval_minutes_for_room(room),
@@ -2451,6 +2817,82 @@ async def save_latest_schedule(payload: LatestScheduleRequest) -> Dict[str, Any]
         "success": True,
         "room": saved["room"],
         "savedAt": saved["savedAt"],
+    }
+
+
+@router.get("/schedule-slots")
+async def get_schedule_slots() -> Dict[str, Any]:
+    supabase_payload = _read_schedule_slots_from_supabase()
+    slots = _read_schedule_slots()
+    return {
+        "success": True,
+        "active": slots.get("active"),
+        "archive": slots.get("archive"),
+        "source": "supabase" if supabase_payload is not None else "file",
+    }
+
+
+@router.post("/schedule-slots/save")
+async def save_schedule_slot(payload: ScheduleSlotSaveRequest) -> Dict[str, Any]:
+    room = dict(payload.room or {})
+    target_slot = str(payload.slot or "").strip().lower()
+
+    if payload.rotate and not target_slot:
+        result = _save_schedule_slots_with_rotate(room)
+        _update_auto_push_status(
+            enabled=True,
+            intervalMinutes=_get_auto_interval_minutes_for_room(result["active"]["room"]),
+            lastMessage="Schedule Flight 저장 완료. 직전 활성 카드는 보관 슬롯으로 이동했습니다.",
+        )
+        return {
+            "success": True,
+            "active": result["active"],
+            "archive": result["archive"],
+            "savedAt": result["savedAt"],
+            "rotated": True,
+        }
+
+    slot = target_slot or "active"
+    entry = _update_schedule_slot(slot, room)
+    if slot == "active":
+        _update_auto_push_status(
+            enabled=True,
+            intervalMinutes=_get_auto_interval_minutes_for_room(entry["room"]),
+            lastMessage="Schedule Flight 저장 완료. 자동 변경 확인이 자동 적용됩니다.",
+        )
+    return {
+        "success": True,
+        "active": _read_schedule_slots().get("active"),
+        "archive": _read_schedule_slots().get("archive"),
+        "savedAt": entry.get("savedAt") or _now_kst_iso(),
+        "rotated": False,
+    }
+
+
+@router.delete("/schedule-slots/{slot}")
+async def delete_schedule_slot(slot: str) -> Dict[str, Any]:
+    remaining = _clear_schedule_slot(slot)
+    return {
+        "success": True,
+        "active": remaining.get("active"),
+        "archive": remaining.get("archive"),
+    }
+
+
+@router.post("/schedule-slots/swap")
+async def swap_schedule_slots() -> Dict[str, Any]:
+    slots = _swap_schedule_slots()
+    active_room = (slots.get("active") or {}).get("room")
+    if isinstance(active_room, dict):
+        _update_auto_push_status(
+            enabled=True,
+            intervalMinutes=_get_auto_interval_minutes_for_room(active_room),
+            lastMessage="활성/보관 Schedule Flight 카드를 교체했습니다.",
+        )
+    return {
+        "success": True,
+        "active": slots.get("active"),
+        "archive": slots.get("archive"),
     }
 
 
