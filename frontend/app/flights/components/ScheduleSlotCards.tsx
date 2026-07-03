@@ -17,6 +17,7 @@ type ScheduleSlotCardsProps = {
   selectedSlot: ScheduleSlotKey | null;
   onSelect: (slot: ScheduleSlotKey) => void;
   onDelete: (slot: ScheduleSlotKey) => void;
+  onLink: (slot: ScheduleSlotKey) => void;
   onRestore?: (slot: ScheduleSlotKey) => void;
   showRestore?: boolean;
 };
@@ -26,6 +27,7 @@ export function ScheduleSlotCards({
   selectedSlot,
   onSelect,
   onDelete,
+  onLink,
   onRestore,
   showRestore = false,
 }: ScheduleSlotCardsProps) {
@@ -41,7 +43,7 @@ export function ScheduleSlotCards({
       <div style={{ color: "#94a3b8", fontSize: 14, lineHeight: 1.6 }}>
         저장된 Schedule Flight 카드가 없습니다.
         <br />
-        조회 후 저장하면 활성 카드가 생성됩니다. (최대 2장)
+        조회 후 저장하면 최신 저장 카드가 생성됩니다. (최대 2장)
       </div>
     );
   }
@@ -63,28 +65,29 @@ export function ScheduleSlotCards({
         const registrationCount = countRegistrationRows(room.rows || []);
         const statusLabel = getScheduleStatusLabel(room.rows || []);
         const selected = selectedSlot === key;
+        const isLinked = slots.linkedSlot === key;
 
         return (
           <div
             key={key}
             style={{
               ...cardStyle,
-              border: selected ? "1px solid #60a5fa" : "1px solid #23314f",
-              background: selected ? "#0b1b35" : "#0a1528",
+              border: selected ? "1px solid #60a5fa" : isLinked ? "1px solid #facc15" : "1px solid #23314f",
+              background: selected ? "#0b1b35" : isLinked ? "#121a0a" : "#0a1528",
             }}
           >
             <div onClick={() => onSelect(key)} style={{ cursor: "pointer" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                 <span
                   style={{
                     fontSize: 11,
                     fontWeight: 800,
-                    color: key === "active" ? "#facc15" : "#94a3b8",
+                    color: isLinked ? "#facc15" : "#94a3b8",
                     letterSpacing: 0.4,
                   }}
                 >
                   {getSlotLabel(key)}
-                  {key === "active" ? " · 초기화면 연동" : ""}
+                  {isLinked ? " · 초기화면 연동" : ""}
                 </span>
               </div>
 
@@ -112,10 +115,15 @@ export function ScheduleSlotCards({
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+              {!isLinked ? (
+                <button type="button" onClick={() => onLink(key)} style={linkBtnStyle}>
+                  초기화면 연동
+                </button>
+              ) : null}
               {showRestore && key === "archive" && onRestore ? (
                 <button type="button" onClick={() => onRestore(key)} style={restoreBtnStyle}>
-                  활성으로 복원
+                  최신 저장으로 교체
                 </button>
               ) : null}
               <button type="button" onClick={() => onDelete(key)} style={deleteBtnStyle}>
@@ -142,6 +150,7 @@ const emptyCardStyle: CSSProperties = {
 
 const deleteBtnStyle: CSSProperties = {
   flex: 1,
+  minWidth: 72,
   padding: "8px 10px",
   background: "#334155",
   color: "white",
@@ -151,8 +160,22 @@ const deleteBtnStyle: CSSProperties = {
   fontSize: 13,
 };
 
+const linkBtnStyle: CSSProperties = {
+  flex: 1,
+  minWidth: 110,
+  padding: "8px 10px",
+  background: "#ca8a04",
+  color: "#111827",
+  border: "none",
+  borderRadius: 4,
+  cursor: "pointer",
+  fontSize: 13,
+  fontWeight: 800,
+};
+
 const restoreBtnStyle: CSSProperties = {
   flex: 1,
+  minWidth: 110,
   padding: "8px 10px",
   background: "#1d4ed8",
   color: "white",

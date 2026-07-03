@@ -51,6 +51,7 @@ export type ScheduleSlot = {
 export type ScheduleSlotsState = {
   active: ScheduleSlot | null;
   archive: ScheduleSlot | null;
+  linkedSlot: ScheduleSlotKey;
 };
 
 export type FlightMode = "query" | "edit" | "registration";
@@ -165,9 +166,11 @@ export async function loadScheduleSlotsFromServer(): Promise<ScheduleSlotsState>
   if (!res.ok || json.success === false) {
     throw new Error(json.detail || json.message || "Schedule Flight 슬롯 조회 실패");
   }
+  const linkedSlot = json.linkedSlot === "archive" ? "archive" : "active";
   return {
     active: (json.active || null) as ScheduleSlot | null,
     archive: (json.archive || null) as ScheduleSlot | null,
+    linkedSlot,
   };
 }
 
@@ -191,9 +194,29 @@ export async function saveScheduleSlotToServer(
   return {
     active: (json.active || null) as ScheduleSlot | null,
     archive: (json.archive || null) as ScheduleSlot | null,
+    linkedSlot: (json.linkedSlot === "archive" ? "archive" : "active") as ScheduleSlotKey,
     rotated: Boolean(json.rotated),
     savedAt: String(json.savedAt || ""),
   };
+}
+
+function normalizeScheduleSlotsResponse(json: Record<string, unknown>): ScheduleSlotsState {
+  return {
+    active: (json.active || null) as ScheduleSlot | null,
+    archive: (json.archive || null) as ScheduleSlot | null,
+    linkedSlot: (json.linkedSlot === "archive" ? "archive" : "active") as ScheduleSlotKey,
+  };
+}
+
+export async function linkScheduleSlotOnServer(slot: ScheduleSlotKey) {
+  const res = await fetch(`${BACKEND_URL}/flights/schedule-slots/link/${slot}`, {
+    method: "POST",
+  });
+  const json = await res.json();
+  if (!res.ok || json.success === false) {
+    throw new Error(json.detail || json.message || "초기화면 연동 변경 실패");
+  }
+  return normalizeScheduleSlotsResponse(json);
 }
 
 export async function deleteScheduleSlotOnServer(slot: ScheduleSlotKey) {
@@ -204,10 +227,7 @@ export async function deleteScheduleSlotOnServer(slot: ScheduleSlotKey) {
   if (!res.ok || json.success === false) {
     throw new Error(json.detail || json.message || "Schedule Flight 슬롯 삭제 실패");
   }
-  return {
-    active: (json.active || null) as ScheduleSlot | null,
-    archive: (json.archive || null) as ScheduleSlot | null,
-  };
+  return normalizeScheduleSlotsResponse(json);
 }
 
 export async function swapScheduleSlotsOnServer() {
@@ -218,12 +238,9 @@ export async function swapScheduleSlotsOnServer() {
   if (!res.ok || json.success === false) {
     throw new Error(json.detail || json.message || "Schedule Flight 카드 교체 실패");
   }
-  return {
-    active: (json.active || null) as ScheduleSlot | null,
-    archive: (json.archive || null) as ScheduleSlot | null,
-  };
+  return normalizeScheduleSlotsResponse(json);
 }
 
 export function getSlotLabel(slot: ScheduleSlotKey) {
-  return slot === "active" ? "활성" : "직전 보관";
+  return slot === "active" ? "최신 저장" : "직전 보관";
 }

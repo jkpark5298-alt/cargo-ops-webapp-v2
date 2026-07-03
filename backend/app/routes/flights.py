@@ -31,6 +31,7 @@ SCHEDULE_SLOTS_FILE = Path(
     os.getenv("SCHEDULE_SLOTS_FILE", "/tmp/cargo_ops_schedule_slots.json")
 )
 SCHEDULE_SLOT_KEYS = ("active", "archive")
+DEFAULT_LINKED_SLOT = "active"
 PUSH_SUBSCRIPTIONS_FILE = Path(
     os.getenv("PUSH_SUBSCRIPTIONS_FILE", "/tmp/cargo_ops_push_subscriptions.json")
 )
@@ -959,6 +960,140 @@ def _empty_schedule_slots_payload() -> Dict[str, Optional[Dict[str, Any]]]:
     return {"active": None, "archive": None}
 
 
+def _normalize_linked_slot(value: Any) -> str:
+    linked = str(value or DEFAULT_LINKED_SLOT).strip().lower()
+    return linked if linked in SCHEDULE_SLOT_KEYS else DEFAULT_LINKED_SLOT
+
+
+def _read_schedule_slots_file_raw() -> Dict[str, Any]:
+    try:
+        if not SCHEDULE_SLOTS_FILE.exists():
+            return {}
+        data = json.loads(SCHEDULE_SLOTS_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _read_linked_slot_from_file() -> str:
+    data = _read_schedule_slots_file_raw()
+    return _normalize_linked_slot(data.get("linkedSlot"))
+
+
+def _write_linked_slot_to_file(linked_slot: str) -> None:
+    linked = _normalize_linked_slot(linked_slot)
+    data = _read_schedule_slots_file_raw()
+    data["linkedSlot"] = linked
+    SCHEDULE_SLOTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SCHEDULE_SLOTS_FILE.write_text(
+        json.dumps(data, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def _read_linked_slot_from_supabase() -> Optional[str]:
+    if not _supabase_usage_enabled():
+        return None
+
+    query = urllib.parse.urlencode(
+        {
+            "id": "eq.default",
+            "select": "linked_slot,updated_at",
+            "limit": "1",
+        }
+    )
+    try:
+        rows = _supabase_request("GET", f"/rest/v1/schedule_flight_config?{query}")
+    except Exception:
+        return None
+
+    if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
+        return None
+
+    return _normalize_linked_slot(rows[0].get("linked_slot"))
+
+
+def _write_linked_slot_to_supabase(linked_slot: str) -> None:
+    if not _supabase_usage_enabled():
+        return
+
+    linked = _normalize_linked_slot(linked_slot)
+    saved_at = _now_kst_iso()
+    row = {
+        "id": "default",
+        "linked_slot": linked,
+        "updated_at": saved_at,
+    }
+    try:
+        _supabase_request(
+            "POST",
+            "/rest/v1/schedule_flight_config?on_conflict=id",
+            row,
+            {
+                "Prefer": "resolution=merge-duplicates,return=representation",
+            },
+        )
+    except Exception:
+        return
+
+
+def _read_linked_slot() -> str:
+    supabase_linked = _read_linked_slot_from_supabase()
+    if supabase_linked is not None:
+        return supabase_linked
+    return _read_linked_slot_from_file()
+
+
+def _write_linked_slot(linked_slot: str) -> str:
+    linked = _normalize_linked_slot(linked_slot)
+    _write_linked_slot_to_file(linked)
+    _write_linked_slot_to_supabase(linked)
+    return linked
+
+
+def _get_schedule_slot_entry(
+    slots: Dict[str, Optional[Dict[str, Any]]],
+    slot: str,
+) -> Optional[Dict[str, Any]]:
+    entry = slots.get(slot)
+    return entry if isinstance(entry, dict) else None
+
+
+def _sync_latest_schedule_from_linked_slot() -> Optional[Dict[str, Any]]:
+    slots = _read_schedule_slots_without_migration()
+    linked_slot = _read_linked_slot()
+    entry = _get_schedule_slot_entry(slots, linked_slot)
+    room = entry.get("room") if entry else None
+
+    if _is_active_schedule_room(room):
+        return _write_latest_schedule(room)
+
+    fallback_order = [linked_slot] + [slot for slot in SCHEDULE_SLOT_KEYS if slot != linked_slot]
+    for slot in fallback_order:
+        fallback_entry = _get_schedule_slot_entry(slots, slot)
+        fallback_room = fallback_entry.get("room") if fallback_entry else None
+        if _is_active_schedule_room(fallback_room):
+            _write_linked_slot(slot)
+            return _write_latest_schedule(fallback_room)
+
+    empty_room = {
+        "id": str(int(_now_kst().timestamp() * 1000)),
+        "name": "Schedule_Empty",
+        "flightsInput": "",
+        "startDateTime": _now_kst().replace(microsecond=0).isoformat(),
+        "endDateTime": (_now_kst() + timedelta(hours=24)).replace(microsecond=0).isoformat(),
+        "fixed": True,
+        "lastFetchedAt": _now_kst_iso(),
+        "rows": [],
+    }
+    return _write_latest_schedule(empty_room)
+
+
+def _maybe_sync_latest_schedule_for_slot(slot: str, room: Dict[str, Any]) -> None:
+    if _normalize_linked_slot(slot) == _read_linked_slot():
+        _write_latest_schedule(room)
+
+
 def _read_schedule_slots_from_file() -> Dict[str, Optional[Dict[str, Any]]]:
     try:
         if not SCHEDULE_SLOTS_FILE.exists():
@@ -987,7 +1122,10 @@ def _read_schedule_slots_from_file() -> Dict[str, Optional[Dict[str, Any]]]:
 
 
 def _write_schedule_slots_to_file(slots: Dict[str, Optional[Dict[str, Any]]]) -> None:
-    payload: Dict[str, Any] = {}
+    data = _read_schedule_slots_file_raw()
+    payload: Dict[str, Any] = {
+        "linkedSlot": _normalize_linked_slot(data.get("linkedSlot")),
+    }
     for slot in SCHEDULE_SLOT_KEYS:
         entry = slots.get(slot)
         if not isinstance(entry, dict):
@@ -1165,7 +1303,10 @@ def _save_schedule_slots_with_rotate(room: Dict[str, Any]) -> Dict[str, Any]:
     else:
         _write_schedule_slot_entry("archive", None)
 
-    latest_saved = _write_latest_schedule(prepared)
+    if _read_linked_slot() == "active":
+        latest_saved = _write_latest_schedule(prepared)
+    else:
+        latest_saved = _sync_latest_schedule_from_linked_slot() or {"savedAt": saved_at}
     return {
         "active": active_entry,
         "archive": archive_entry,
@@ -1184,9 +1325,7 @@ def _update_schedule_slot(slot: str, room: Dict[str, Any]) -> Dict[str, Any]:
     name = str(existing.get("name") or _build_schedule_card_name(str(prepared.get("startDateTime") or "")))
     entry = _schedule_slot_payload(slot, name, prepared, saved_at)
     _write_schedule_slot_entry(slot, entry)
-
-    if slot == "active":
-        _write_latest_schedule(prepared)
+    _maybe_sync_latest_schedule_for_slot(slot, prepared)
 
     return entry
 
@@ -1195,6 +1334,7 @@ def _clear_schedule_slot(slot: str) -> Dict[str, Optional[Dict[str, Any]]]:
     if slot not in SCHEDULE_SLOT_KEYS:
         raise HTTPException(status_code=400, detail="slot은 active 또는 archive만 가능합니다.")
 
+    linked_before = _read_linked_slot()
     _write_schedule_slot_entry(slot, None)
     remaining = _read_schedule_slots()
 
@@ -1205,9 +1345,8 @@ def _clear_schedule_slot(slot: str) -> Dict[str, Optional[Dict[str, Any]]]:
             promoted["slot"] = "active"
             _write_schedule_slot_entry("active", promoted)
             _write_schedule_slot_entry("archive", None)
-            _write_latest_schedule(promoted["room"])
             remaining = _read_schedule_slots()
-        else:
+        elif linked_before == "active":
             empty_room = {
                 "id": str(int(_now_kst().timestamp() * 1000)),
                 "name": "Schedule_Empty",
@@ -1219,9 +1358,18 @@ def _clear_schedule_slot(slot: str) -> Dict[str, Optional[Dict[str, Any]]]:
                 "rows": [],
             }
             _write_latest_schedule(empty_room)
-            remaining = _read_schedule_slots()
 
-    return remaining
+    if slot == linked_before:
+        fallback = "archive" if slot == "active" else "active"
+        fallback_entry = remaining.get(fallback)
+        if _is_active_schedule_room((fallback_entry or {}).get("room")):
+            _write_linked_slot(fallback)
+        else:
+            _sync_latest_schedule_from_linked_slot()
+    else:
+        _sync_latest_schedule_from_linked_slot()
+
+    return _read_schedule_slots()
 
 
 def _swap_schedule_slots() -> Dict[str, Optional[Dict[str, Any]]]:
@@ -1244,8 +1392,25 @@ def _swap_schedule_slots() -> Dict[str, Optional[Dict[str, Any]]]:
 
     _write_schedule_slot_entry("active", new_active)
     _write_schedule_slot_entry("archive", new_archive)
-    _write_latest_schedule(new_active["room"])
+    _sync_latest_schedule_from_linked_slot()
     return _read_schedule_slots()
+
+
+def _link_schedule_slot(slot: str) -> Dict[str, Any]:
+    if slot not in SCHEDULE_SLOT_KEYS:
+        raise HTTPException(status_code=400, detail="slot은 active 또는 archive만 가능합니다.")
+
+    slots = _read_schedule_slots_without_migration()
+    entry = _get_schedule_slot_entry(slots, slot)
+    if not _is_active_schedule_room((entry or {}).get("room")):
+        raise HTTPException(status_code=400, detail="초기화면에 연동할 Schedule Flight 카드가 없습니다.")
+
+    linked = _write_linked_slot(slot)
+    saved = _sync_latest_schedule_from_linked_slot()
+    return {
+        "linkedSlot": linked,
+        "savedAt": saved.get("savedAt") if saved else _now_kst_iso(),
+    }
 
 
 def _sanitize_latest_schedule_room(room: Dict[str, Any]) -> Dict[str, Any]:
@@ -2836,6 +3001,7 @@ async def get_schedule_slots() -> Dict[str, Any]:
         "success": True,
         "active": slots.get("active"),
         "archive": slots.get("archive"),
+        "linkedSlot": _read_linked_slot(),
         "source": "supabase" if supabase_payload is not None else "file",
     }
 
@@ -2856,13 +3022,15 @@ async def save_schedule_slot(payload: ScheduleSlotSaveRequest) -> Dict[str, Any]
             "success": True,
             "active": result["active"],
             "archive": result["archive"],
+            "linkedSlot": _read_linked_slot(),
             "savedAt": result["savedAt"],
             "rotated": True,
         }
 
     slot = target_slot or "active"
     entry = _update_schedule_slot(slot, room)
-    if slot == "active":
+    linked = _read_linked_slot()
+    if slot == linked:
         _update_auto_push_status(
             enabled=True,
             intervalMinutes=_get_auto_interval_minutes_for_room(entry["room"]),
@@ -2872,8 +3040,30 @@ async def save_schedule_slot(payload: ScheduleSlotSaveRequest) -> Dict[str, Any]
         "success": True,
         "active": _read_schedule_slots().get("active"),
         "archive": _read_schedule_slots().get("archive"),
+        "linkedSlot": linked,
         "savedAt": entry.get("savedAt") or _now_kst_iso(),
         "rotated": False,
+    }
+
+
+@router.post("/schedule-slots/link/{slot}")
+async def link_schedule_slot(slot: str) -> Dict[str, Any]:
+    link_result = _link_schedule_slot(slot)
+    slots = _read_schedule_slots()
+    entry = _get_schedule_slot_entry(slots, link_result["linkedSlot"])
+    room = entry.get("room") if entry else None
+    if isinstance(room, dict):
+        _update_auto_push_status(
+            enabled=True,
+            intervalMinutes=_get_auto_interval_minutes_for_room(room),
+            lastMessage="초기화면 연동 Schedule Flight를 변경했습니다.",
+        )
+    return {
+        "success": True,
+        "active": slots.get("active"),
+        "archive": slots.get("archive"),
+        "linkedSlot": link_result["linkedSlot"],
+        "savedAt": link_result.get("savedAt") or "",
     }
 
 
@@ -2884,23 +3074,27 @@ async def delete_schedule_slot(slot: str) -> Dict[str, Any]:
         "success": True,
         "active": remaining.get("active"),
         "archive": remaining.get("archive"),
+        "linkedSlot": _read_linked_slot(),
     }
 
 
 @router.post("/schedule-slots/swap")
 async def swap_schedule_slots() -> Dict[str, Any]:
     slots = _swap_schedule_slots()
-    active_room = (slots.get("active") or {}).get("room")
-    if isinstance(active_room, dict):
+    linked = _read_linked_slot()
+    entry = _get_schedule_slot_entry(slots, linked)
+    room = entry.get("room") if entry else None
+    if isinstance(room, dict):
         _update_auto_push_status(
             enabled=True,
-            intervalMinutes=_get_auto_interval_minutes_for_room(active_room),
-            lastMessage="활성/보관 Schedule Flight 카드를 교체했습니다.",
+            intervalMinutes=_get_auto_interval_minutes_for_room(room),
+            lastMessage="Schedule Flight 카드 위치를 교체했습니다. 초기화면 연동은 유지됩니다.",
         )
     return {
         "success": True,
         "active": slots.get("active"),
         "archive": slots.get("archive"),
+        "linkedSlot": linked,
     }
 
 

@@ -11,6 +11,7 @@ import {
   deleteScheduleSlotOnServer,
   formatScheduleCardName,
   isActiveScheduleRoom as isActiveScheduleSlotRoom,
+  linkScheduleSlotOnServer,
   loadScheduleSlotsFromServer,
   saveScheduleSlotToServer,
   slotsToRooms,
@@ -1277,6 +1278,7 @@ export default function FlightsPage() {
   const [scheduleSlots, setScheduleSlots] = useState<ScheduleSlotsState>({
     active: null,
     archive: null,
+    linkedSlot: "active",
   });
   const [selectedSlotKey, setSelectedSlotKey] = useState<ScheduleSlotKey | null>(null);
   const [queryMode, setQueryMode] = useState<"manual" | "kj-all">("manual");
@@ -1483,6 +1485,24 @@ export default function FlightsPage() {
         restoreError instanceof Error
           ? restoreError.message
           : "Schedule Flight 카드 복원 중 오류가 발생했습니다.",
+      );
+    }
+  };
+
+  const handleLinkSlot = async (slotKey: ScheduleSlotKey) => {
+    try {
+      const nextSlots = await linkScheduleSlotOnServer(slotKey);
+      applyScheduleSlotsState(nextSlots, slotKey);
+      clearFlightAlertBaselineAndHistory();
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("cargo_ops_latest_schedule_updated_at", new Date().toISOString());
+      }
+      setError("초기화면 Scheduled Flight 연동 카드를 변경했습니다.");
+    } catch (linkError) {
+      setError(
+        linkError instanceof Error
+          ? linkError.message
+          : "초기화면 연동 변경 중 오류가 발생했습니다.",
       );
     }
   };
@@ -2471,7 +2491,11 @@ export default function FlightsPage() {
         slot: selectedSlotKey || "active",
       });
       applyScheduleSlotsState(
-        { active: result.active, archive: result.archive },
+        {
+          active: result.active,
+          archive: result.archive,
+          linkedSlot: result.linkedSlot,
+        },
         selectedSlotKey || "active",
       );
       if (typeof window !== "undefined") {
@@ -2628,7 +2652,11 @@ export default function FlightsPage() {
         slot: targetSlot,
       });
       applyScheduleSlotsState(
-        { active: result.active, archive: result.archive },
+        {
+          active: result.active,
+          archive: result.archive,
+          linkedSlot: result.linkedSlot,
+        },
         shouldRotate ? "active" : targetSlot || "active",
       );
 
@@ -2883,7 +2911,7 @@ export default function FlightsPage() {
       >
         <h3 style={{ fontSize: 20, marginBottom: 8 }}>Schedule Flight</h3>
         <p style={{ color: "#94a3b8", fontSize: 12, lineHeight: 1.5, marginBottom: 16 }}>
-          최대 2장(활성 + 직전 보관). 새 저장 시 기존 활성 카드는 보관으로 이동합니다.
+          최대 2장(최신 저장 + 직전 보관). 초기화면 연동은 카드별로 선택합니다.
         </p>
 
         <ScheduleSlotCards
@@ -2891,6 +2919,7 @@ export default function FlightsPage() {
           selectedSlot={selectedSlotKey}
           onSelect={handleSelectSlot}
           onDelete={(slotKey) => void handleDeleteSlot(slotKey)}
+          onLink={(slotKey) => void handleLinkSlot(slotKey)}
           onRestore={() => void handleRestoreArchiveSlot()}
           showRestore={flightMode === "edit"}
         />
@@ -3180,8 +3209,21 @@ export default function FlightsPage() {
 
             {flightMode === "query" && scheduleSlots.active && (
               <div style={scheduleSaveGuideStyle}>
-                저장 시 기존 <b style={{ color: "#facc15" }}>활성</b> 카드는{" "}
-                <b style={{ color: "#94a3b8" }}>직전 보관</b>으로 이동하고, 선택 항목이 새 활성 카드가 됩니다.
+                저장 시 기존 <b style={{ color: "#facc15" }}>최신 저장</b> 카드는{" "}
+                <b style={{ color: "#94a3b8" }}>직전 보관</b>으로 이동합니다.
+                {scheduleSlots.linkedSlot === "archive" ? (
+                  <>
+                    {" "}
+                    현재 <b style={{ color: "#facc15" }}>초기화면 연동</b>은 직전 보관 카드에
+                    연결되어 있어, 새 저장만으로는 초기화면이 바뀌지 않습니다.
+                  </>
+                ) : (
+                  <>
+                    {" "}
+                    초기화면 연동이 <b style={{ color: "#facc15" }}>최신 저장</b>에 연결되어 있으면
+                    저장과 함께 초기화면도 갱신됩니다.
+                  </>
+                )}
               </div>
             )}
 
@@ -3214,7 +3256,7 @@ export default function FlightsPage() {
               >
                 {selectedScheduleRows.length > 0
                   ? flightMode === "query"
-                    ? `선택 ${selectedScheduleRows.length}건 활성 카드 저장`
+                    ? `선택 ${selectedScheduleRows.length}건 최신 저장`
                     : `선택 ${selectedScheduleRows.length}건 카드에 저장`
                   : "저장할 항공편 선택"}
               </button>
