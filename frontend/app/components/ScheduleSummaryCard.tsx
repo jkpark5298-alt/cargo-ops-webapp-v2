@@ -332,7 +332,6 @@ function FlightRouteRows({
                   if (matchedAlerts.length === 0) return null;
 
                   const isExpanded = expandedFlights[normalizeSummaryFlightKey(item.flight)];
-                  const previewAlert = matchedAlerts.length > 1 ? matchedAlerts[1] : matchedAlerts[0];
 
                   return (
                     <div
@@ -344,75 +343,39 @@ function FlightRouteRows({
                         border: "1px solid rgba(148, 163, 184, 0.15)",
                       }}
                     >
-                      {/* 최근 1건의 알림 항상 노출 (이전 단계의 알림을 우선 노출) */}
-                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                        <div
+                      <button
+                        type="button"
+                        onClick={() => toggleExpandFlight(item.flight)}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          padding: "3px 8px",
+                          borderRadius: 6,
+                          border: "1px solid rgba(147, 197, 253, 0.25)",
+                          background: "rgba(147, 197, 253, 0.08)",
+                          color: "#93c5fd",
+                          fontSize: 11,
+                          fontWeight: 850,
+                          cursor: "pointer",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <span>🔔</span>
+                        <span>{isExpanded ? "알림 이력 접기" : "알림 이력보기"}</span>
+                        <span
                           style={{
-                            color: "#fde68a",
-                            fontSize: 12,
-                            fontWeight: 900,
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 4,
+                            display: "inline-block",
+                            transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                            transition: "transform 0.15s ease",
+                            fontSize: 8,
+                            marginLeft: 2,
                           }}
                         >
-                          <span style={{ fontSize: 13 }}>⚠️</span>
-                          <span>{formatAlertTitle(previewAlert.title, previewAlert.description)}</span>
-                        </div>
-                        <div
-                          style={{
-                            color: "#93c5fd",
-                            fontSize: 12,
-                            lineHeight: 1.4,
-                            fontWeight: 750,
-                            paddingLeft: 18,
-                          }}
-                        >
-                          {renderAlertDescription(previewAlert.description, previewAlert.checkedAt)}
-                        </div>
-                      </div>
+                          ▼
+                        </span>
+                      </button>
 
-                      {/* 아코디언 토글 버튼 */}
-                      <div style={{ marginTop: 6, paddingLeft: 18 }}>
-                        <button
-                          type="button"
-                          onClick={() => toggleExpandFlight(item.flight)}
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 4,
-                            padding: "3px 8px",
-                            borderRadius: 6,
-                            border: "1px solid rgba(147, 197, 253, 0.25)",
-                            background: "rgba(147, 197, 253, 0.08)",
-                            color: "#93c5fd",
-                            fontSize: 11,
-                            fontWeight: 850,
-                            cursor: "pointer",
-                            transition: "all 0.15s ease",
-                          }}
-                        >
-                          <span>🔔</span>
-                          <span>
-                            {isExpanded
-                              ? "상세 알림 접기"
-                              : `알림 이력 전체 보기 (${matchedAlerts.length}건)`}
-                          </span>
-                          <span
-                            style={{
-                              display: "inline-block",
-                              transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
-                              transition: "transform 0.15s ease",
-                              fontSize: 8,
-                              marginLeft: 2,
-                            }}
-                          >
-                            ▼
-                          </span>
-                        </button>
-                      </div>
-
-                      {/* 아코디언 전개 시 전체 목록 표시 */}
                       {isExpanded && (
                         <div
                           style={{
@@ -422,7 +385,6 @@ function FlightRouteRows({
                             gap: 6,
                             paddingTop: 8,
                             borderTop: "1px solid rgba(148, 163, 184, 0.15)",
-                            paddingLeft: 18,
                           }}
                         >
                           {matchedAlerts.map((alert, alertIndex) => (

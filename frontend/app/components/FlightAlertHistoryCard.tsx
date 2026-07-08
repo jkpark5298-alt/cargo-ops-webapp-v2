@@ -28,7 +28,6 @@ export function FlightAlertHistoryCard({
   const newChangeCount = alertCount;
   const hasHistoryItems = historyItems.length > 0;
   const hasRecentChanges = newChangeCount > 0;
-  const latestItem = historyItems[0];
   const [showAllHistory, setShowAllHistory] = useState(false);
   const defaultVisibleCount = 5;
   const displayedHistoryItems = showAllHistory
@@ -68,20 +67,6 @@ export function FlightAlertHistoryCard({
           전체 삭제
         </button>
       </div>
-
-      {hasRecentChanges && !detailsVisible ? (
-        <div style={compactSummaryStyle}>
-          <div style={compactSummaryTitleStyle}>
-            {latestItem ? formatAlertTitle(latestItem.title, latestItem.description) : `알림 이력 ${newChangeCount}건`}
-          </div>
-          <div style={compactSummaryDescStyle}>
-            {latestItem
-              ? renderAlertDescription(latestItem.description, latestItem.checkedAt)
-              : "알림 이력 보기를 눌러 세부 내용을 확인하세요."}
-          </div>
-          <div style={compactSummaryMetaStyle}>알림 이력 보기로 세부 목록 확인</div>
-        </div>
-      ) : null}
 
       {hasHistoryItems && detailsVisible ? (
         <div style={flightAlertListStyle}>
@@ -180,38 +165,6 @@ const flightAlertMetaStyle: CSSProperties = {
   fontSize: 12,
   lineHeight: 1.5,
   marginTop: 8,
-};
-
-const compactSummaryStyle: CSSProperties = {
-  border: "1px solid rgba(250, 204, 21, 0.28)",
-  background: "rgba(250, 204, 21, 0.08)",
-  borderRadius: 14,
-  padding: "8px 10px",
-  marginBottom: 8,
-};
-
-const compactSummaryTitleStyle: CSSProperties = {
-  color: "#fef3c7",
-  fontSize: 14,
-  fontWeight: 950,
-  lineHeight: 1.3,
-};
-
-const compactSummaryDescStyle: CSSProperties = {
-  color: "#fde68a",
-  fontSize: 13,
-  lineHeight: 1.45,
-  fontWeight: 850,
-  marginTop: 4,
-  whiteSpace: "pre-line",
-};
-
-const compactSummaryMetaStyle: CSSProperties = {
-  color: "#93c5fd",
-  fontSize: 11,
-  lineHeight: 1.4,
-  fontWeight: 800,
-  marginTop: 4,
 };
 
 const flightAlertListStyle: CSSProperties = {
