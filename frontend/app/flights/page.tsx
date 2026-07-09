@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { FlightsModeTabs } from "./components/FlightsModeTabs";
 import { ScheduleSlotCards } from "./components/ScheduleSlotCards";
 import {
+  clearAllScheduleSlotsOnServer,
   deleteScheduleSlotOnServer,
   formatScheduleCardName,
   isActiveScheduleRoom as isActiveScheduleSlotRoom,
@@ -51,6 +52,8 @@ type FlightRow = {
   sourceType?: string;
   fid?: string;
   afocsSkd?: string;
+  registrationNoEdited?: boolean;
+  flightNoEdited?: boolean;
 };
 
 type MonitorRoom = {
@@ -441,6 +444,44 @@ function getRegistrationNo(row: FlightRow) {
 
 function getFlightDisplay(row: FlightRow) {
   return row.flightId || row.flightNo || "-";
+}
+
+function applyInlineHlDraftsToRows(targetRows: FlightRow[], drafts: Record<string, string>) {
+  return targetRows.map((row) => {
+    const flight = getFlightKeyFromRow(row);
+    if (!flight || flight === "-") return row;
+    if (!Object.prototype.hasOwnProperty.call(drafts, flight)) return row;
+
+    const registrationNo = normalizeHlNumber(drafts[flight] || "");
+    if (!/^HL\d{3,5}$/i.test(registrationNo)) return row;
+
+    const current = normalizeHlNumber(getRegistrationNo(row));
+    const registrationNoEdited = registrationNo !== current || Boolean(row.registrationNoEdited);
+
+    return {
+      ...row,
+      hlnbr: registrationNo,
+      registrationNo,
+      aircraftRegNo: registrationNo,
+      registrationNoEdited,
+    };
+  });
+}
+
+function formatFlightDisplayWithMarker(row: FlightRow, drafts: Record<string, string> = {}) {
+  const flight = getFlightDisplay(row);
+  if (row.registrationNoEdited || row.flightNoEdited) return `${flight}*`;
+
+  const flightKey = getFlightKeyFromRow(row);
+  if (Object.prototype.hasOwnProperty.call(drafts, flightKey)) {
+    const normalizedDraft = normalizeHlNumber(drafts[flightKey] || "");
+    const current = normalizeHlNumber(getRegistrationNo(row));
+    if (normalizedDraft && normalizedDraft !== current && /^HL\d{3,5}$/i.test(normalizedDraft)) {
+      return `${flight}*`;
+    }
+  }
+
+  return flight;
 }
 
 function getRowKey(row: FlightRow, idx: number) {
@@ -1181,7 +1222,7 @@ function FixedResultsTable({
                     />
                   </td>
                   <td style={{ ...tdStyle, color: getFlightNoColor(row.departureCode, row.arrivalCode) }}>
-                    {getFlightDisplay(row)}
+                    {formatFlightDisplayWithMarker(row, hlDrafts)}
                   </td>
                   <td style={tdStyle}>
                     <input
@@ -1459,6 +1500,37 @@ export default function FlightsPage() {
     }
   };
 
+  const handleDeleteAllSlots = async () => {
+    const hasAnySlot = Boolean(scheduleSlots.active || scheduleSlots.archive);
+    if (!hasAnySlot) {
+      setError("삭제할 Schedule Flight 카드가 없습니다.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "저장된 Schedule Flight 카드를 모두 삭제할까요? NOW FLT·After 카드와 초기화면/AFOCS SKD 연동이 함께 비워집니다.",
+    );
+    if (!confirmed) return;
+
+    try {
+      const nextSlots = await clearAllScheduleSlotsOnServer();
+      applyScheduleSlotsState(nextSlots);
+      resetLookupView();
+      setFixed(false);
+      clearFlightAlertBaselineAndHistory();
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("cargo_ops_latest_schedule_updated_at", new Date().toISOString());
+      }
+      setError("Schedule Flight 카드를 모두 삭제했습니다. 초기화면과 AFOCS SKD에도 반영됩니다.");
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Schedule Flight 전체 삭제 중 오류가 발생했습니다.",
+      );
+    }
+  };
+
   const handleRestoreArchiveSlot = async () => {
     if (!scheduleSlots.archive) {
       setError("복원할 직전 보관 카드가 없습니다.");
@@ -1528,7 +1600,60 @@ export default function FlightsPage() {
 
   const applyAllRegistrationSources = (targetRows: FlightRow[]) => {
     const latestRecords = loadAircraftRegistrationRecords();
-    return applyAircraftRegistrationToRows(applyHlMappingToRows(targetRows, hlNumberMap), latestRecords);
+    const withDrafts = applyInlineHlDraftsToRows(targetRows, hlInlineDrafts);
+    return applyAircraftRegistrationToRows(applyHlMappingToRows(withDrafts, hlNumberMap), latestRecords);
+  };
+
+  const persistRegistrationDraftsForRows = async (targetRows: FlightRow[]) => {
+    const nextMap: Record<string, string> = { ...hlNumberMap };
+    const incomingRecords = targetRows
+      .map((row) => {
+        const flight = getFlightKeyFromRow(row);
+        if (!flight || flight === "-") return null;
+
+        const rawValue = Object.prototype.hasOwnProperty.call(hlInlineDrafts, flight)
+          ? hlInlineDrafts[flight]
+          : getEditableHlValue(row, hlNumberMap, {});
+
+        const registrationNo = normalizeHlNumber(rawValue || "");
+        if (!/^HL\d{3,5}$/i.test(registrationNo)) return null;
+
+        nextMap[flight] = registrationNo;
+        return {
+          date: getAircraftRegistrationDateFromRow(row),
+          flight,
+          departureCode: row.departureCode || "",
+          arrivalCode: row.arrivalCode || "",
+          registrationNo,
+          updatedAt: new Date().toISOString(),
+        } satisfies AircraftRegistrationRecord;
+      })
+      .filter((record): record is AircraftRegistrationRecord => Boolean(record));
+
+    if (incomingRecords.length === 0) return;
+
+    const normalizedText = serializeHlMapping(nextMap);
+    setHlMappingText(normalizedText);
+    saveHlMappingText(normalizedText);
+
+    const latestRecords = loadAircraftRegistrationRecords();
+    let nextAircraftRegistrationRecords = mergeAircraftRegistrationRecords(
+      latestRecords,
+      incomingRecords,
+    );
+
+    try {
+      nextAircraftRegistrationRecords = await saveAircraftRegistrationRecordsToServer(
+        incomingRecords,
+        "merge",
+      );
+    } catch {
+      saveAircraftRegistrationRecords(nextAircraftRegistrationRecords);
+    }
+
+    setAircraftRegistrationRecords(nextAircraftRegistrationRecords);
+    saveAircraftRegistrationRecords(nextAircraftRegistrationRecords);
+    setHlInlineDrafts({});
   };
 
   const applyAllRegistrationSourcesToRoom = (room: MonitorRoom): MonitorRoom => ({
@@ -1876,7 +2001,15 @@ export default function FlightsPage() {
 
     setAircraftRegistrationRecords(nextAircraftRegistrationRecords);
 
-    const nextRows = applyAircraftRegistrationToRows(applyHlMappingToRows(rows, nextMap), nextAircraftRegistrationRecords);
+    const nextRows = applyAircraftRegistrationToRows(applyHlMappingToRows(rows, nextMap), nextAircraftRegistrationRecords).map(
+      (row) => {
+        const flight = getFlightKeyFromRow(row);
+        const wasEdited = incomingRecords.some(
+          (record) => normalizeFlightKey(record.flight) === normalizeFlightKey(flight),
+        );
+        return wasEdited ? { ...row, registrationNoEdited: true } : row;
+      },
+    );
     const nextRooms = rooms.map((room) => ({
       ...room,
       rows: applyAircraftRegistrationToRows(applyHlMappingToRows(room.rows || [], nextMap), nextAircraftRegistrationRecords),
@@ -2531,7 +2664,8 @@ export default function FlightsPage() {
     addRows.forEach((row) => {
       const flight = (row.flightId || row.flightNo || "").replace(/\s+/g, "").toUpperCase();
       if (!flight) return;
-      mergedMap.set(flight, row);
+      const existing = mergedMap.get(flight);
+      mergedMap.set(flight, existing ? { ...existing, ...row } : row);
     });
 
     return Array.from(mergedMap.values());
@@ -2591,7 +2725,9 @@ export default function FlightsPage() {
       return;
     }
 
-    const selectedRowsWithHl = applyAllRegistrationSources(selectedScheduleRows);
+    const selectedRowsWithDrafts = applyInlineHlDraftsToRows(selectedScheduleRows, hlInlineDrafts);
+    await persistRegistrationDraftsForRows(selectedRowsWithDrafts);
+    const selectedRowsWithHl = applyAllRegistrationSources(selectedRowsWithDrafts);
     const selectedFlights = getFlightsFromRowsInOrder(selectedRowsWithHl);
     if (selectedFlights.length === 0) {
       setError("선택한 결과에서 편명을 확인하지 못했습니다.");
@@ -2911,7 +3047,7 @@ export default function FlightsPage() {
       >
         <h3 style={{ fontSize: 20, marginBottom: 8 }}>Schedule Flight</h3>
         <p style={{ color: "#94a3b8", fontSize: 12, lineHeight: 1.5, marginBottom: 16 }}>
-          최대 2장(최신 저장 + 직전 보관). 초기화면 연동은 카드별로 선택합니다.
+          최대 2장(NOW FLT + After). 초기화면 연동은 보라색 NOW FLT 카드에서 선택합니다.
         </p>
 
         <ScheduleSlotCards
@@ -2919,6 +3055,7 @@ export default function FlightsPage() {
           selectedSlot={selectedSlotKey}
           onSelect={handleSelectSlot}
           onDelete={(slotKey) => void handleDeleteSlot(slotKey)}
+          onDeleteAll={() => void handleDeleteAllSlots()}
           onLink={(slotKey) => void handleLinkSlot(slotKey)}
           onRestore={() => void handleRestoreArchiveSlot()}
           showRestore={flightMode === "edit"}
@@ -3209,19 +3346,19 @@ export default function FlightsPage() {
 
             {flightMode === "query" && scheduleSlots.active && (
               <div style={scheduleSaveGuideStyle}>
-                저장 시 기존 <b style={{ color: "#facc15" }}>최신 저장</b> 카드는{" "}
-                <b style={{ color: "#94a3b8" }}>직전 보관</b>으로 이동합니다.
+                저장 시 기존 <b style={{ color: "#c084fc" }}>NOW FLT</b> 카드는{" "}
+                <b style={{ color: "#94a3b8" }}>After</b>로 이동합니다.
                 {scheduleSlots.linkedSlot === "archive" ? (
                   <>
                     {" "}
-                    현재 <b style={{ color: "#facc15" }}>초기화면 연동</b>은 직전 보관 카드에
-                    연결되어 있어, 새 저장만으로는 초기화면이 바뀌지 않습니다.
+                    현재 <b style={{ color: "#c084fc" }}>초기화면 연동</b>은 After 카드에 연결되어 있어,
+                    새 저장만으로는 초기화면이 바뀌지 않습니다.
                   </>
                 ) : (
                   <>
                     {" "}
-                    초기화면 연동이 <b style={{ color: "#facc15" }}>최신 저장</b>에 연결되어 있으면
-                    저장과 함께 초기화면도 갱신됩니다.
+                    초기화면 연동이 <b style={{ color: "#c084fc" }}>NOW FLT</b>에 연결되어 있으면 저장과
+                    함께 초기화면도 갱신됩니다.
                   </>
                 )}
               </div>
@@ -3256,7 +3393,7 @@ export default function FlightsPage() {
               >
                 {selectedScheduleRows.length > 0
                   ? flightMode === "query"
-                    ? `선택 ${selectedScheduleRows.length}건 최신 저장`
+                    ? `선택 ${selectedScheduleRows.length}건 NOW FLT 저장`
                     : `선택 ${selectedScheduleRows.length}건 카드에 저장`
                   : "저장할 항공편 선택"}
               </button>
@@ -3452,6 +3589,9 @@ export default function FlightsPage() {
 
         {flightMode === "edit" && fixed && rows.length > 0 && (
           <div style={hlInlineSaveRowStyle}>
+            <button type="button" onClick={() => void handleSaveInlineHlMapping()} style={hlMappingSaveButtonStyle}>
+              등록기호 저장
+            </button>
             <button
               type="button"
               onClick={() => void handleDeleteSelectedFlightsFromSchedule()}
@@ -3537,6 +3677,17 @@ export default function FlightsPage() {
         )}
 
         {hlMappingStatus ? <div style={hlMappingStatusStyle}>{hlMappingStatus}</div> : null}
+
+        {(flightMode === "query" || (flightMode === "edit" && !fixed)) && rows.length > 0 && (
+          <div style={{ ...hlInlineSaveRowStyle, marginTop: 16 }}>
+            <button type="button" onClick={() => void handleSaveInlineHlMapping()} style={hlMappingSaveButtonStyle}>
+              등록기호 저장
+            </button>
+            <span style={hlInlineHelpStyle}>
+              등록기호를 수동 입력한 뒤 저장하세요. 수정된 편명은 * 로 표시됩니다.
+            </span>
+          </div>
+        )}
 
         {(flightMode === "query" || (flightMode === "edit" && !fixed)) && (
           <div style={{ marginTop: 30, overflowX: "auto" }}>
@@ -3624,7 +3775,7 @@ export default function FlightsPage() {
                         {getComputedStatus(r)}
                       </td>
                       <td style={{ ...tdStyle, color: getFlightNoColor(r.departureCode, r.arrivalCode) }}>
-                        {getFlightDisplay(r)}
+                        {formatFlightDisplayWithMarker(r, hlInlineDrafts)}
                       </td>
                       <td style={tdStyle}>
                         <input

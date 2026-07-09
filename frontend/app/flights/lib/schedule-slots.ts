@@ -242,5 +242,23 @@ export async function swapScheduleSlotsOnServer() {
 }
 
 export function getSlotLabel(slot: ScheduleSlotKey) {
-  return slot === "active" ? "최신 저장" : "직전 보관";
+  return slot === "active" ? "NOW FLT" : "After";
+}
+
+export async function clearAllScheduleSlotsOnServer() {
+  let slots = await loadScheduleSlotsFromServer();
+  let guard = 0;
+
+  while (guard < 4 && (slots.active || slots.archive)) {
+    if (slots.active) {
+      slots = await deleteScheduleSlotOnServer("active");
+    } else if (slots.archive) {
+      slots = await deleteScheduleSlotOnServer("archive");
+    } else {
+      break;
+    }
+    guard += 1;
+  }
+
+  return slots;
 }

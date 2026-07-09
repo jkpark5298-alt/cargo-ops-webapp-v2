@@ -1612,6 +1612,11 @@ export default function HomePage() {
 
 
   const handleRevealServerFlightAlertHistory = async () => {
+    if (flightAlertDetailsVisible) {
+      setFlightAlertDetailsVisible(false);
+      return;
+    }
+
     setFlightAlertDetailsVisible(true);
     await handleLoadServerFlightAlertHistory(true);
   };

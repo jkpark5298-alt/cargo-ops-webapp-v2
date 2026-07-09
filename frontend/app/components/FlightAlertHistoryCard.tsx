@@ -56,7 +56,11 @@ export function FlightAlertHistoryCard({
           disabled={serverLoading}
           style={serverButtonStyle}
         >
-          {serverLoading ? "확인 중..." : "알림 이력 보기"}
+          {serverLoading
+            ? "확인 중..."
+            : detailsVisible
+              ? `알림 이력 닫기 (${alertCount}건)`
+              : `알림 이력 보기 (${alertCount}건)`}
         </button>
         <button
           type="button"

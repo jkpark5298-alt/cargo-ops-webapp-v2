@@ -362,7 +362,11 @@ function FlightRouteRows({
                         }}
                       >
                         <span>🔔</span>
-                        <span>{isExpanded ? "알림 이력 접기" : "알림 이력보기"}</span>
+                        <span>
+                          {isExpanded
+                            ? `알림 이력 접기 (${matchedAlerts.length}건)`
+                            : `알림 이력보기 (${matchedAlerts.length}건)`}
+                        </span>
                         <span
                           style={{
                             display: "inline-block",
