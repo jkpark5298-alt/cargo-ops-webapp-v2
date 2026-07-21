@@ -1372,6 +1372,35 @@ def _clear_schedule_slot(slot: str) -> Dict[str, Optional[Dict[str, Any]]]:
     return _read_schedule_slots()
 
 
+def _empty_schedule_room() -> Dict[str, Any]:
+    return {
+        "id": str(int(_now_kst().timestamp() * 1000)),
+        "name": "Schedule_Empty",
+        "flightsInput": "",
+        "startDateTime": _now_kst().replace(microsecond=0).isoformat(),
+        "endDateTime": (_now_kst() + timedelta(hours=24)).replace(microsecond=0).isoformat(),
+        "fixed": True,
+        "lastFetchedAt": _now_kst_iso(),
+        "rows": [],
+    }
+
+
+def _clear_all_schedule_slots() -> Dict[str, Any]:
+    empty_slots = _empty_schedule_slots_payload()
+    _write_schedule_slots_to_file(empty_slots)
+
+    for slot in SCHEDULE_SLOT_KEYS:
+        _delete_schedule_slot_from_supabase(slot)
+
+    _write_latest_schedule(_empty_schedule_room())
+
+    return {
+        "active": None,
+        "archive": None,
+        "linkedSlot": _read_linked_slot(),
+    }
+
+
 def _swap_schedule_slots() -> Dict[str, Optional[Dict[str, Any]]]:
     current = _read_schedule_slots()
     active_entry = current.get("active")
@@ -3064,6 +3093,23 @@ async def link_schedule_slot(slot: str) -> Dict[str, Any]:
         "archive": slots.get("archive"),
         "linkedSlot": link_result["linkedSlot"],
         "savedAt": link_result.get("savedAt") or "",
+    }
+
+
+@router.delete("/schedule-slots")
+async def clear_all_schedule_slots() -> Dict[str, Any]:
+    cleared = _clear_all_schedule_slots()
+    _update_auto_push_status(
+        enabled=False,
+        intervalMinutes=None,
+        lastMessage="Schedule Flight 카드를 모두 삭제했습니다.",
+    )
+    return {
+        "success": True,
+        "active": cleared.get("active"),
+        "archive": cleared.get("archive"),
+        "linkedSlot": cleared.get("linkedSlot") or _read_linked_slot(),
+        "clearedAll": True,
     }
 
 

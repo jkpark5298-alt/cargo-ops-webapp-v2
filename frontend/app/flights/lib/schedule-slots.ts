@@ -246,19 +246,19 @@ export function getSlotLabel(slot: ScheduleSlotKey) {
 }
 
 export async function clearAllScheduleSlotsOnServer() {
-  let slots = await loadScheduleSlotsFromServer();
-  let guard = 0;
-
-  while (guard < 4 && (slots.active || slots.archive)) {
-    if (slots.active) {
-      slots = await deleteScheduleSlotOnServer("active");
-    } else if (slots.archive) {
-      slots = await deleteScheduleSlotOnServer("archive");
-    } else {
-      break;
-    }
-    guard += 1;
+  const res = await fetch(`${BACKEND_URL}/flights/schedule-slots`, {
+    method: "DELETE",
+    cache: "no-store",
+  });
+  const json = await res.json();
+  if (!res.ok || json.success === false) {
+    throw new Error(json.detail || json.message || "Schedule Flight 전체 삭제 실패");
   }
 
-  return slots;
+  const cleared = normalizeScheduleSlotsResponse(json);
+  if (isActiveScheduleRoom(cleared.active?.room) || isActiveScheduleRoom(cleared.archive?.room)) {
+    throw new Error("서버에 Schedule Flight 카드가 남아 있습니다. 잠시 후 다시 시도해 주세요.");
+  }
+
+  return cleared;
 }

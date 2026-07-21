@@ -1517,10 +1517,20 @@ export default function FlightsPage() {
       applyScheduleSlotsState(nextSlots);
       resetLookupView();
       setFixed(false);
+      setSelectedSlotKey(null);
+      setInput("");
+      saveRooms([]);
       clearFlightAlertBaselineAndHistory();
       if (typeof window !== "undefined") {
         window.localStorage.setItem("cargo_ops_latest_schedule_updated_at", new Date().toISOString());
       }
+
+      const verifiedSlots = await loadScheduleSlotsFromServer();
+      if (isActiveScheduleSlotRoom(verifiedSlots.active?.room) || isActiveScheduleSlotRoom(verifiedSlots.archive?.room)) {
+        throw new Error("삭제 후에도 Schedule Flight 카드가 남아 있습니다.");
+      }
+      applyScheduleSlotsState(verifiedSlots);
+
       setError("Schedule Flight 카드를 모두 삭제했습니다. 초기화면과 AFOCS SKD에도 반영됩니다.");
     } catch (deleteError) {
       setError(
