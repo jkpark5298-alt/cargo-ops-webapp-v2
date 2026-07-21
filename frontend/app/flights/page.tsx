@@ -1330,8 +1330,8 @@ export default function FlightsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const [startDateTime, setStartDateTime] = useState(getDefaultStartDateTime());
-  const [endDateTime, setEndDateTime] = useState(getDefaultEndDateTime());
+  const [startDateTime, setStartDateTime] = useState("");
+  const [endDateTime, setEndDateTime] = useState("");
 
   const [fixed, setFixed] = useState(false);
   const [lastFetchedAt, setLastFetchedAt] = useState("");
@@ -1356,6 +1356,8 @@ export default function FlightsPage() {
   const hlMappingCount = useMemo(() => Object.keys(hlNumberMap).length, [hlNumberMap]);
 
   useEffect(() => {
+    setStartDateTime(getDefaultStartDateTime());
+    setEndDateTime(getDefaultEndDateTime());
     setHlMappingText(loadHlMappingText());
 
     const localRecords = loadAircraftRegistrationRecords();
@@ -1481,11 +1483,16 @@ export default function FlightsPage() {
       if (selectedSlotKey === slotKey) {
         resetLookupView();
         setFixed(false);
+        setInput("");
       }
       clearFlightAlertBaselineAndHistory();
       if (typeof window !== "undefined") {
         window.localStorage.setItem("cargo_ops_latest_schedule_updated_at", new Date().toISOString());
       }
+
+      const verifiedSlots = await loadScheduleSlotsFromServer();
+      applyScheduleSlotsState(verifiedSlots);
+
       setError(
         slotKey === "active"
           ? "활성 Schedule Flight 카드를 삭제했습니다. 초기화면과 AFOCS SKD에도 반영됩니다."

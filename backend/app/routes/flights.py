@@ -1336,7 +1336,7 @@ def _clear_schedule_slot(slot: str) -> Dict[str, Optional[Dict[str, Any]]]:
 
     linked_before = _read_linked_slot()
     _write_schedule_slot_entry(slot, None)
-    remaining = _read_schedule_slots()
+    remaining = _read_schedule_slots_without_migration()
 
     if slot == "active":
         archive_entry = remaining.get("archive")
@@ -1345,19 +1345,9 @@ def _clear_schedule_slot(slot: str) -> Dict[str, Optional[Dict[str, Any]]]:
             promoted["slot"] = "active"
             _write_schedule_slot_entry("active", promoted)
             _write_schedule_slot_entry("archive", None)
-            remaining = _read_schedule_slots()
+            remaining = _read_schedule_slots_without_migration()
         elif linked_before == "active":
-            empty_room = {
-                "id": str(int(_now_kst().timestamp() * 1000)),
-                "name": "Schedule_Empty",
-                "flightsInput": "",
-                "startDateTime": _now_kst().replace(microsecond=0).isoformat(),
-                "endDateTime": (_now_kst() + timedelta(hours=24)).replace(microsecond=0).isoformat(),
-                "fixed": True,
-                "lastFetchedAt": _now_kst_iso(),
-                "rows": [],
-            }
-            _write_latest_schedule(empty_room)
+            _write_latest_schedule(_empty_schedule_room())
 
     if slot == linked_before:
         fallback = "archive" if slot == "active" else "active"
@@ -1369,7 +1359,7 @@ def _clear_schedule_slot(slot: str) -> Dict[str, Optional[Dict[str, Any]]]:
     else:
         _sync_latest_schedule_from_linked_slot()
 
-    return _read_schedule_slots()
+    return _read_schedule_slots_without_migration()
 
 
 def _empty_schedule_room() -> Dict[str, Any]:
