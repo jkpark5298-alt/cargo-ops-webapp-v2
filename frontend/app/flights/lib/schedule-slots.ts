@@ -54,7 +54,7 @@ export type ScheduleSlotsState = {
   linkedSlot: ScheduleSlotKey;
 };
 
-export type FlightMode = "query" | "edit" | "registration";
+export type FlightMode = "query" | "edit" | "registration" | "home-link";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_API_URL || "https://cargo-ops-backend.onrender.com";

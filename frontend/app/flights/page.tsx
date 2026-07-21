@@ -3004,6 +3004,13 @@ export default function FlightsPage() {
     setFlightMode(mode);
     setError("");
 
+    if (mode === "home-link") {
+      setFixed(false);
+      setSelectedScheduleKeys({});
+      setSelectedScheduleOrder([]);
+      return;
+    }
+
     if (mode === "query") {
       setFixed(false);
       setSelectedScheduleKeys({});
@@ -3064,6 +3071,23 @@ export default function FlightsPage() {
 
       <main style={{ flex: 1, padding: 40 }}>
         <FlightsModeTabs mode={flightMode} onChange={handleFlightModeChange} />
+
+        {flightMode === "home-link" && (
+          <section style={{ marginBottom: 24 }}>
+            <h2 style={{ fontSize: 24, margin: "0 0 8px 0" }}>④ 초기화면 선택</h2>
+            <p style={{ color: "#94a3b8", fontSize: 14, lineHeight: 1.6, marginBottom: 16 }}>
+              NOW FLT 또는 After 카드 중 초기화면 Scheduled Flight에 연동할 카드를 선택하세요.
+            </p>
+            <ScheduleSlotCards
+              slots={scheduleSlots}
+              selectedSlot={scheduleSlots.linkedSlot}
+              onSelect={(slotKey) => void handleLinkSlot(slotKey)}
+              onDelete={(slotKey) => void handleDeleteSlot(slotKey)}
+              onDeleteAll={() => void handleDeleteAllSlots()}
+              onLink={(slotKey) => void handleLinkSlot(slotKey)}
+            />
+          </section>
+        )}
 
         {flightMode === "edit" && !selectedSlotKey && (
           <div style={{ color: "#94a3b8", marginBottom: 16, fontSize: 14 }}>

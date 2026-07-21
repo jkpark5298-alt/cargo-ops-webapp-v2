@@ -77,6 +77,11 @@ export function clearFlightAlertHistory() {
   localStorage.removeItem(FLIGHT_ALERT_HISTORY_KEY);
 }
 
+export function clearFlightAlertSnapshot() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(FLIGHT_ALERT_SNAPSHOT_KEY);
+}
+
 export function buildFlightAlertSnapshot(room: MonitorRoom | null): FlightAlertSnapshot | null {
   if (!room) return null;
 

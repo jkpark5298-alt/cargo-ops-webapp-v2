@@ -15,6 +15,9 @@ type WeatherInfo = {
   feelsLike?: string;
   humidity?: string;
   windSpeed?: string;
+  windDirectionText?: string;
+  windGust?: string;
+  visibility?: string;
   condition?: string;
   icon?: string;
   pm10Grade?: string;
@@ -39,34 +42,66 @@ export function WeatherCard({
   onOpenNaver,
 }: WeatherCardProps) {
   const hourly = weather.hourly || [];
+  const hasPrecipitation =
+    Boolean(weather.condition) &&
+    (weather.condition!.includes("비") ||
+      weather.condition!.includes("눈") ||
+      weather.condition!.includes("소나기") ||
+      weather.condition!.includes("이슬비"));
 
   return (
     <section style={weatherCardStyle}>
-      <div style={weatherTopRowStyle}>
-        <div>
-          <div style={weatherLabelStyle}>운서동 날씨</div>
-          <div style={weatherLocationStyle}>{weather.location || "인천시 중구 운서동"} 기준</div>
+      <div style={metarHeaderRowStyle}>
+        <span style={metarTitleStyle}>✈️ 활주로 실시간 기상 (METAR)</span>
+        <button onClick={onRefresh} disabled={weatherLoading} style={metarRefreshButtonStyle}>
+          {weatherLoading ? "조회중" : "🔄 갱신"}
+        </button>
+      </div>
+
+      <div style={metarMainRowStyle}>
+        <div style={metarSummaryStyle}>
+          <div style={metarIconStyle}>{weather.icon || "☀️"}</div>
+          <div style={metarTempStyle}>{weather.temperature || "-"}°C</div>
+          <div style={metarConditionStyle}>{weather.condition || "-"}</div>
         </div>
-        <div style={weatherButtonGroupStyle}>
-          <button onClick={onRefresh} style={weatherButtonStyle}>
-            {weatherLoading ? "조회 중" : "날씨 새로고침"}
-          </button>
-          <button onClick={onOpenNaver} style={weatherSubButtonStyle}>
-            네이버 날씨
-          </button>
+
+        <div style={metarGridStyle}>
+          <div style={metarMetricBoxStyle}>
+            <div style={metarMetricLabelStyle}>💨 풍향 / 풍속</div>
+            <div style={metarMetricValueStyle}>
+              {weather.windDirectionText || "-"} {weather.windSpeed ? `${weather.windSpeed}m/s` : "-"}
+              {weather.windGust ? (
+                <span style={metarGustStyle}>⚠️ 돌풍 {weather.windGust}m/s</span>
+              ) : null}
+            </div>
+          </div>
+
+          <div style={metarMetricBoxStyle}>
+            <div style={metarMetricLabelStyle}>👁️ 활주로 시정</div>
+            <div style={metarMetricValueStyle}>{weather.visibility || "-"}</div>
+          </div>
+
+          <div style={metarMetricBoxStyle}>
+            <div style={metarMetricLabelStyle}>💧 상대 습도</div>
+            <div style={metarMetricValueStyle}>{weather.humidity ? `${weather.humidity}%` : "-"}</div>
+          </div>
+
+          <div style={metarMetricBoxStyle}>
+            <div style={metarMetricLabelStyle}>☔ 강수 상태</div>
+            <div style={metarMetricValueStyle}>{hasPrecipitation ? "강수 감지" : "강수 없음"}</div>
+          </div>
         </div>
       </div>
 
-      <div style={weatherMainRowStyle}>
-        <div style={weatherTempStyle}>{weather.temperature || "-"}°</div>
-        <div style={weatherConditionBoxStyle}>
-          <div style={weatherIconStyle}>{weather.icon || "☀️"}</div>
-          <div style={weatherConditionStyle}>{weather.condition || "-"}</div>
-        </div>
+      <div style={metarFootnoteStyle}>
+        인천공항(RKSI) {weather.baseTime || "-"} 기준 ·{" "}
+        {weather.source === "metar" ? "실시간 METAR" : "KMA 초단기실황"}
       </div>
 
-      <div style={weatherMetaStyle}>
-        체감 {weather.feelsLike || "-"}° · 습도 {weather.humidity || "-"}% · 풍속 {weather.windSpeed || "-"}m/s
+      <div style={weatherUtilityRowStyle}>
+        <button onClick={onOpenNaver} style={weatherSubButtonStyle}>
+          네이버 날씨
+        </button>
       </div>
 
       <div style={weatherGridStyle}>
@@ -95,8 +130,8 @@ export function WeatherCard({
       </div>
 
       <div style={weatherNoteStyle}>
-        날씨 기준 {weather.baseTime || "-"}
-        {weather.source === "fallback" ? ` · ${weather.message || "예시값 표시 중"}` : " · 백엔드 날씨 API"}
+        {weather.location || "인천시 중구 운서동"} · 체감 {weather.feelsLike || "-"}°
+        {weather.source === "fallback" ? ` · ${weather.message || "예시값 표시 중"}` : ""}
       </div>
     </section>
   );
@@ -136,82 +171,119 @@ const weatherCardStyle: CSSProperties = {
   background: "linear-gradient(145deg, rgba(15, 23, 42, 0.92), rgba(30, 41, 59, 0.9))",
 };
 
-const weatherTopRowStyle: CSSProperties = {
+const metarHeaderRowStyle: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  gap: 12,
-  alignItems: "flex-start",
+  alignItems: "center",
+  marginBottom: 12,
+  borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
+  paddingBottom: 8,
 };
 
-const weatherLabelStyle: CSSProperties = {
-  color: "#dbeafe",
-  fontSize: 15,
-  fontWeight: 950,
+const metarTitleStyle: CSSProperties = {
+  fontSize: 14,
+  fontWeight: 900,
+  color: "#93c5fd",
+  letterSpacing: -0.3,
 };
 
-const weatherLocationStyle: CSSProperties = {
-  color: "#94a3b8",
-  marginTop: 4,
+const metarRefreshButtonStyle: CSSProperties = {
+  background: "rgba(59, 130, 246, 0.2)",
+  border: "1px solid rgba(59, 130, 246, 0.4)",
+  color: "#60a5fa",
+  borderRadius: 8,
+  padding: "4px 8px",
   fontSize: 12,
-};
-
-const weatherButtonGroupStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 8,
-};
-
-const weatherButtonStyle: CSSProperties = {
-  border: "none",
-  borderRadius: 12,
-  padding: "9px 11px",
-  color: "#0f172a",
-  background: "#bfdbfe",
-  fontWeight: 950,
+  fontWeight: "bold",
   cursor: "pointer",
 };
 
-const weatherSubButtonStyle: CSSProperties = {
-  ...weatherButtonStyle,
-  color: "#e5edf7",
-  background: "#1e293b",
-  border: "1px solid rgba(148, 163, 184, 0.28)",
-};
-
-const weatherMainRowStyle: CSSProperties = {
+const metarMainRowStyle: CSSProperties = {
   display: "flex",
+  gap: 16,
   alignItems: "center",
-  justifyContent: "space-between",
-  marginTop: 18,
 };
 
-const weatherTempStyle: CSSProperties = {
-  color: "#f8fafc",
-  fontSize: 48,
-  fontWeight: 950,
+const metarSummaryStyle: CSSProperties = {
+  textAlign: "center",
+  minWidth: 90,
+};
+
+const metarIconStyle: CSSProperties = {
+  fontSize: 44,
   lineHeight: 1,
 };
 
-const weatherConditionBoxStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-};
-
-const weatherIconStyle: CSSProperties = {
-  fontSize: 28,
-};
-
-const weatherConditionStyle: CSSProperties = {
+const metarTempStyle: CSSProperties = {
+  fontSize: 22,
+  fontWeight: 900,
+  marginTop: 6,
+  letterSpacing: -0.5,
   color: "#f8fafc",
-  fontSize: 18,
-  fontWeight: 950,
 };
 
-const weatherMetaStyle: CSSProperties = {
-  color: "#cbd5e1",
-  fontSize: 14,
-  marginTop: 14,
+const metarConditionStyle: CSSProperties = {
+  fontSize: 12,
+  color: "#94a3b8",
+  marginTop: 2,
+  fontWeight: 800,
+};
+
+const metarGridStyle: CSSProperties = {
+  flex: 1,
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 10,
+  fontSize: 12,
+};
+
+const metarMetricBoxStyle: CSSProperties = {
+  background: "rgba(255, 255, 255, 0.03)",
+  borderRadius: 10,
+  padding: 8,
+};
+
+const metarMetricLabelStyle: CSSProperties = {
+  color: "#94a3b8",
+  fontSize: 10,
+  marginBottom: 2,
+};
+
+const metarMetricValueStyle: CSSProperties = {
+  fontWeight: 800,
+  fontSize: 13,
+  color: "white",
+};
+
+const metarGustStyle: CSSProperties = {
+  color: "#f87171",
+  display: "block",
+  fontSize: 10,
+  marginTop: 2,
+};
+
+const metarFootnoteStyle: CSSProperties = {
+  fontSize: 10,
+  color: "#64748b",
+  textAlign: "right",
+  marginTop: 10,
+  fontVariantNumeric: "tabular-nums",
+};
+
+const weatherUtilityRowStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  marginTop: 12,
+};
+
+const weatherSubButtonStyle: CSSProperties = {
+  border: "1px solid rgba(148, 163, 184, 0.28)",
+  borderRadius: 12,
+  padding: "9px 11px",
+  color: "#e5edf7",
+  background: "#1e293b",
+  fontWeight: 950,
+  cursor: "pointer",
 };
 
 const weatherGridStyle: CSSProperties = {

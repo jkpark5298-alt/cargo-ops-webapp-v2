@@ -65,8 +65,8 @@ export function FlightAlertHistoryCard({
         <button
           type="button"
           onClick={onClear}
-          disabled={serverLoading || !hasHistoryItems}
-          style={hasHistoryItems ? dangerButtonStyle : disabledServerButtonStyle}
+          disabled={serverLoading || alertCount === 0}
+          style={alertCount > 0 ? dangerButtonStyle : disabledServerButtonStyle}
         >
           전체 삭제
         </button>

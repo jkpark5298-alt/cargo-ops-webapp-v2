@@ -18,6 +18,7 @@ import { ImageViewerModal } from "./components/ImageViewerModal";
 import {
   buildFlightAlertSnapshot,
   clearFlightAlertHistory,
+  clearFlightAlertSnapshot,
   loadFlightAlertHistory,
   loadFlightAlertSnapshot,
   saveFlightAlertHistory,
@@ -232,6 +233,7 @@ export type FlightRow = {
   aircraftRegNo?: string;
   registrationNo?: string;
   hlnbr?: string;
+  afocsSkd?: string;
 };
 
 export type MonitorRoom = {
@@ -1298,8 +1300,17 @@ export default function HomePage() {
       setFlightAlertHistory([]);
       setServerFlightAlertChangeCount(0);
       setFlightAlertDetailsVisible(false);
+      setFlightAlertSnapshot(null);
       clearFlightAlertHistory();
+      clearFlightAlertSnapshot();
       const clearResult = await clearServerFlightAlertHistory();
+      if (latestRoom) {
+        const nextSnapshot = buildFlightAlertSnapshot(latestRoom);
+        if (nextSnapshot) {
+          setFlightAlertSnapshot(nextSnapshot);
+          saveFlightAlertSnapshot(nextSnapshot);
+        }
+      }
       setServerFlightAlertStatus(`알림 이력을 전체 삭제했습니다. 서버 이력 ${clearResult.cleared ?? 0}건 정리`);
     } catch (error) {
       setServerFlightAlertStatus(
@@ -1540,14 +1551,17 @@ export default function HomePage() {
 
       const rawItems = json.items || json.history || json.notifications || json.data || [];
       const serverItems = mapServerNotificationHistory(rawItems);
-      const currentItems = loadFlightAlertHistory();
-      const nextItems = mergeFlightAlertHistoryItems(serverItems, currentItems);
+      const localItems = loadFlightAlertHistory();
+      const nextItems =
+        serverItems.length > 0
+          ? mergeFlightAlertHistoryItems(serverItems, localItems)
+          : [];
 
       setFlightAlertHistory(nextItems);
       setServerFlightAlertChangeCount(nextItems.length);
       saveFlightAlertHistory(nextItems);
 
-      const addedCount = Math.max(0, nextItems.length - currentItems.length);
+      const addedCount = Math.max(0, nextItems.length - localItems.length);
 
       if (showStatus) {
         setServerFlightAlertStatus(

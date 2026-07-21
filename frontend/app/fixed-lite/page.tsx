@@ -752,6 +752,7 @@ export default function FixedLitePage() {
   });
 
   const [manualOrder, setManualOrder] = useState<string[]>([]);
+  const [sortMode, setSortMode] = useState<"manual" | "schedule" | "afocs">("manual");
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [startY, setStartY] = useState<number>(0);
 
@@ -1100,9 +1101,15 @@ export default function FixedLitePage() {
   }, [orderStorageKey]);
 
   const orderedDisplayItems = useMemo(
-    () => applyScheduleFlightOrder(displayItemsForSelectedRoom, manualOrder),
-    [displayItemsForSelectedRoom, manualOrder]
+    () => sortWidgetItemsByMode(displayItemsForSelectedRoom, sortMode, manualOrder),
+    [displayItemsForSelectedRoom, sortMode, manualOrder],
   );
+  const canDragReorder = sortMode === "manual";
+
+  const handleSortModeChange = (mode: "schedule" | "afocs") => {
+    setSortMode((prev) => (prev === mode ? "manual" : mode));
+    setDraggingIndex(null);
+  };
 
   // 완료 / 진행중 편수 계산
   const completedItems = useMemo(
@@ -1121,14 +1128,14 @@ export default function FixedLitePage() {
   );
 
   const startDrag = (e: React.PointerEvent<HTMLDivElement>, index: number) => {
-    if (e.button !== 0) return; // Only left-click/touch
+    if (!canDragReorder || e.button !== 0) return; // Only left-click/touch
     e.currentTarget.setPointerCapture(e.pointerId);
     setDraggingIndex(index);
     setStartY(e.clientY);
   };
 
   const onDragMove = (e: React.PointerEvent<HTMLDivElement>, index: number) => {
-    if (draggingIndex === null || draggingIndex !== index) return;
+    if (!canDragReorder || draggingIndex === null || draggingIndex !== index) return;
     const deltaY = e.clientY - startY;
     const threshold = 40; // Swap items if dragged past 40px
 
@@ -1874,6 +1881,26 @@ export default function FixedLitePage() {
                 }}
               >
                 <span>핵심 요약</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>정렬</span>
+                    <button
+                      type="button"
+                      onClick={() => handleSortModeChange("schedule")}
+                      title="변경 시간 기준 정렬"
+                      style={getSortCircleButtonStyle(sortMode === "schedule")}
+                    >
+                      S
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSortModeChange("afocs")}
+                      title="AFOCS SKD 기준 정렬"
+                      style={getSortCircleButtonStyle(sortMode === "afocs")}
+                    >
+                      A
+                    </button>
+                  </div>
                 {completedItems.length > 0 && (
                   <button
                     onClick={() => setShowAllFlights((prev) => !prev)}
@@ -1893,6 +1920,7 @@ export default function FixedLitePage() {
                     {showAllFlights ? `총편수보기 ON (${orderedDisplayItems.length}편)` : `총편수보기 (완료 ${completedItems.length}편 숨김)`}
                   </button>
                 )}
+                </div>
               </div>
 
               {/* 진행중/완료 미니 통계 */}
@@ -2130,32 +2158,33 @@ export default function FixedLitePage() {
                         />
                       </label>
 
-                      {/* Drag Handle */}
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          width: 34,
-                          height: 34,
-                          borderRadius: 8,
-                          background: draggingIndex === index ? "rgba(59, 130, 246, 0.25)" : "rgba(148, 163, 184, 0.08)",
-                          border: draggingIndex === index ? "1px solid #3b82f6" : "1px solid rgba(148, 163, 184, 0.16)",
-                          cursor: draggingIndex === index ? "grabbing" : "grab",
-                          touchAction: "none",
-                          userSelect: "none",
-                        }}
-                        onPointerDown={(e) => startDrag(e, index)}
-                        onPointerMove={(e) => onDragMove(e, index)}
-                        onPointerUp={endDrag}
-                        onPointerCancel={endDrag}
-                        title={`${item.flight} 드래그하여 순서 이동`}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={draggingIndex === index ? "#60a5fa" : "#94a3b8"} strokeWidth="2.5" strokeLinecap="round">
-                          <line x1="4" y1="8" x2="20" y2="8" />
-                          <line x1="4" y1="16" x2="20" y2="16" />
-                        </svg>
-                      </div>
+                      {canDragReorder ? (
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            width: 34,
+                            height: 34,
+                            borderRadius: 8,
+                            background: draggingIndex === index ? "rgba(59, 130, 246, 0.25)" : "rgba(148, 163, 184, 0.08)",
+                            border: draggingIndex === index ? "1px solid #3b82f6" : "1px solid rgba(148, 163, 184, 0.16)",
+                            cursor: draggingIndex === index ? "grabbing" : "grab",
+                            touchAction: "none",
+                            userSelect: "none",
+                          }}
+                          onPointerDown={(e) => startDrag(e, index)}
+                          onPointerMove={(e) => onDragMove(e, index)}
+                          onPointerUp={endDrag}
+                          onPointerCancel={endDrag}
+                          title={`${item.flight} 드래그하여 순서 이동`}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={draggingIndex === index ? "#60a5fa" : "#94a3b8"} strokeWidth="2.5" strokeLinecap="round">
+                            <line x1="4" y1="8" x2="20" y2="8" />
+                            <line x1="4" y1="16" x2="20" y2="16" />
+                          </svg>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 );
@@ -2382,6 +2411,64 @@ function getFlightNoColor(dep?: string, arr?: string): string {
   if (d === "ICN" || d === "RKSI") return "#ef4444"; // 빨간색 (인천출발)
   if (a === "ICN" || a === "RKSI") return "#3b82f6"; // 파란색 (인천도착)
   return "#e2e8f0"; // 기본 흰색 계열
+}
+
+function parseAfocsSkdSortValue(value?: string) {
+  if (!value || value === "-") return Number.MAX_SAFE_INTEGER;
+
+  const normalized = value.trim();
+  const timeMatch = normalized.match(/(\d{1,2}):(\d{2})/);
+  if (timeMatch) {
+    return Number(timeMatch[1]) * 60 + Number(timeMatch[2]);
+  }
+
+  const dt = parseDateTime(normalized);
+  if (dt) return dt.getHours() * 60 + dt.getMinutes();
+
+  return Number.MAX_SAFE_INTEGER;
+}
+
+function parseWidgetScheduleSortValue(item: WidgetSummaryItem) {
+  const dt = parseDateTime(item.displayTime);
+  return dt ? dt.getTime() : Number.MAX_SAFE_INTEGER;
+}
+
+function sortWidgetItemsByMode(
+  items: WidgetSummaryItem[],
+  mode: "manual" | "schedule" | "afocs",
+  manualOrder: string[],
+) {
+  if (mode === "manual") {
+    return applyScheduleFlightOrder(items, manualOrder);
+  }
+
+  return [...items].sort((a, b) => {
+    if (mode === "schedule") {
+      return parseWidgetScheduleSortValue(a) - parseWidgetScheduleSortValue(b);
+    }
+
+    const diff = parseAfocsSkdSortValue(a.afocsSkd) - parseAfocsSkdSortValue(b.afocsSkd);
+    if (diff !== 0) return diff;
+    return parseWidgetScheduleSortValue(a) - parseWidgetScheduleSortValue(b);
+  });
+}
+
+function getSortCircleButtonStyle(active: boolean): CSSProperties {
+  return {
+    width: 28,
+    height: 28,
+    borderRadius: "50%",
+    border: active ? "1px solid #60a5fa" : "1px solid rgba(148, 163, 184, 0.35)",
+    background: active ? "rgba(59, 130, 246, 0.25)" : "rgba(15, 23, 42, 0.85)",
+    color: active ? "#93c5fd" : "#cbd5e1",
+    fontSize: 12,
+    fontWeight: 900,
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 0,
+  };
 }
 
 function normalizeSummaryFlightKey(value: string) {

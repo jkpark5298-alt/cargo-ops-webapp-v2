@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import type { FlightMode } from "../lib/schedule-slots";
 
 type FlightsModeTabsProps = {
@@ -8,13 +8,28 @@ type FlightsModeTabsProps = {
   onChange: (mode: FlightMode) => void;
 };
 
-const tabs: { id: FlightMode; label: string }[] = [
+const baseTabs: { id: FlightMode; label: string }[] = [
   { id: "query", label: "① 편명 조회 및 저장" },
   { id: "edit", label: "② 편명 수정" },
   { id: "registration", label: "③ 등록번호 / AFOCS" },
 ];
 
+const homeLinkTab = { id: "home-link" as const, label: "④ 초기화면 선택" };
+
+function isAppleMobileDevice() {
+  if (typeof navigator === "undefined") return false;
+  return /iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
 export function FlightsModeTabs({ mode, onChange }: FlightsModeTabsProps) {
+  const [showHomeLinkTab, setShowHomeLinkTab] = useState(false);
+
+  useEffect(() => {
+    setShowHomeLinkTab(isAppleMobileDevice());
+  }, []);
+
+  const tabs = showHomeLinkTab ? [...baseTabs, homeLinkTab] : baseTabs;
+
   return (
     <div style={wrapStyle}>
       {tabs.map((tab) => (
