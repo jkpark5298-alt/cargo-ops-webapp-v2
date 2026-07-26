@@ -21,6 +21,12 @@ import {
   type ScheduleSlotKey,
   type ScheduleSlotsState,
 } from "./lib/schedule-slots";
+import {
+  formatExcelAfocsSkdValue,
+  getAfocsSkdPlaceholderFromRow,
+  prepareAfocsSkdForSave,
+  resolveAfocsSkdForDisplay,
+} from "../lib/afocs-skd";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_API_URL || "https://cargo-ops-backend.onrender.com";
@@ -1236,13 +1242,18 @@ function FixedResultsTable({
                   </td>
                   <td style={tdStyle}>
                     <input
-                      value={afocsSkdDrafts[getFlightKeyFromRow(row)] ?? row.afocsSkd ?? ""}
+                      value={
+                        afocsSkdDrafts[getFlightKeyFromRow(row)] ??
+                        resolveAfocsSkdForDisplay(row.afocsSkd || "", row)
+                      }
                       onChange={(event) =>
                         onAfocsSkdDraftChange(getFlightKeyFromRow(row), event.target.value)
                       }
-                      placeholder={getChangedDateTime(row).split(" ").slice(-1)[0] || "시간입력"}
+                      placeholder={getAfocsSkdPlaceholderFromRow(row)}
                       style={{
                         ...hlInlineInputStyle,
+                        minWidth: 120,
+                        width: 130,
                         color: "#fcd34d",
                         fontWeight: "bold",
                         border: "1px solid rgba(59, 130, 246, 0.4)",
@@ -1819,7 +1830,7 @@ export default function FlightsPage() {
       if (Object.prototype.hasOwnProperty.call(afocsSkdInlineDrafts, flightKey)) {
         return {
           ...row,
-          afocsSkd: afocsSkdInlineDrafts[flightKey],
+          afocsSkd: prepareAfocsSkdForSave(afocsSkdInlineDrafts[flightKey], row),
         };
       }
       return row;
@@ -1842,7 +1853,7 @@ export default function FlightsPage() {
 
     try {
       await saveLatestScheduleToServer(updatedRoom);
-      setHlMappingStatus("AFOCS SKD 시간을 저장했습니다. AFOCS SKD에 실시간 반영됩니다.");
+      setHlMappingStatus("AFOCS SKD 날짜·시간을 저장했습니다. AFOCS SKD에 실시간 반영됩니다.");
     } catch (syncError) {
       setHlMappingStatus(
         syncError instanceof Error
@@ -1878,10 +1889,13 @@ export default function FlightsPage() {
       rawRows.forEach((row) => {
         const flightVal = getAircraftRegistrationCell(row, ["편명", "flight", "flightid", "flightno", "flightnumber"]);
         const timeVal = getAircraftRegistrationCell(row, ["시간", "AFOCSSKD", "AFOCS SKD", "time", "schedule", "scheduledatetime", "etd/eta", "etd", "eta"]);
-        
+
         const flightKey = normalizeFlightKey(String(flightVal || ""));
-        const timeStr = formatExcelTimeValue(timeVal);
-        
+        const matchedRow = (selectedRoom.rows || []).find(
+          (scheduleRow) => getFlightKeyFromRow(scheduleRow) === flightKey,
+        );
+        const timeStr = formatExcelAfocsSkdValue(timeVal, matchedRow);
+
         if (flightKey && timeStr) {
           excelMappings[flightKey] = timeStr;
         }

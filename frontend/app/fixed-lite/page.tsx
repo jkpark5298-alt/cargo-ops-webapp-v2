@@ -1,6 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  parseAfocsSkdSortValue,
+  prepareAfocsSkdForSave,
+  resolveAfocsSkdForDisplay,
+  getAfocsSkdPlaceholderFromRow,
+} from "../lib/afocs-skd";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_API_URL || "https://cargo-ops-backend.onrender.com";
@@ -640,7 +646,7 @@ function formatDisplayItemFromRow(flight: string, row: FlightRow): WidgetSummary
       ) || "-",
     gate: row.gatenumber || "-",
     registrationNo: getRegistrationNo(row),
-    afocsSkd: row.afocsSkd || "",
+    afocsSkd: resolveAfocsSkdForDisplay(row.afocsSkd || "", row),
   };
 }
 
@@ -993,11 +999,15 @@ export default function FixedLitePage() {
     if (!selectedRoom) return;
 
     const flightKey = normalizeFlightKey(flight);
+    const matchedRow = (selectedRoom.rows || []).find(
+      (row) => normalizeFlightKey(row.flightId || row.flightNo || "") === flightKey,
+    );
+    const normalizedValue = prepareAfocsSkdForSave(val, matchedRow);
 
     const updatedRows = (selectedRoom.rows || []).map((row) => {
       const rowFlightKey = normalizeFlightKey(row.flightId || row.flightNo || "");
       if (rowFlightKey === flightKey) {
-        return { ...row, afocsSkd: val };
+        return { ...row, afocsSkd: normalizedValue };
       }
       return row;
     });
@@ -1011,7 +1021,7 @@ export default function FixedLitePage() {
       const newDummyRow: FlightRow = {
         flightId: flight,
         flightNo: flight,
-        afocsSkd: val,
+        afocsSkd: normalizedValue,
       };
       finalRows = [...updatedRows, newDummyRow];
     }
@@ -2080,10 +2090,17 @@ export default function FixedLitePage() {
                         <input
                           type="text"
                           value={item.afocsSkd || ""}
-                          placeholder={item.displayTime && item.displayTime !== "-" ? item.displayTime.split(" ").slice(-1)[0] : "시간 입력"}
+                          placeholder={getAfocsSkdPlaceholderFromRow(
+                            (selectedRoom?.rows || []).find(
+                              (row) =>
+                                normalizeFlightKey(row.flightId || row.flightNo || "") ===
+                                normalizeFlightKey(item.flight),
+                            ),
+                          )}
                           onChange={(e) => void handleUpdateAfocsSkd(item.flight, e.target.value)}
                           style={{
-                            width: 85,
+                            width: 130,
+                            minWidth: 120,
                             background: "#091326",
                             border: "1px solid #3b82f6",
                             color: "#fcd34d",
@@ -2413,19 +2430,8 @@ function getFlightNoColor(dep?: string, arr?: string): string {
   return "#e2e8f0"; // 기본 흰색 계열
 }
 
-function parseAfocsSkdSortValue(value?: string) {
-  if (!value || value === "-") return Number.MAX_SAFE_INTEGER;
-
-  const normalized = value.trim();
-  const timeMatch = normalized.match(/(\d{1,2}):(\d{2})/);
-  if (timeMatch) {
-    return Number(timeMatch[1]) * 60 + Number(timeMatch[2]);
-  }
-
-  const dt = parseDateTime(normalized);
-  if (dt) return dt.getHours() * 60 + dt.getMinutes();
-
-  return Number.MAX_SAFE_INTEGER;
+function parseAfocsSkdSortValueLocal(value?: string) {
+  return parseAfocsSkdSortValue(value);
 }
 
 function parseWidgetScheduleSortValue(item: WidgetSummaryItem) {
@@ -2447,7 +2453,7 @@ function sortWidgetItemsByMode(
       return parseWidgetScheduleSortValue(a) - parseWidgetScheduleSortValue(b);
     }
 
-    const diff = parseAfocsSkdSortValue(a.afocsSkd) - parseAfocsSkdSortValue(b.afocsSkd);
+    const diff = parseAfocsSkdSortValueLocal(a.afocsSkd) - parseAfocsSkdSortValueLocal(b.afocsSkd);
     if (diff !== 0) return diff;
     return parseWidgetScheduleSortValue(a) - parseWidgetScheduleSortValue(b);
   });

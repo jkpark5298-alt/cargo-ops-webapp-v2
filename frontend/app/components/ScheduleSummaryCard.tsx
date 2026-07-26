@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { FlightRow, MonitorRoom } from "../page";
 import type { FlightAlertHistoryItem } from "../lib/flight-alerts";
 import { formatAlertTitle, renderAlertDescription, formatHistoryTime } from "./FlightAlertHistoryCard";
+import { parseAfocsSkdSortValue, resolveAfocsSkdForDisplay } from "../lib/afocs-skd";
 
 type ScheduleSummaryCardProps = {
   latestRoom: MonitorRoom | null;
@@ -375,8 +376,8 @@ function FlightRouteRows({
                     value={item.afocsSkd || ""}
                     placeholder={
                       item.displayTime && item.displayTime !== "-"
-                        ? item.displayTime.split(" ").slice(-1)[0]
-                        : "시간 입력"
+                        ? item.displayTime
+                        : "날짜·시간 입력"
                     }
                     onChange={(event) => onUpdateAfocsSkd(item.flight, event.target.value)}
                     style={afocsSkdInputStyle}
@@ -677,7 +678,7 @@ function getFlightRouteItems(room: MonitorRoom | null) {
             row.scheduleDateTime ||
             "",
         ),
-        afocsSkd: row.afocsSkd || "",
+        afocsSkd: resolveAfocsSkdForDisplay(row.afocsSkd || "", row),
         gate: getGateDisplay(row),
         hasResult: true,
         departureCode: row.departureCode || "",
@@ -1195,19 +1196,8 @@ function isItemInFocusWindow(item: FlightRouteItem) {
   return false;
 }
 
-function parseAfocsSkdSortValue(value?: string) {
-  if (!value || value === "-") return Number.MAX_SAFE_INTEGER;
-
-  const normalized = value.trim();
-  const timeMatch = normalized.match(/(\d{1,2}):(\d{2})/);
-  if (timeMatch) {
-    return Number(timeMatch[1]) * 60 + Number(timeMatch[2]);
-  }
-
-  const dt = parseDateTime(normalized);
-  if (dt) return dt.getHours() * 60 + dt.getMinutes();
-
-  return Number.MAX_SAFE_INTEGER;
+function parseAfocsSkdSortValueLocal(value?: string) {
+  return parseAfocsSkdSortValue(value);
 }
 
 function parseScheduleSortValue(item: FlightRouteItem) {
@@ -1225,7 +1215,7 @@ function sortFlightItemsByMode(items: FlightRouteItem[], mode: FlightSortMode, m
       return parseScheduleSortValue(a) - parseScheduleSortValue(b);
     }
 
-    const diff = parseAfocsSkdSortValue(a.afocsSkd) - parseAfocsSkdSortValue(b.afocsSkd);
+    const diff = parseAfocsSkdSortValueLocal(a.afocsSkd) - parseAfocsSkdSortValueLocal(b.afocsSkd);
     if (diff !== 0) return diff;
     return parseScheduleSortValue(a) - parseScheduleSortValue(b);
   });
@@ -1295,7 +1285,8 @@ const afocsSkdDisplayStyle: CSSProperties = {
 };
 
 const afocsSkdInputStyle: CSSProperties = {
-  width: 85,
+  width: 130,
+  minWidth: 120,
   background: "#091326",
   border: "1px solid #3b82f6",
   color: "#fcd34d",

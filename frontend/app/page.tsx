@@ -63,6 +63,7 @@ import {
   saveScheduleSlotToServer,
   type ScheduleSlotKey,
 } from "./flights/lib/schedule-slots";
+import { prepareAfocsSkdForSave } from "./lib/afocs-skd";
 
 const STORAGE_KEY = "cargo_ops_monitor_rooms_v6";
 const AIRCRAFT_REGISTRATION_STORAGE_KEY = "cargo_ops_aircraft_registration_records_v1";
@@ -1660,10 +1661,15 @@ export default function HomePage() {
     if (!latestRoom) return;
 
     const flightKey = normalizeFlightKey(flight);
+    const matchedRow = (latestRoom.rows || []).find(
+      (row) => normalizeFlightKey(getFlightNo(row)) === flightKey,
+    );
+    const normalizedValue = prepareAfocsSkdForSave(val, matchedRow);
+
     const updatedRows = (latestRoom.rows || []).map((row) => {
       const rowFlightKey = normalizeFlightKey(getFlightNo(row));
       if (rowFlightKey === flightKey) {
-        return { ...row, afocsSkd: val };
+        return { ...row, afocsSkd: normalizedValue };
       }
       return row;
     });
@@ -1679,7 +1685,7 @@ export default function HomePage() {
         {
           flightId: flight,
           flightNo: flight,
-          afocsSkd: val,
+          afocsSkd: normalizedValue,
         },
       ];
     }
