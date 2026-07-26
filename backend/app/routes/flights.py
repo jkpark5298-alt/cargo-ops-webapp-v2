@@ -321,16 +321,22 @@ def _get_alert_time_value(row: Dict[str, Any]) -> Any:
 
 
 def _parse_kst_iso(value: Any) -> Optional[datetime]:
+    """Parse timestamps stored by this app.
+
+    `_now_kst_iso()` writes naive KST ISO strings (no offset). On UTC hosts
+    (e.g. Render), treating those as local/UTC and converting to KST shifts
+    them +9h and breaks health-tick due checks (`elapsedSeconds` goes negative).
+    """
     if not value:
         return None
 
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(KST).replace(tzinfo=None)
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return parsed
+        return parsed.astimezone(KST).replace(tzinfo=None)
     except Exception:
-        try:
-            return datetime.fromisoformat(str(value)).replace(tzinfo=None)
-        except Exception:
-            return None
+        return None
 
 
 class PushSubscriptionRequest(BaseModel):
@@ -2698,8 +2704,10 @@ async def _run_auto_push_tick_if_due(source: str = "health") -> Dict[str, Any]:
         if last_run_at is not None
         else None
     )
+    # Negative elapsed means clock/parse skew — treat as overdue so cron health recovers.
     due = enabled and (
         elapsed_seconds is None
+        or elapsed_seconds < 0
         or elapsed_seconds >= interval_minutes * 60
     )
 
