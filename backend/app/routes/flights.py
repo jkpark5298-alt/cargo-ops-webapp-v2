@@ -2236,6 +2236,101 @@ def _merge_latest_rows(
     return merged
 
 
+def _preserve_manual_afocs_skd(
+    target_rows: List[Dict[str, Any]],
+    source_rows: List[Any],
+) -> List[Dict[str, Any]]:
+    """source에 수동 입력된 afocsSkd가 있으면 target row에 덮어쓴다."""
+    source_by_flight: Dict[str, Dict[str, Any]] = {}
+    for row in source_rows or []:
+        if not isinstance(row, dict):
+            continue
+        flight = _get_flight_key(row)
+        afocs = str(row.get("afocsSkd") or "").strip()
+        if flight and afocs:
+            source_by_flight[flight] = row
+
+    if not source_by_flight:
+        return target_rows
+
+    preserved: List[Dict[str, Any]] = []
+    for row in target_rows:
+        if not isinstance(row, dict):
+            continue
+        flight = _get_flight_key(row)
+        source = source_by_flight.get(flight)
+        if source:
+            next_row = dict(row)
+            next_row["afocsSkd"] = source.get("afocsSkd")
+            preserved.append(next_row)
+        else:
+            preserved.append(row)
+    return preserved
+
+
+def _get_linked_slot_room() -> Optional[Dict[str, Any]]:
+    slots = _read_schedule_slots_without_migration()
+    linked_slot = _read_linked_slot()
+    entry = _get_schedule_slot_entry(slots, linked_slot)
+    room = entry.get("room") if entry else None
+    return room if isinstance(room, dict) else None
+
+
+def _get_schedule_room_for_api_check() -> Optional[Dict[str, Any]]:
+    """
+    API 즉시 확인용 room.
+    latest_schedule을 기준으로 하되, 연동 슬롯의 수동 afocsSkd를 우선 복원한다.
+    """
+    latest = _read_latest_schedule()
+    linked_room = _get_linked_slot_room()
+
+    if not latest and not _is_active_schedule_room(linked_room):
+        return None
+
+    if not latest and linked_room:
+        return dict(linked_room)
+
+    room = dict(latest or {})
+    linked_rows = linked_room.get("rows") if isinstance(linked_room, dict) else []
+    existing_rows = room.get("rows") if isinstance(room.get("rows"), list) else []
+    room["rows"] = _preserve_manual_afocs_skd(existing_rows, linked_rows if isinstance(linked_rows, list) else [])
+
+    if linked_room:
+        for key in ("flightsInput", "startDateTime", "endDateTime", "id", "name"):
+            if linked_room.get(key) and not room.get(key):
+                room[key] = linked_room.get(key)
+        if linked_room.get("flightsInput"):
+            room["flightsInput"] = linked_room.get("flightsInput")
+
+    return room
+
+
+def _write_checked_schedule_room(room: Dict[str, Any]) -> Dict[str, Any]:
+    """API 확인 결과를 latest_schedule과 연동 슬롯에 함께 저장한다."""
+    saved = _write_latest_schedule(room)
+    saved_room = saved.get("room") if isinstance(saved, dict) else room
+    if not isinstance(saved_room, dict):
+        saved_room = room
+
+    linked_slot = _read_linked_slot()
+    slots = _read_schedule_slots_without_migration()
+    existing_entry = _get_schedule_slot_entry(slots, linked_slot)
+    if existing_entry or _is_active_schedule_room(saved_room):
+        name = str(
+            (existing_entry or {}).get("name")
+            or _build_schedule_card_name(str(saved_room.get("startDateTime") or ""))
+        )
+        entry = _schedule_slot_payload(
+            linked_slot,
+            name,
+            saved_room,
+            saved.get("savedAt") if isinstance(saved, dict) else _now_kst_iso(),
+        )
+        _write_schedule_slot_entry(linked_slot, entry)
+
+    return saved
+
+
 def _get_vapid_settings() -> tuple[str, str, str]:
     public_key = os.getenv("WEB_PUSH_PUBLIC_KEY", "").strip()
     private_key = os.getenv("WEB_PUSH_PRIVATE_KEY", "").strip()
@@ -2349,7 +2444,7 @@ async def send_test_push(payload: TestPushRequest) -> Dict[str, Any]:
 
 
 async def _run_schedule_change_check(push_on_change: bool = True) -> Dict[str, Any]:
-    room = _read_latest_schedule()
+    room = _get_schedule_room_for_api_check()
 
     if not room:
         raise HTTPException(status_code=400, detail="서버에 저장된 Schedule Flight가 없습니다.")
@@ -2430,9 +2525,16 @@ async def _run_schedule_change_check(push_on_change: bool = True) -> Dict[str, A
             changed_items.append(_build_changed_item(flight, current, prealert["changes"]))
 
     merged_rows = _merge_latest_rows(existing_rows, list(fresh_latest.values()))
+    # 연동 슬롯에 남아 있는 수동 AFOCS SKD를 최종 결과에 다시 반영
+    linked_room = _get_linked_slot_room()
+    linked_rows = linked_room.get("rows") if isinstance(linked_room, dict) else []
+    merged_rows = _preserve_manual_afocs_skd(
+        merged_rows,
+        linked_rows if isinstance(linked_rows, list) else [],
+    )
     room["rows"] = merged_rows
     room["lastFetchedAt"] = _now_kst_iso()
-    _write_latest_schedule(room)
+    _write_checked_schedule_room(room)
 
     sent = 0
     failed = 0

@@ -1734,7 +1734,26 @@ export default function HomePage() {
         ? (json.room as MonitorRoom)
         : null;
       const localLatestRoom = getLocalLatestScheduleRoom();
-      const serverRoom = mergeScheduleRegistrationIntoRoom(rawServerRoom, localLatestRoom);
+
+      let slotAfocsRows: FlightRow[] | undefined;
+      try {
+        const slots = await loadScheduleSlotsFromServer();
+        linkedScheduleSlotRef.current = slots.linkedSlot;
+        const linkedEntry = slots[slots.linkedSlot];
+        if (linkedEntry?.room?.rows?.length) {
+          slotAfocsRows = linkedEntry.room.rows;
+        }
+      } catch {
+        // 슬롯 조회 실패 시 로컬 값으로만 보존합니다.
+      }
+
+      const roomWithLocalAfocs = mergeScheduleRegistrationIntoRoom(rawServerRoom, localLatestRoom);
+      const serverRoom = roomWithLocalAfocs
+        ? {
+            ...roomWithLocalAfocs,
+            rows: preserveAfocsSkdOnRows(roomWithLocalAfocs.rows || [], slotAfocsRows),
+          }
+        : null;
 
       const nextRooms = mergeLatestScheduleRoom(loadRooms(), serverRoom);
       setRooms(nextRooms);
