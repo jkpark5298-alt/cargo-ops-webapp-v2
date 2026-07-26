@@ -8,6 +8,7 @@ import {
   resolveAfocsSkdForDisplay,
   getAfocsSkdPlaceholderFromRow,
 } from "../lib/afocs-skd";
+import { DEFAULT_DAILY_AUTHOR, normalizeDailyAuthor } from "../lib/local-storage";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_API_URL || "https://cargo-ops-backend.onrender.com";
@@ -744,7 +745,7 @@ export default function FixedLitePage() {
 
   // Daily report states & logic
   const [dailyStatus, setDailyStatus] = useState<"normal" | "issue">("normal");
-  const [author, setAuthor] = useState("");
+  const [author, setAuthor] = useState(DEFAULT_DAILY_AUTHOR);
   const [note, setNote] = useState("");
   const [images, setImages] = useState<SavedImage[]>([]);
   const [dailyWorkDate, setDailyWorkDate] = useState(() => {
@@ -756,11 +757,12 @@ export default function FixedLitePage() {
 
   const lastSavedValuesRef = useRef({
     status: dailyStatus,
-    author,
+    author: DEFAULT_DAILY_AUTHOR,
     note,
     imagesJson: JSON.stringify(images),
     workDate: dailyWorkDate,
   });
+  const dailyLocalEditAtRef = useRef(0);
 
   const [manualOrder, setManualOrder] = useState<string[]>([]);
   const [sortMode, setSortMode] = useState<"manual" | "schedule" | "afocs">("manual");
@@ -776,7 +778,7 @@ export default function FixedLitePage() {
       if (response.ok && json?.success && json.report) {
         const loadedImages = Array.isArray(json.report.images) ? json.report.images : [];
         setDailyStatus(json.report.status === "issue" ? "issue" : "normal");
-        setAuthor(json.report.author || "");
+        setAuthor(normalizeDailyAuthor(json.report.author));
         setNote(json.report.note || "");
         setImages(loadedImages);
 
@@ -861,7 +863,7 @@ export default function FixedLitePage() {
         body: JSON.stringify({
           workDate: dailyWorkDate,
           status: targetStatus,
-          author: author || "현장 모바일",
+          author: normalizeDailyAuthor(author),
           note,
           images: targetImages,
           savedAt: new Date().toISOString(),
@@ -873,13 +875,13 @@ export default function FixedLitePage() {
         if (json.report) {
           const report = json.report;
           setDailyStatus(report.status === "issue" ? "issue" : "normal");
-          setAuthor(report.author || "");
+          setAuthor(normalizeDailyAuthor(report.author));
           setNote(report.note || "");
           setImages(Array.isArray(report.images) ? report.images : []);
 
           lastSavedValuesRef.current = {
             status: report.status === "issue" ? "issue" : "normal",
-            author: report.author || "",
+            author: normalizeDailyAuthor(report.author),
             note: report.note || "",
             imagesJson: JSON.stringify(Array.isArray(report.images) ? report.images : []),
             workDate: dailyWorkDate,
@@ -1059,7 +1061,8 @@ export default function FixedLitePage() {
       const isUserTyping =
         document.activeElement?.tagName === "TEXTAREA" ||
         document.activeElement?.tagName === "INPUT";
-      if (!isUserTyping) {
+      const recentlyEdited = Date.now() - dailyLocalEditAtRef.current < 60_000;
+      if (!isUserTyping && !recentlyEdited) {
         void loadDailyReportFromSupabase(dailyWorkDate);
       }
     }, 15000);
@@ -2232,7 +2235,10 @@ export default function FixedLitePage() {
                 type="text"
                 placeholder="이름 또는 부서 입력"
                 value={author}
-                onChange={(e) => setAuthor(e.target.value)}
+                onChange={(e) => {
+                  dailyLocalEditAtRef.current = Date.now();
+                  setAuthor(e.target.value.trim() ? e.target.value : DEFAULT_DAILY_AUTHOR);
+                }}
                 style={{
                   width: "100%",
                   background: "#091326",
@@ -2294,7 +2300,10 @@ export default function FixedLitePage() {
               <textarea
                 placeholder="PC 대시보드와 실시간 연동되는 업무 메모 내용입니다."
                 value={note}
-                onChange={(e) => setNote(e.target.value)}
+                onChange={(e) => {
+                  dailyLocalEditAtRef.current = Date.now();
+                  setNote(e.target.value);
+                }}
                 rows={4}
                 style={{
                   width: "100%",

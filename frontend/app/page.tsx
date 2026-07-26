@@ -47,6 +47,8 @@ import {
   getLastIssueSaveSignature,
   saveLastDailySaveSignature,
   saveLastIssueSaveSignature,
+  DEFAULT_DAILY_AUTHOR,
+  normalizeDailyAuthor,
 } from "./lib/local-storage";
 import {
   deleteDailyRecord,
@@ -1046,15 +1048,21 @@ export default function HomePage() {
   const [serverFlightAlertLoading, setServerFlightAlertLoading] = useState(false);
   const [serverFlightAlertStatus, setServerFlightAlertStatus] = useState("");
   const [dailyStatus, setDailyStatus] = useState<"normal" | "issue">("normal");
-  const [author, setAuthor] = useState("jkpark");
+  const [author, setAuthor] = useState(DEFAULT_DAILY_AUTHOR);
 
   const lastSavedValuesRef = useRef({
     status: dailyStatus,
-    author: "jkpark",
+    author: DEFAULT_DAILY_AUTHOR,
     note: "",
     imagesJson: "[]",
     workDate: "",
   });
+  const dailyLocalEditAtRef = useRef(0);
+  const dailyStatusRef = useRef(dailyStatus);
+  const authorRef = useRef(author);
+  const noteRef = useRef("");
+  const imagesRef = useRef<SavedImage[]>([]);
+  const dailyWorkDateRef = useRef("");
 
   // Supabase 이미지 전송 중 플래그 → 자동 싱크 이미지 덮어쓰기 방지
   const imagesSavingRef = useRef(false);
@@ -1080,8 +1088,20 @@ export default function HomePage() {
   }, [rooms]);
 
   useEffect(() => {
+    dailyStatusRef.current = dailyStatus;
+    authorRef.current = author;
+    noteRef.current = note;
+    imagesRef.current = images;
+    dailyWorkDateRef.current = dailyWorkDate;
+  }, [dailyStatus, author, note, images, dailyWorkDate]);
+
+  useEffect(() => {
     saveDailyWorkDate(dailyWorkDate);
   }, [dailyWorkDate]);
+
+  const markDailyLocalEdit = () => {
+    dailyLocalEditAtRef.current = Date.now();
+  };
 
   const handleDailyWorkDateChange = (value: string) => {
     setDailyWorkDate(value || getTodayDateInputValue());
@@ -1109,7 +1129,9 @@ export default function HomePage() {
       setDailyStatus(savedDailyDraft.status);
     }
     if (savedDailyDraft?.author) {
-      setAuthor(savedDailyDraft.author);
+      setAuthor(normalizeDailyAuthor(savedDailyDraft.author));
+    } else {
+      setAuthor(DEFAULT_DAILY_AUTHOR);
     }
     if (savedDailyDraft?.workDate) {
       setDailyWorkDate(savedDailyDraft.workDate);
@@ -1121,7 +1143,7 @@ export default function HomePage() {
       setIssueHlnbr(savedIssueDraft.hlnbr);
       setIssueText(savedIssueDraft.text);
       if (savedIssueDraft.author) {
-        setAuthor(savedIssueDraft.author);
+        setAuthor(normalizeDailyAuthor(savedIssueDraft.author));
       }
       if (savedIssueDraft.status === "issue" || savedIssueDraft.text.trim()) {
         setDailyStatus("issue");
@@ -1173,7 +1195,7 @@ export default function HomePage() {
     saveDailyDraft({
       note,
       status: dailyStatus,
-      author,
+      author: normalizeDailyAuthor(author),
       workDate: dailyWorkDate,
       savedAt: new Date().toISOString(),
     });
@@ -1184,7 +1206,7 @@ export default function HomePage() {
       hlnbr: issueHlnbr,
       text: issueText,
       status: dailyStatus === "issue" || issueText.trim() ? "issue" : "normal",
-      author,
+      author: normalizeDailyAuthor(author),
       savedAt: new Date().toISOString(),
     });
   }, [
@@ -1218,7 +1240,8 @@ export default function HomePage() {
       setNote(savedDailyDraft?.note ?? loadNote());
 
       if (savedDailyDraft?.status) setDailyStatus(savedDailyDraft.status);
-      if (savedDailyDraft?.author) setAuthor(savedDailyDraft.author);
+      if (savedDailyDraft?.author) setAuthor(normalizeDailyAuthor(savedDailyDraft.author));
+      else setAuthor(DEFAULT_DAILY_AUTHOR);
       if (savedDailyDraft?.workDate) setDailyWorkDate(savedDailyDraft.workDate);
 
       if (savedIssueDraft) {
@@ -1226,7 +1249,9 @@ export default function HomePage() {
         setIssueRoute(savedIssueDraft.route);
         setIssueHlnbr(savedIssueDraft.hlnbr);
         setIssueText(savedIssueDraft.text);
-        if (savedIssueDraft.author) setAuthor(savedIssueDraft.author);
+        if (savedIssueDraft.author) setAuthor(normalizeDailyAuthor(savedIssueDraft.author));
+      } else {
+        // keep daily author
       }
 
       void checkScheduleApiAndSync(false);
@@ -2454,12 +2479,15 @@ export default function HomePage() {
 
 
   const saveCurrentDailyDraft = (status: "normal" | "issue" = dailyStatus) => {
+    const nextAuthor = normalizeDailyAuthor(author);
+    if (nextAuthor !== author) setAuthor(nextAuthor);
+    markDailyLocalEdit();
     saveImages(images);
     saveNote(note);
     saveDailyDraft({
       note,
       status,
-      author,
+      author: nextAuthor,
       workDate: dailyWorkDate,
       savedAt: new Date().toISOString(),
     });
@@ -2472,7 +2500,7 @@ export default function HomePage() {
       hlnbr: issueHlnbr,
       text: issueText,
       status,
-      author,
+      author: normalizeDailyAuthor(author),
       savedAt: new Date().toISOString(),
     });
   };
@@ -2480,6 +2508,7 @@ export default function HomePage() {
   const handleSaveIssueDraft = () => {
     saveCurrentDailyDraft("issue");
     saveCurrentIssueDraft("issue");
+    void handleSaveDailyTextToSupabase();
     setNotice("특이사항을 임시 저장했습니다. 앱을 다시 열어도 입력 내용이 유지됩니다.");
   };
 
@@ -2489,6 +2518,8 @@ export default function HomePage() {
     if (dailyStatus === "issue") {
       saveCurrentIssueDraft("issue");
     }
+
+    void handleSaveDailyTextToSupabase();
 
     setNotice(
       dailyStatus === "normal"
@@ -2521,7 +2552,9 @@ export default function HomePage() {
     };
 
     const nextStatus = record.status === "issue" ? "issue" : "normal";
-    const nextAuthor = typeof record.author === "string" ? record.author : author;
+    const nextAuthor = normalizeDailyAuthor(
+      typeof record.author === "string" ? record.author : author,
+    );
     const nextNote = typeof record.note === "string" ? record.note : "";
     const nextImages = Array.isArray(record.images) ? record.images : [];
 
@@ -2560,6 +2593,9 @@ export default function HomePage() {
   };
 
   const handleSaveDailyTextToSupabase = async () => {
+    const nextAuthor = normalizeDailyAuthor(author);
+    if (nextAuthor !== author) setAuthor(nextAuthor);
+
     setIsDailyTextSyncing(true);
     setDailyTextSyncStatus("Supabase 데이터 저장 중...");
 
@@ -2570,7 +2606,7 @@ export default function HomePage() {
         body: JSON.stringify({
           workDate: dailyWorkDate,
           status: dailyStatus,
-          author,
+          author: nextAuthor,
           note,
           images,
           savedAt: new Date().toISOString(),
@@ -2588,7 +2624,7 @@ export default function HomePage() {
 
       lastSavedValuesRef.current = {
         status: dailyStatus,
-        author,
+        author: nextAuthor,
         note,
         imagesJson: JSON.stringify(images),
         workDate: dailyWorkDate,
@@ -2604,7 +2640,8 @@ export default function HomePage() {
 
   const silentSyncDailyReportFromSupabase = async () => {
     try {
-      const query = new URLSearchParams({ workDate: dailyWorkDate });
+      const workDate = dailyWorkDateRef.current || dailyWorkDate;
+      const query = new URLSearchParams({ workDate });
       const response = await fetch(`${BACKEND_URL}/flights/daily-report-text?${query.toString()}`, {
         cache: "no-store",
       });
@@ -2612,42 +2649,63 @@ export default function HomePage() {
       if (response.ok && json?.success && json.report) {
         const report = json.report;
         const serverStatus = report.status === "issue" ? "issue" : "normal";
-        const serverAuthor = report.author || "";
+        const serverAuthor = normalizeDailyAuthor(report.author || "");
         const serverNote = report.note || "";
         const serverImages = Array.isArray(report.images) ? report.images : [];
+        const serverSavedAt = Date.parse(String(report.savedAt || "")) || 0;
 
-        const statusChanged = serverStatus !== dailyStatus;
-        const authorChanged = serverAuthor !== author;
-        const noteChanged = serverNote !== note;
-        const imagesChanged = JSON.stringify(serverImages) !== JSON.stringify(images);
+        const localStatus = dailyStatusRef.current;
+        const localAuthor = normalizeDailyAuthor(authorRef.current);
+        const localNote = noteRef.current;
+        const localImages = imagesRef.current;
+
+        const recentlyEditedLocally =
+          Date.now() - dailyLocalEditAtRef.current < 60_000;
+        const isUserTyping =
+          document.activeElement?.tagName === "TEXTAREA" ||
+          document.activeElement?.tagName === "INPUT";
+        const protectTextFields = recentlyEditedLocally || isUserTyping;
+
+        const localDraft = loadDailyDraft();
+        const localDraftAt = Date.parse(String(localDraft?.savedAt || "")) || 0;
+        const localTextIsNewer = localDraftAt > serverSavedAt;
+
+        const statusChanged = serverStatus !== localStatus;
+        const authorChanged = serverAuthor !== localAuthor;
+        const noteChanged = serverNote !== localNote;
+        const imagesChanged = JSON.stringify(serverImages) !== JSON.stringify(localImages);
 
         if (statusChanged || authorChanged || noteChanged || imagesChanged) {
-          const isUserTyping =
-            document.activeElement?.tagName === "TEXTAREA" ||
-            document.activeElement?.tagName === "INPUT";
+          if (statusChanged && !protectTextFields) setDailyStatus(serverStatus);
 
-          if (statusChanged) setDailyStatus(serverStatus);
-
-          if (!isUserTyping) {
+          if (!protectTextFields && !localTextIsNewer) {
             if (authorChanged) setAuthor(serverAuthor);
             if (noteChanged) {
               setNote(serverNote);
               saveNote(serverNote);
             }
+          } else if (authorChanged && localAuthor === DEFAULT_DAILY_AUTHOR && serverAuthor !== DEFAULT_DAILY_AUTHOR) {
+            // 로컬이 기본값일 때만 서버 작성자 반영 (현장 모바일은 normalize로 jkpark)
+            setAuthor(serverAuthor);
           }
 
           if (imagesChanged && !imagesSavingRef.current) {
-            // Supabase 이미지 전송 중이면 덮어쓰기 스킵 (타이밍 충돌 방지)
             setImages(serverImages);
             saveImages(serverImages);
           }
 
           lastSavedValuesRef.current = {
-            status: serverStatus,
-            author: !isUserTyping && authorChanged ? serverAuthor : author,
-            note: !isUserTyping && noteChanged ? serverNote : note,
-            imagesJson: JSON.stringify(serverImages),
-            workDate: dailyWorkDate,
+            status: !protectTextFields && statusChanged ? serverStatus : localStatus,
+            author:
+              !protectTextFields && !localTextIsNewer && authorChanged
+                ? serverAuthor
+                : localAuthor,
+            note:
+              !protectTextFields && !localTextIsNewer && noteChanged
+                ? serverNote
+                : localNote,
+            imagesJson: JSON.stringify(imagesChanged ? serverImages : localImages),
+            workDate,
           };
         }
       }
@@ -2658,6 +2716,7 @@ export default function HomePage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (!draftHydrated) return;
 
     void silentSyncDailyReportFromSupabase();
 
@@ -2666,14 +2725,19 @@ export default function HomePage() {
     }, 15000);
 
     return () => clearInterval(interval);
-  }, [dailyWorkDate, dailyStatus, author, note, images]);
+    // 입력 중 note/author 변경으로 sync가 재실행되어 덮어쓰지 않도록 업무일자만 구독
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dailyWorkDate, draftHydrated]);
 
   // 1.5초 디바운스 자동 저장 효과
   useEffect(() => {
+    if (!draftHydrated) return;
+
     const currentImagesJson = JSON.stringify(images);
+    const nextAuthor = normalizeDailyAuthor(author);
     const hasChanged =
       dailyStatus !== lastSavedValuesRef.current.status ||
-      author !== lastSavedValuesRef.current.author ||
+      nextAuthor !== lastSavedValuesRef.current.author ||
       note !== lastSavedValuesRef.current.note ||
       currentImagesJson !== lastSavedValuesRef.current.imagesJson ||
       dailyWorkDate !== lastSavedValuesRef.current.workDate;
@@ -2681,15 +2745,6 @@ export default function HomePage() {
     if (!hasChanged) return;
 
     const timer = setTimeout(() => {
-      // update ref immediately to prevent multiple triggers
-      lastSavedValuesRef.current = {
-        status: dailyStatus,
-        author,
-        note,
-        imagesJson: currentImagesJson,
-        workDate: dailyWorkDate,
-      };
-
       void (async () => {
         setIsDailyTextSyncing(true);
         setDailyTextSyncStatus("Supabase 자동 저장 중...");
@@ -2700,7 +2755,7 @@ export default function HomePage() {
             body: JSON.stringify({
               workDate: dailyWorkDate,
               status: dailyStatus,
-              author,
+              author: nextAuthor,
               note,
               images,
               savedAt: new Date().toISOString(),
@@ -2708,6 +2763,13 @@ export default function HomePage() {
           });
           const json = await response.json().catch(() => null);
           if (response.ok && json?.success) {
+            lastSavedValuesRef.current = {
+              status: dailyStatus,
+              author: nextAuthor,
+              note,
+              imagesJson: currentImagesJson,
+              workDate: dailyWorkDate,
+            };
             setDailyTextSyncStatus("Supabase 자동 저장 완료");
           } else {
             setDailyTextSyncStatus("자동 저장 실패");
@@ -2722,7 +2784,7 @@ export default function HomePage() {
     }, 1500);
 
     return () => clearTimeout(timer);
-  }, [dailyStatus, author, note, images, dailyWorkDate]);
+  }, [dailyStatus, author, note, images, dailyWorkDate, draftHydrated]);
 
   const handleLoadDailyTextFromSupabase = async () => {
     setIsDailyTextSyncing(true);
@@ -3159,9 +3221,15 @@ export default function HomePage() {
           handleImageSelected={handleImageSelected}
           handlePastedImage={handlePastedImage}
           author={author}
-          setAuthor={setAuthor}
+          setAuthor={(value) => {
+            markDailyLocalEdit();
+            setAuthor(value.trim() ? value : DEFAULT_DAILY_AUTHOR);
+          }}
           note={note}
-          setNote={setNote}
+          setNote={(value) => {
+            markDailyLocalEdit();
+            setNote(value);
+          }}
           dailyNotionRecord={dailyNotionRecord}
           isDailySaving={isDailySaving}
           isDailyTextSyncing={isDailyTextSyncing}
@@ -3197,7 +3265,10 @@ export default function HomePage() {
             issueHlnbr={issueHlnbr}
             setIssueHlnbr={setIssueHlnbr}
             author={author}
-            setAuthor={setAuthor}
+            setAuthor={(value) => {
+              markDailyLocalEdit();
+              setAuthor(value.trim() ? value : DEFAULT_DAILY_AUTHOR);
+            }}
             weatherSummary={getWeatherSummary(weather)}
             issueText={issueText}
             setIssueText={setIssueText}

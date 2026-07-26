@@ -17,6 +17,16 @@ const ISSUE_SAVE_SIGNATURE_KEY = "cargo_ops_issue_save_signature_v1";
 const ISSUE_DRAFT_KEY = "cargo_ops_issue_draft_v1";
 const DAILY_DRAFT_KEY = "cargo_ops_daily_draft_v1";
 
+export const DEFAULT_DAILY_AUTHOR = "jkpark";
+
+export function normalizeDailyAuthor(value?: string | null) {
+  const author = String(value || "").trim();
+  if (!author || author === "현장 모바일" || author === "현장모바일") {
+    return DEFAULT_DAILY_AUTHOR;
+  }
+  return author;
+}
+
 export type DailyDraft = {
   note: string;
   status: "normal" | "issue";
@@ -48,7 +58,9 @@ export function loadDailyDraft(): DailyDraft | null {
     return {
       note: typeof parsed?.note === "string" ? parsed.note : "",
       status: parsed?.status === "issue" ? "issue" : "normal",
-      author: typeof parsed?.author === "string" ? parsed.author : "jkpark",
+      author: normalizeDailyAuthor(
+        typeof parsed?.author === "string" ? parsed.author : DEFAULT_DAILY_AUTHOR,
+      ),
       workDate: typeof parsed?.workDate === "string" ? parsed.workDate : "",
       savedAt: typeof parsed?.savedAt === "string" ? parsed.savedAt : "",
     };
@@ -81,7 +93,9 @@ export function loadIssueDraft(): IssueDraft | null {
       hlnbr: typeof parsed?.hlnbr === "string" ? parsed.hlnbr : "",
       text: typeof parsed?.text === "string" ? parsed.text : "",
       status: parsed?.status === "issue" ? "issue" : "normal",
-      author: typeof parsed?.author === "string" ? parsed.author : "jkpark",
+      author: normalizeDailyAuthor(
+        typeof parsed?.author === "string" ? parsed.author : DEFAULT_DAILY_AUTHOR,
+      ),
       savedAt: typeof parsed?.savedAt === "string" ? parsed.savedAt : "",
     };
   } catch {
