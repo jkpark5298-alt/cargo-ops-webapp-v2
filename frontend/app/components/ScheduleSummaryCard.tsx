@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { FlightRow, MonitorRoom } from "../page";
 import type { FlightAlertHistoryItem } from "../lib/flight-alerts";
 import { formatAlertTitle, renderAlertDescription, formatHistoryTime } from "./FlightAlertHistoryCard";
-import { parseAfocsSkdSortValue, resolveAfocsSkdForDisplay, splitAfocsSkdParts } from "../lib/afocs-skd";
+import { parseAfocsSkdSortValue, resolveAfocsSkdForDisplay, splitAfocsSkdPartsStoredOnly, splitScheduleCompactParts } from "../lib/afocs-skd";
 
 type ScheduleSummaryCardProps = {
   latestRoom: MonitorRoom | null;
@@ -735,8 +735,8 @@ function getFlightRouteItems(room: MonitorRoom | null) {
       const flight = getFlightNo(row);
       if (!flight) return null;
 
-      const afocsParts = splitAfocsSkdParts(row.afocsSkd || "", row);
-      const changeParts = splitAfocsSkdParts("", row);
+      const afocsParts = splitAfocsSkdPartsStoredOnly(row.afocsSkd || "");
+      const changeParts = splitScheduleCompactParts(row);
       const scheduleSource =
         row.formattedEstimatedTime ||
         row.estimatedDateTime ||

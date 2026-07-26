@@ -267,6 +267,62 @@ export function splitAfocsSkdParts(value: string, row?: AfocsSkdFlightRow | null
   };
 }
 
+/** 저장된 AFOCS SKD만 분리 (API 스케줄 fallback 없음) */
+export function splitAfocsSkdPartsStoredOnly(value: string): AfocsSkdParts {
+  const parsed = value.trim() ? parseAfocsDateTime(value) : null;
+  if (!parsed) {
+    return { date: "", time: "" };
+  }
+
+  return {
+    date: toCompactDateValue(parsed),
+    time: toCompactTimeValue(parsed),
+  };
+}
+
+/** API 변경일시 표시용 — 스케줄 기준 MM.DD / HH:mm */
+export function splitScheduleCompactParts(row?: AfocsSkdFlightRow | null): AfocsSkdParts {
+  return splitAfocsSkdParts("", row);
+}
+
+export function getRowFlightKeyForAfocs(row: { flightId?: string; flightNo?: string }) {
+  return String(row.flightId || row.flightNo || "")
+    .replace(/\s+/g, "")
+    .toUpperCase();
+}
+
+export function preserveAfocsSkdOnRows<
+  T extends { flightId?: string; flightNo?: string; afocsSkd?: string },
+>(incomingRows: T[], previousRows?: T[] | null): T[] {
+  if (!previousRows?.length) return incomingRows;
+
+  const prevMap = new Map<string, T>();
+  previousRows.forEach((row) => {
+    const key = getRowFlightKeyForAfocs(row);
+    if (key) prevMap.set(key, row);
+  });
+
+  return incomingRows.map((row) => {
+    const key = getRowFlightKeyForAfocs(row);
+    const prev = key ? prevMap.get(key) : undefined;
+    const prevAfocs = String(prev?.afocsSkd || "").trim();
+    if (!prevAfocs) return row;
+    return { ...row, afocsSkd: prev.afocsSkd };
+  });
+}
+
+export function mergeRowPreservingAfocsSkd<T extends { afocsSkd?: string }>(
+  existing: T,
+  incoming: T,
+): T {
+  const prevAfocs = String(existing.afocsSkd || "").trim();
+  const merged = { ...existing, ...incoming };
+  if (prevAfocs) {
+    merged.afocsSkd = existing.afocsSkd;
+  }
+  return merged;
+}
+
 export function combineAfocsSkdParts(
   date: string,
   time: string,
@@ -291,7 +347,7 @@ export function combineAfocsSkdParts(
   }
 
   if (datePart && !timeValue) {
-    const fallbackTime = splitAfocsSkdParts("", row).time || "00:00";
+    const fallbackTime = splitScheduleCompactParts(row).time || "00:00";
     return combineAfocsSkdParts(dateValue, fallbackTime, row);
   }
 

@@ -63,7 +63,7 @@ import {
   saveScheduleSlotToServer,
   type ScheduleSlotKey,
 } from "./flights/lib/schedule-slots";
-import { combineAfocsSkdParts } from "./lib/afocs-skd";
+import { combineAfocsSkdParts, preserveAfocsSkdOnRows } from "./lib/afocs-skd";
 
 const STORAGE_KEY = "cargo_ops_monitor_rooms_v6";
 const AIRCRAFT_REGISTRATION_STORAGE_KEY = "cargo_ops_aircraft_registration_records_v1";
@@ -586,7 +586,11 @@ function mergeScheduleRegistrationIntoRoom(
 
   const registrationMap = buildScheduleRegistrationMap(previousRoom?.rows);
   addAircraftRegistrationRecordsToMap(registrationMap, loadAircraftRegistrationRecords());
-  const nextRows = applyRegistrationMapToRows(incomingRoom.rows || [], registrationMap);
+  const rowsWithManualAfocs = preserveAfocsSkdOnRows(
+    incomingRoom.rows || [],
+    previousRoom?.rows,
+  );
+  const nextRows = applyRegistrationMapToRows(rowsWithManualAfocs, registrationMap);
 
   return {
     ...incomingRoom,

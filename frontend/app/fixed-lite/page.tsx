@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import {
   parseAfocsSkdSortValue,
   prepareAfocsSkdForSave,
+  preserveAfocsSkdOnRows,
   resolveAfocsSkdForDisplay,
   getAfocsSkdPlaceholderFromRow,
 } from "../lib/afocs-skd";
@@ -303,7 +304,11 @@ function mergeScheduleRegistrationIntoRoom(
 
   const registrationMap = buildScheduleRegistrationMap(previousRoom?.rows);
   addAircraftRegistrationRecordsToMap(registrationMap, loadAircraftRegistrationRecords());
-  const nextRows = applyRegistrationMapToRows(incomingRoom.rows || [], registrationMap);
+  const rowsWithManualAfocs = preserveAfocsSkdOnRows(
+    incomingRoom.rows || [],
+    previousRoom?.rows,
+  );
+  const nextRows = applyRegistrationMapToRows(rowsWithManualAfocs, registrationMap);
 
   return {
     ...incomingRoom,
@@ -1091,7 +1096,8 @@ export default function FixedLitePage() {
       const latestRow = latestRowMap.get(flight)?.row;
       if (known) {
         const registrationNo = latestRow ? getRegistrationNo(latestRow) : known.registrationNo || "";
-        const afocsSkd = latestRow?.afocsSkd || known.afocsSkd || "";
+        const afocsSkd =
+          String(latestRow?.afocsSkd || "").trim() || known.afocsSkd || "";
         return { ...known, registrationNo, afocsSkd, excludeReason };
       }
 

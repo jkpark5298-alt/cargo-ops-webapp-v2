@@ -2213,10 +2213,22 @@ def _merge_latest_rows(
     updated_rows: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
     merged_by_flight = _latest_rows_by_flight(existing_rows)
+    manual_preserve_fields = ("afocsSkd",)
 
     for row in updated_rows:
         flight = _get_flight_key(row)
-        if flight:
+        if not flight:
+            continue
+
+        existing = merged_by_flight.get(flight)
+        if existing:
+            merged_row = dict(row)
+            for field in manual_preserve_fields:
+                existing_value = str(existing.get(field) or "").strip()
+                if existing_value:
+                    merged_row[field] = existing.get(field)
+            merged_by_flight[flight] = merged_row
+        else:
             merged_by_flight[flight] = row
 
     merged = list(merged_by_flight.values())

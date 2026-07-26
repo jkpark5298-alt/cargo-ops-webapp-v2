@@ -24,6 +24,7 @@ import {
 import {
   formatExcelAfocsSkdValue,
   getAfocsSkdPlaceholderFromRow,
+  mergeRowPreservingAfocsSkd,
   prepareAfocsSkdForSave,
   resolveAfocsSkdForDisplay,
 } from "../lib/afocs-skd";
@@ -2696,7 +2697,7 @@ export default function FlightsPage() {
       const flight = (row.flightId || row.flightNo || "").replace(/\s+/g, "").toUpperCase();
       if (!flight) return;
       const existing = mergedMap.get(flight);
-      mergedMap.set(flight, existing ? { ...existing, ...row } : row);
+      mergedMap.set(flight, existing ? mergeRowPreservingAfocsSkd(existing, row) : row);
     });
 
     return Array.from(mergedMap.values());
