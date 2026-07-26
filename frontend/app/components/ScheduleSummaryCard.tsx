@@ -54,7 +54,7 @@ export function ScheduleSummaryCard({
       {apiSyncStatus ? <div style={apiSyncStatusStyle}>{apiSyncStatus}</div> : null}
       {syncCheckedAt ? <div style={syncStatusStyle}>초기화면 반영 확인 · {syncCheckedAt}</div> : null}
       <div style={apiGuideStyle}>
-        AFOCS SKD는 날짜·시간을 각각 수정할 수 있습니다. API 즉시 확인은 Schedule Flight API를 조회한 뒤 서버 기준과 초기화면에 반영합니다.
+        AFOCS SKD는 월일·시간(MM.DD / HH:mm)을 각각 수정할 수 있습니다. API 즉시 확인은 Schedule Flight API를 조회한 뒤 서버 기준과 초기화면에 반영합니다.
       </div>
       <div style={buttonStackStyle}>
         <button
@@ -89,6 +89,8 @@ type FlightRouteItem = {
   afocsSkd: string;
   afocsSkdDate: string;
   afocsSkdTime: string;
+  changeTimeDate: string;
+  changeTimeTime: string;
   gate: string;
   hasResult: boolean;
   departureCode: string;
@@ -349,40 +351,40 @@ function FlightRouteRows({
                 ) : null}
               </div>
 
-              <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap" }}>
                 {focused ? <span style={focusBadgeStyle}>집중조회</span> : null}
                 {completed ? <span style={completedBadgeStyle}>자동조회 제외</span> : null}
-                <span style={changeTimeBadgeStyle}>
-                  변경 {item.displayTime || item.time || "-"}
-                </span>
+                <CompactDateTimeFields
+                  label="AFOCS"
+                  date={item.afocsSkdDate}
+                  time={item.afocsSkdTime}
+                  tone="afocs"
+                  flight={item.flight}
+                  editable={Boolean(onUpdateAfocsSkd)}
+                  onSave={onUpdateAfocsSkd}
+                />
               </div>
             </div>
 
             <div
               style={{
-                display: "grid",
-                gridTemplateColumns: "1fr auto",
-                gap: 8,
+                display: "flex",
+                justifyContent: "space-between",
                 alignItems: "center",
+                gap: 8,
                 marginBottom: 8,
               }}
             >
-              <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: 0.2, color: "#dbeafe" }}>
+              <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: 0.2, color: "#dbeafe", whiteSpace: "nowrap" }}>
                 {item.departureCode || "-"} → {item.arrivalCode || "-"}
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                <span style={{ fontSize: 11, color: "#92a7c5", fontWeight: "bold" }}>AFOCS SKD:</span>
-                {onUpdateAfocsSkd ? (
-                  <AfocsSkdDateTimeEditor
-                    flight={item.flight}
-                    date={item.afocsSkdDate}
-                    time={item.afocsSkdTime}
-                    onSave={onUpdateAfocsSkd}
-                  />
-                ) : (
-                  <span style={afocsSkdDisplayStyle}>{item.afocsSkd || "-"}</span>
-                )}
-              </div>
+              <CompactDateTimeFields
+                label="변경"
+                date={item.changeTimeDate}
+                time={item.changeTimeTime}
+                tone="change"
+                readOnly
+              />
             </div>
 
             <div
@@ -651,51 +653,74 @@ function getSummaryFlightOrderIndex(room: MonitorRoom, flight: string) {
   return index === -1 ? Number.MAX_SAFE_INTEGER : index;
 }
 
-function AfocsSkdDateTimeEditor({
-  flight,
+function CompactDateTimeFields({
+  label,
   date,
   time,
+  tone,
+  flight,
+  editable = false,
+  readOnly = false,
   onSave,
 }: {
-  flight: string;
+  label: string;
   date: string;
   time: string;
-  onSave: (flight: string, date: string, time: string) => void;
+  tone: "afocs" | "change";
+  flight?: string;
+  editable?: boolean;
+  readOnly?: boolean;
+  onSave?: (flight: string, date: string, time: string) => void;
 }) {
   const [dateValue, setDateValue] = useState(date);
   const [timeValue, setTimeValue] = useState(time);
+  const fieldStyles = tone === "afocs" ? afocsCompactFieldStyles : changeCompactFieldStyles;
 
   useEffect(() => {
     setDateValue(date);
     setTimeValue(time);
   }, [date, time, flight]);
 
-  const handleDateChange = (nextDate: string) => {
-    setDateValue(nextDate);
-    onSave(flight, nextDate, timeValue);
+  const commit = (nextDate: string, nextTime: string) => {
+    if (flight && onSave) {
+      onSave(flight, nextDate, nextTime);
+    }
   };
 
-  const handleTimeChange = (nextTime: string) => {
-    setTimeValue(nextTime);
-    onSave(flight, dateValue, nextTime);
-  };
+  const showEditor = editable && !readOnly && onSave && flight;
 
   return (
-    <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
-      <input
-        type="date"
-        value={dateValue}
-        onChange={(event) => handleDateChange(event.target.value)}
-        style={afocsSkdDateInputStyle}
-        aria-label={`${flight} AFOCS SKD 날짜`}
-      />
-      <input
-        type="time"
-        value={timeValue}
-        onChange={(event) => handleTimeChange(event.target.value)}
-        style={afocsSkdTimeInputStyle}
-        aria-label={`${flight} AFOCS SKD 시간`}
-      />
+    <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "nowrap" }}>
+      <span style={compactDateTimeLabelStyle}>{label}</span>
+      {showEditor ? (
+        <>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={dateValue}
+            placeholder="07.27"
+            onChange={(event) => setDateValue(event.target.value)}
+            onBlur={() => commit(dateValue, timeValue)}
+            style={fieldStyles.date}
+            aria-label={`${flight} ${label} 월일`}
+          />
+          <input
+            type="text"
+            inputMode="numeric"
+            value={timeValue}
+            placeholder="06:20"
+            onChange={(event) => setTimeValue(event.target.value)}
+            onBlur={() => commit(dateValue, timeValue)}
+            style={fieldStyles.time}
+            aria-label={`${flight} ${label} 시간`}
+          />
+        </>
+      ) : (
+        <>
+          <span style={fieldStyles.date}>{date || "-"}</span>
+          <span style={fieldStyles.time}>{time || "-"}</span>
+        </>
+      )}
     </div>
   );
 }
@@ -711,6 +736,13 @@ function getFlightRouteItems(room: MonitorRoom | null) {
       if (!flight) return null;
 
       const afocsParts = splitAfocsSkdParts(row.afocsSkd || "", row);
+      const changeParts = splitAfocsSkdParts("", row);
+      const scheduleSource =
+        row.formattedEstimatedTime ||
+        row.estimatedDateTime ||
+        row.formattedScheduleTime ||
+        row.scheduleDateTime ||
+        "";
 
       return {
         flight,
@@ -719,13 +751,9 @@ function getFlightRouteItems(room: MonitorRoom | null) {
         direction: "기준",
         status: getComputedStatus(row),
         time: getFlightTimeDisplay(row),
-        displayTime: formatMonthDayTime(
-          row.formattedEstimatedTime ||
-            row.estimatedDateTime ||
-            row.formattedScheduleTime ||
-            row.scheduleDateTime ||
-            "",
-        ),
+        displayTime: formatMonthDayTime(scheduleSource),
+        changeTimeDate: changeParts.date,
+        changeTimeTime: changeParts.time,
         afocsSkd: resolveAfocsSkdForDisplay(row.afocsSkd || "", row),
         afocsSkdDate: afocsParts.date,
         afocsSkdTime: afocsParts.time,
@@ -775,6 +803,8 @@ function getFlightRouteItems(room: MonitorRoom | null) {
       status: "-",
       time: "-",
       displayTime: "-",
+      changeTimeDate: "",
+      changeTimeTime: "",
       afocsSkd: "",
       afocsSkdDate: "",
       afocsSkdTime: "",
@@ -1313,54 +1343,54 @@ const completedBadgeStyle: CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-const changeTimeBadgeStyle: CSSProperties = {
-  fontSize: 13,
-  color: "#93c5fd",
-  fontWeight: "bold",
-  background: "rgba(59, 130, 246, 0.14)",
-  border: "1px solid rgba(59, 130, 246, 0.3)",
-  borderRadius: 6,
-  padding: "4px 8px",
+const compactDateTimeLabelStyle: CSSProperties = {
+  fontSize: 10,
+  color: "#92a7c5",
+  fontWeight: 800,
+  whiteSpace: "nowrap",
 };
 
-const afocsSkdDisplayStyle: CSSProperties = {
-  minWidth: 52,
-  color: "#fcd34d",
+const compactFieldBaseStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "#091326",
+  border: "1px solid #3b82f6",
   fontWeight: 800,
-  padding: "4px 8px",
+  padding: "4px 4px",
   borderRadius: 8,
   fontSize: 13,
   textAlign: "center",
   fontFamily: "monospace",
-  background: "rgba(252, 211, 77, 0.08)",
-  border: "1px solid rgba(59, 130, 246, 0.35)",
+  boxSizing: "border-box",
 };
 
-const afocsSkdDateInputStyle: CSSProperties = {
-  width: 132,
-  minWidth: 120,
-  background: "#091326",
-  border: "1px solid #3b82f6",
-  color: "#fcd34d",
-  fontWeight: 700,
-  padding: "4px 6px",
-  borderRadius: 8,
-  fontSize: 12,
-  fontFamily: "monospace",
-  colorScheme: "dark",
+const afocsCompactFieldStyles = {
+  date: {
+    ...compactFieldBaseStyle,
+    width: 54,
+    minWidth: 54,
+    color: "#fcd34d",
+  } satisfies CSSProperties,
+  time: {
+    ...compactFieldBaseStyle,
+    width: 58,
+    minWidth: 58,
+    color: "#fcd34d",
+  } satisfies CSSProperties,
 };
 
-const afocsSkdTimeInputStyle: CSSProperties = {
-  width: 108,
-  minWidth: 96,
-  background: "#091326",
-  border: "1px solid #3b82f6",
-  color: "#fcd34d",
-  fontWeight: 800,
-  padding: "4px 6px",
-  borderRadius: 8,
-  fontSize: 13,
-  textAlign: "center",
-  fontFamily: "monospace",
-  colorScheme: "dark",
+const changeCompactFieldStyles = {
+  date: {
+    ...compactFieldBaseStyle,
+    width: 54,
+    minWidth: 54,
+    color: "#93c5fd",
+  } satisfies CSSProperties,
+  time: {
+    ...compactFieldBaseStyle,
+    width: 58,
+    minWidth: 58,
+    color: "#93c5fd",
+  } satisfies CSSProperties,
 };

@@ -208,17 +208,48 @@ function parseScheduleSourceDateTime(value?: string | null): Date | null {
   return null;
 }
 
-function toInputDateValue(date: Date): string {
-  const year = date.getFullYear();
+function toCompactDateValue(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return `${month}.${day}`;
 }
 
-function toInputTimeValue(date: Date): string {
+function toCompactTimeValue(date: Date): string {
   const hour = String(date.getHours()).padStart(2, "0");
   const minute = String(date.getMinutes()).padStart(2, "0");
   return `${hour}:${minute}`;
+}
+
+function parseCompactDatePart(value: string, row?: AfocsSkdFlightRow | null): Date | null {
+  const trimmed = value.trim();
+  const compactMatch = trimmed.match(/^(\d{1,2})\.(\d{1,2})$/);
+  if (compactMatch) {
+    const reference =
+      parseScheduleSourceDateTime(getRowScheduleDateTimeSource(row)) || new Date();
+    return new Date(
+      reference.getFullYear(),
+      Number(compactMatch[1]) - 1,
+      Number(compactMatch[2]),
+      0,
+      0,
+      0,
+    );
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const [year, month, day] = trimmed.split("-").map(Number);
+    if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
+      return new Date(year, month - 1, day, 0, 0, 0);
+    }
+  }
+
+  return null;
+}
+
+export function formatCompactScheduleDateTime(value?: string | null): string {
+  const parsed = parseScheduleSourceDateTime(value);
+  if (!parsed) return "-";
+  return `${toCompactDateValue(parsed)} ${toCompactTimeValue(parsed)}`;
 }
 
 export function splitAfocsSkdParts(value: string, row?: AfocsSkdFlightRow | null): AfocsSkdParts {
@@ -231,8 +262,8 @@ export function splitAfocsSkdParts(value: string, row?: AfocsSkdFlightRow | null
   }
 
   return {
-    date: toInputDateValue(parsed),
-    time: toInputTimeValue(parsed),
+    date: toCompactDateValue(parsed),
+    time: toCompactTimeValue(parsed),
   };
 }
 
@@ -246,7 +277,25 @@ export function combineAfocsSkdParts(
 
   if (!dateValue && !timeValue) return "";
 
-  if (dateValue && timeValue) {
+  const datePart = parseCompactDatePart(dateValue, row);
+  const timePart = parseTimeOnly(timeValue);
+
+  if (datePart && timePart) {
+    const merged = new Date(datePart);
+    merged.setHours(timePart.hours, timePart.minutes, 0, 0);
+    return formatAfocsSkdDateTime(merged);
+  }
+
+  if (timePart && !dateValue) {
+    return prepareAfocsSkdForSave(timeValue, row);
+  }
+
+  if (datePart && !timeValue) {
+    const fallbackTime = splitAfocsSkdParts("", row).time || "00:00";
+    return combineAfocsSkdParts(dateValue, fallbackTime, row);
+  }
+
+  if (dateValue.includes("-") && timeValue) {
     const [year, month, day] = dateValue.split("-").map(Number);
     const [hour, minute] = timeValue.split(":").map(Number);
     if (
@@ -258,15 +307,6 @@ export function combineAfocsSkdParts(
     ) {
       return formatAfocsSkdDateTime(new Date(year, month - 1, day, hour, minute, 0));
     }
-  }
-
-  if (timeValue && !dateValue) {
-    return prepareAfocsSkdForSave(timeValue, row);
-  }
-
-  if (dateValue && !timeValue) {
-    const fallbackTime = splitAfocsSkdParts("", row).time || "00:00";
-    return combineAfocsSkdParts(dateValue, fallbackTime, row);
   }
 
   return "";

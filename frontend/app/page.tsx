@@ -3095,7 +3095,7 @@ export default function HomePage() {
         <ActionCard
           label="오늘 KJ 화물기 조회"
           title="편명조회"
-          description="개별 편명 확인과 KJ 전체 조회를 진행합니다. AFOCS SKD는 위 Scheduled Flight 카드에서 날짜·시간을 각각 수정할 수 있습니다."
+          description="개별 편명 확인과 KJ 전체 조회를 진행합니다. AFOCS SKD는 위 Scheduled Flight 카드에서 MM.DD·HH:mm으로 수정할 수 있습니다."
           buttonLabel="편명조회 열기"
           onClick={openFlights}
           accent="#2563eb"
