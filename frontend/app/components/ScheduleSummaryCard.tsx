@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { FlightRow, MonitorRoom } from "../page";
 import type { FlightAlertHistoryItem } from "../lib/flight-alerts";
 import { formatAlertTitle, renderAlertDescription, formatHistoryTime } from "./FlightAlertHistoryCard";
-import { parseAfocsSkdSortValue, resolveAfocsSkdForDisplay } from "../lib/afocs-skd";
+import { parseAfocsSkdSortValue, resolveAfocsSkdForDisplay, splitAfocsSkdParts } from "../lib/afocs-skd";
 
 type ScheduleSummaryCardProps = {
   latestRoom: MonitorRoom | null;
@@ -15,7 +15,7 @@ type ScheduleSummaryCardProps = {
   onRefreshLatestSchedule: () => void;
   flightAlertHistory?: FlightAlertHistoryItem[];
   onDeleteAlertHistoryItem?: (item: FlightAlertHistoryItem) => void;
-  onUpdateAfocsSkd?: (flight: string, value: string) => void;
+  onUpdateAfocsSkd?: (flight: string, date: string, time: string) => void;
 };
 
 export function ScheduleSummaryCard({
@@ -54,7 +54,7 @@ export function ScheduleSummaryCard({
       {apiSyncStatus ? <div style={apiSyncStatusStyle}>{apiSyncStatus}</div> : null}
       {syncCheckedAt ? <div style={syncStatusStyle}>초기화면 반영 확인 · {syncCheckedAt}</div> : null}
       <div style={apiGuideStyle}>
-        AFOCS SKD는 각 편명 카드에서 바로 수정할 수 있습니다. API 즉시 확인은 Schedule Flight API를 조회한 뒤 서버 기준과 초기화면에 반영합니다.
+        AFOCS SKD는 날짜·시간을 각각 수정할 수 있습니다. API 즉시 확인은 Schedule Flight API를 조회한 뒤 서버 기준과 초기화면에 반영합니다.
       </div>
       <div style={buttonStackStyle}>
         <button
@@ -87,6 +87,8 @@ type FlightRouteItem = {
   time: string;
   displayTime: string;
   afocsSkd: string;
+  afocsSkdDate: string;
+  afocsSkdTime: string;
   gate: string;
   hasResult: boolean;
   departureCode: string;
@@ -116,7 +118,7 @@ function FlightRouteRows({
   room: MonitorRoom | null;
   flightAlertHistory?: FlightAlertHistoryItem[];
   onDeleteAlertHistoryItem?: (item: FlightAlertHistoryItem) => void;
-  onUpdateAfocsSkd?: (flight: string, value: string) => void;
+  onUpdateAfocsSkd?: (flight: string, date: string, time: string) => void;
 }) {
   const baseItems = useMemo(() => getFlightRouteItems(room), [room]);
   const orderStorageKey = getScheduleFlightOrderStorageKey(room);
@@ -368,19 +370,14 @@ function FlightRouteRows({
               <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: 0.2, color: "#dbeafe" }}>
                 {item.departureCode || "-"} → {item.arrivalCode || "-"}
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
                 <span style={{ fontSize: 11, color: "#92a7c5", fontWeight: "bold" }}>AFOCS SKD:</span>
                 {onUpdateAfocsSkd ? (
-                  <input
-                    type="text"
-                    value={item.afocsSkd || ""}
-                    placeholder={
-                      item.displayTime && item.displayTime !== "-"
-                        ? item.displayTime
-                        : "날짜·시간 입력"
-                    }
-                    onChange={(event) => onUpdateAfocsSkd(item.flight, event.target.value)}
-                    style={afocsSkdInputStyle}
+                  <AfocsSkdDateTimeEditor
+                    flight={item.flight}
+                    date={item.afocsSkdDate}
+                    time={item.afocsSkdTime}
+                    onSave={onUpdateAfocsSkd}
                   />
                 ) : (
                   <span style={afocsSkdDisplayStyle}>{item.afocsSkd || "-"}</span>
@@ -654,6 +651,55 @@ function getSummaryFlightOrderIndex(room: MonitorRoom, flight: string) {
   return index === -1 ? Number.MAX_SAFE_INTEGER : index;
 }
 
+function AfocsSkdDateTimeEditor({
+  flight,
+  date,
+  time,
+  onSave,
+}: {
+  flight: string;
+  date: string;
+  time: string;
+  onSave: (flight: string, date: string, time: string) => void;
+}) {
+  const [dateValue, setDateValue] = useState(date);
+  const [timeValue, setTimeValue] = useState(time);
+
+  useEffect(() => {
+    setDateValue(date);
+    setTimeValue(time);
+  }, [date, time, flight]);
+
+  const handleDateChange = (nextDate: string) => {
+    setDateValue(nextDate);
+    onSave(flight, nextDate, timeValue);
+  };
+
+  const handleTimeChange = (nextTime: string) => {
+    setTimeValue(nextTime);
+    onSave(flight, dateValue, nextTime);
+  };
+
+  return (
+    <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+      <input
+        type="date"
+        value={dateValue}
+        onChange={(event) => handleDateChange(event.target.value)}
+        style={afocsSkdDateInputStyle}
+        aria-label={`${flight} AFOCS SKD 날짜`}
+      />
+      <input
+        type="time"
+        value={timeValue}
+        onChange={(event) => handleTimeChange(event.target.value)}
+        style={afocsSkdTimeInputStyle}
+        aria-label={`${flight} AFOCS SKD 시간`}
+      />
+    </div>
+  );
+}
+
 function getFlightRouteItems(room: MonitorRoom | null) {
   if (!room) return [];
 
@@ -663,6 +709,8 @@ function getFlightRouteItems(room: MonitorRoom | null) {
     .map((row) => {
       const flight = getFlightNo(row);
       if (!flight) return null;
+
+      const afocsParts = splitAfocsSkdParts(row.afocsSkd || "", row);
 
       return {
         flight,
@@ -679,6 +727,8 @@ function getFlightRouteItems(room: MonitorRoom | null) {
             "",
         ),
         afocsSkd: resolveAfocsSkdForDisplay(row.afocsSkd || "", row),
+        afocsSkdDate: afocsParts.date,
+        afocsSkdTime: afocsParts.time,
         gate: getGateDisplay(row),
         hasResult: true,
         departureCode: row.departureCode || "",
@@ -726,6 +776,8 @@ function getFlightRouteItems(room: MonitorRoom | null) {
       time: "-",
       displayTime: "-",
       afocsSkd: "",
+      afocsSkdDate: "",
+      afocsSkdTime: "",
       gate: "",
       hasResult: false,
       departureCode: "",
@@ -1284,9 +1336,23 @@ const afocsSkdDisplayStyle: CSSProperties = {
   border: "1px solid rgba(59, 130, 246, 0.35)",
 };
 
-const afocsSkdInputStyle: CSSProperties = {
-  width: 130,
+const afocsSkdDateInputStyle: CSSProperties = {
+  width: 132,
   minWidth: 120,
+  background: "#091326",
+  border: "1px solid #3b82f6",
+  color: "#fcd34d",
+  fontWeight: 700,
+  padding: "4px 6px",
+  borderRadius: 8,
+  fontSize: 12,
+  fontFamily: "monospace",
+  colorScheme: "dark",
+};
+
+const afocsSkdTimeInputStyle: CSSProperties = {
+  width: 108,
+  minWidth: 96,
   background: "#091326",
   border: "1px solid #3b82f6",
   color: "#fcd34d",
@@ -1296,4 +1362,5 @@ const afocsSkdInputStyle: CSSProperties = {
   fontSize: 13,
   textAlign: "center",
   fontFamily: "monospace",
+  colorScheme: "dark",
 };

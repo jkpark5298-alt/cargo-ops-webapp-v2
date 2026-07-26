@@ -178,3 +178,96 @@ export function getAfocsSkdPlaceholderFromRow(row?: AfocsSkdFlightRow | null): s
   const parsed = parseAfocsDateTime(source);
   return parsed ? formatAfocsSkdDateTime(parsed) : "날짜·시간 입력";
 }
+
+export type AfocsSkdParts = {
+  date: string;
+  time: string;
+};
+
+function parseScheduleSourceDateTime(value?: string | null): Date | null {
+  if (!value) return null;
+
+  const parsed = parseAfocsDateTime(value);
+  if (parsed) return parsed;
+
+  const compactMatch = String(value)
+    .trim()
+    .match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})/);
+  if (compactMatch) {
+    const [, year, month, day, hour, minute] = compactMatch;
+    return new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      0,
+    );
+  }
+
+  return null;
+}
+
+function toInputDateValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function toInputTimeValue(date: Date): string {
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${hour}:${minute}`;
+}
+
+export function splitAfocsSkdParts(value: string, row?: AfocsSkdFlightRow | null): AfocsSkdParts {
+  const parsed =
+    (value.trim() ? parseAfocsDateTime(value) : null) ||
+    parseScheduleSourceDateTime(getRowScheduleDateTimeSource(row));
+
+  if (!parsed) {
+    return { date: "", time: "" };
+  }
+
+  return {
+    date: toInputDateValue(parsed),
+    time: toInputTimeValue(parsed),
+  };
+}
+
+export function combineAfocsSkdParts(
+  date: string,
+  time: string,
+  row?: AfocsSkdFlightRow | null,
+): string {
+  const dateValue = date.trim();
+  const timeValue = time.trim();
+
+  if (!dateValue && !timeValue) return "";
+
+  if (dateValue && timeValue) {
+    const [year, month, day] = dateValue.split("-").map(Number);
+    const [hour, minute] = timeValue.split(":").map(Number);
+    if (
+      Number.isFinite(year) &&
+      Number.isFinite(month) &&
+      Number.isFinite(day) &&
+      Number.isFinite(hour) &&
+      Number.isFinite(minute)
+    ) {
+      return formatAfocsSkdDateTime(new Date(year, month - 1, day, hour, minute, 0));
+    }
+  }
+
+  if (timeValue && !dateValue) {
+    return prepareAfocsSkdForSave(timeValue, row);
+  }
+
+  if (dateValue && !timeValue) {
+    const fallbackTime = splitAfocsSkdParts("", row).time || "00:00";
+    return combineAfocsSkdParts(dateValue, fallbackTime, row);
+  }
+
+  return "";
+}

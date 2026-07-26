@@ -63,7 +63,7 @@ import {
   saveScheduleSlotToServer,
   type ScheduleSlotKey,
 } from "./flights/lib/schedule-slots";
-import { prepareAfocsSkdForSave } from "./lib/afocs-skd";
+import { combineAfocsSkdParts } from "./lib/afocs-skd";
 
 const STORAGE_KEY = "cargo_ops_monitor_rooms_v6";
 const AIRCRAFT_REGISTRATION_STORAGE_KEY = "cargo_ops_aircraft_registration_records_v1";
@@ -1657,14 +1657,14 @@ export default function HomePage() {
     router.push("/flights");
   };
 
-  const handleUpdateAfocsSkd = async (flight: string, val: string) => {
+  const handleUpdateAfocsSkd = async (flight: string, date: string, time: string) => {
     if (!latestRoom) return;
 
     const flightKey = normalizeFlightKey(flight);
     const matchedRow = (latestRoom.rows || []).find(
       (row) => normalizeFlightKey(getFlightNo(row)) === flightKey,
     );
-    const normalizedValue = prepareAfocsSkdForSave(val, matchedRow);
+    const normalizedValue = combineAfocsSkdParts(date, time, matchedRow);
 
     const updatedRows = (latestRoom.rows || []).map((row) => {
       const rowFlightKey = normalizeFlightKey(getFlightNo(row));
@@ -3095,7 +3095,7 @@ export default function HomePage() {
         <ActionCard
           label="오늘 KJ 화물기 조회"
           title="편명조회"
-          description="개별 편명 확인과 KJ 전체 조회를 진행합니다. AFOCS SKD는 위 Scheduled Flight 카드에서 바로 수정할 수 있습니다."
+          description="개별 편명 확인과 KJ 전체 조회를 진행합니다. AFOCS SKD는 위 Scheduled Flight 카드에서 날짜·시간을 각각 수정할 수 있습니다."
           buttonLabel="편명조회 열기"
           onClick={openFlights}
           accent="#2563eb"
