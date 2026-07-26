@@ -58,6 +58,11 @@ import {
   updateIssueRecord,
 } from "./lib/notion-api";
 import { getApiBaseUrl } from "./lib/api-config";
+import {
+  loadScheduleSlotsFromServer,
+  saveScheduleSlotToServer,
+  type ScheduleSlotKey,
+} from "./flights/lib/schedule-slots";
 
 const STORAGE_KEY = "cargo_ops_monitor_rooms_v6";
 const AIRCRAFT_REGISTRATION_STORAGE_KEY = "cargo_ops_aircraft_registration_records_v1";
@@ -1002,6 +1007,7 @@ export default function HomePage() {
   const issueSavingRef = useRef(false);
   const pendingImageSlotRef = useRef<ImageSlotKey>("daily-schedule");
   const lastImmediateApiCheckRef = useRef(0);
+  const linkedScheduleSlotRef = useRef<ScheduleSlotKey>("active");
   const [rooms, setRooms] = useState<MonitorRoom[]>([]);
   const [images, setImages] = useState<SavedImage[]>([]);
   const [imageViewerImage, setImageViewerImage] = useState<SavedImage | null>(null);
@@ -1131,6 +1137,11 @@ export default function HomePage() {
     void checkScheduleApiAndSync(false, true);
     void fetchAutoPushStatus();
     void handleLoadServerFlightAlertHistory(false);
+    void loadScheduleSlotsFromServer()
+      .then((slots) => {
+        linkedScheduleSlotRef.current = slots.linkedSlot;
+      })
+      .catch(() => {});
 
     const syncTimer = window.setTimeout(() => {
       void checkScheduleApiAndSync(false);
@@ -1643,6 +1654,59 @@ export default function HomePage() {
       return;
     }
     router.push("/flights");
+  };
+
+  const handleUpdateAfocsSkd = async (flight: string, val: string) => {
+    if (!latestRoom) return;
+
+    const flightKey = normalizeFlightKey(flight);
+    const updatedRows = (latestRoom.rows || []).map((row) => {
+      const rowFlightKey = normalizeFlightKey(getFlightNo(row));
+      if (rowFlightKey === flightKey) {
+        return { ...row, afocsSkd: val };
+      }
+      return row;
+    });
+
+    const exists = (latestRoom.rows || []).some(
+      (row) => normalizeFlightKey(getFlightNo(row)) === flightKey,
+    );
+
+    let finalRows = updatedRows;
+    if (!exists) {
+      finalRows = [
+        ...updatedRows,
+        {
+          flightId: flight,
+          flightNo: flight,
+          afocsSkd: val,
+        },
+      ];
+    }
+
+    const updatedRoom: MonitorRoom = {
+      ...latestRoom,
+      rows: finalRows,
+    };
+
+    const nextRooms = mergeLatestScheduleRoom(rooms, updatedRoom);
+    setRooms(nextRooms);
+    saveRooms(nextRooms);
+
+    try {
+      const result = await saveScheduleSlotToServer(updatedRoom, {
+        rotate: false,
+        slot: linkedScheduleSlotRef.current,
+      });
+      linkedScheduleSlotRef.current = result.linkedSlot;
+    } catch (error) {
+      console.error("Failed to sync updated AFOCS SKD to server:", error);
+      try {
+        await saveLatestScheduleToServer(updatedRoom);
+      } catch (fallbackError) {
+        console.error("Failed to sync AFOCS SKD via latest-schedule:", fallbackError);
+      }
+    }
   };
 
   const syncLatestScheduleFromServer = async (showNotice = true) => {
@@ -3019,12 +3083,13 @@ export default function HomePage() {
           onRefreshLatestSchedule={handleRefreshLatestSchedule}
           flightAlertHistory={flightAlertHistory}
           onDeleteAlertHistoryItem={handleDeleteFlightAlertHistoryItem}
+          onUpdateAfocsSkd={handleUpdateAfocsSkd}
         />
 
         <ActionCard
           label="오늘 KJ 화물기 조회"
           title="편명조회"
-          description="개별 편명 확인과 KJ 전체 조회를 진행합니다. AFOCS SKD는 위 카드에서 바로 열 수 있습니다."
+          description="개별 편명 확인과 KJ 전체 조회를 진행합니다. AFOCS SKD는 위 Scheduled Flight 카드에서 바로 수정할 수 있습니다."
           buttonLabel="편명조회 열기"
           onClick={openFlights}
           accent="#2563eb"

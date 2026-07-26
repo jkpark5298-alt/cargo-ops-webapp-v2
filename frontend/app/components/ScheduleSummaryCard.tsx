@@ -14,6 +14,7 @@ type ScheduleSummaryCardProps = {
   onRefreshLatestSchedule: () => void;
   flightAlertHistory?: FlightAlertHistoryItem[];
   onDeleteAlertHistoryItem?: (item: FlightAlertHistoryItem) => void;
+  onUpdateAfocsSkd?: (flight: string, value: string) => void;
 };
 
 export function ScheduleSummaryCard({
@@ -25,6 +26,7 @@ export function ScheduleSummaryCard({
   onRefreshLatestSchedule,
   flightAlertHistory = [],
   onDeleteAlertHistoryItem,
+  onUpdateAfocsSkd,
 }: ScheduleSummaryCardProps) {
   return (
     <section style={cardStyle}>
@@ -45,12 +47,13 @@ export function ScheduleSummaryCard({
           room={latestRoom}
           flightAlertHistory={flightAlertHistory}
           onDeleteAlertHistoryItem={onDeleteAlertHistoryItem}
+          onUpdateAfocsSkd={onUpdateAfocsSkd}
         />
       </div>
       {apiSyncStatus ? <div style={apiSyncStatusStyle}>{apiSyncStatus}</div> : null}
       {syncCheckedAt ? <div style={syncStatusStyle}>초기화면 반영 확인 · {syncCheckedAt}</div> : null}
       <div style={apiGuideStyle}>
-        API 즉시 확인은 Schedule Flight API를 바로 조회한 뒤 서버 기준과 초기화면에 반영합니다.
+        AFOCS SKD는 각 편명 카드에서 바로 수정할 수 있습니다. API 즉시 확인은 Schedule Flight API를 조회한 뒤 서버 기준과 초기화면에 반영합니다.
       </div>
       <div style={buttonStackStyle}>
         <button
@@ -107,10 +110,12 @@ function FlightRouteRows({
   room,
   flightAlertHistory = [],
   onDeleteAlertHistoryItem,
+  onUpdateAfocsSkd,
 }: {
   room: MonitorRoom | null;
   flightAlertHistory?: FlightAlertHistoryItem[];
   onDeleteAlertHistoryItem?: (item: FlightAlertHistoryItem) => void;
+  onUpdateAfocsSkd?: (flight: string, value: string) => void;
 }) {
   const baseItems = useMemo(() => getFlightRouteItems(room), [room]);
   const orderStorageKey = getScheduleFlightOrderStorageKey(room);
@@ -364,7 +369,21 @@ function FlightRouteRows({
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ fontSize: 11, color: "#92a7c5", fontWeight: "bold" }}>AFOCS SKD:</span>
-                <span style={afocsSkdDisplayStyle}>{item.afocsSkd || "-"}</span>
+                {onUpdateAfocsSkd ? (
+                  <input
+                    type="text"
+                    value={item.afocsSkd || ""}
+                    placeholder={
+                      item.displayTime && item.displayTime !== "-"
+                        ? item.displayTime.split(" ").slice(-1)[0]
+                        : "시간 입력"
+                    }
+                    onChange={(event) => onUpdateAfocsSkd(item.flight, event.target.value)}
+                    style={afocsSkdInputStyle}
+                  />
+                ) : (
+                  <span style={afocsSkdDisplayStyle}>{item.afocsSkd || "-"}</span>
+                )}
               </div>
             </div>
 
@@ -1273,4 +1292,17 @@ const afocsSkdDisplayStyle: CSSProperties = {
   fontFamily: "monospace",
   background: "rgba(252, 211, 77, 0.08)",
   border: "1px solid rgba(59, 130, 246, 0.35)",
+};
+
+const afocsSkdInputStyle: CSSProperties = {
+  width: 85,
+  background: "#091326",
+  border: "1px solid #3b82f6",
+  color: "#fcd34d",
+  fontWeight: 800,
+  padding: "4px 6px",
+  borderRadius: 8,
+  fontSize: 13,
+  textAlign: "center",
+  fontFamily: "monospace",
 };
