@@ -68,6 +68,7 @@ import {
 import {
   combineAfocsSkdParts,
   fillEmptyAfocsSkdOnRows,
+  hasAfocsSkdUpdates,
   preserveAfocsSkdOnRows,
 } from "./lib/afocs-skd";
 
@@ -1784,7 +1785,9 @@ export default function HomePage() {
       // 슬롯 AFOCS를 최우선으로 덮어 기기 간 수동 입력값을 맞춥니다.
       const rowsFromSlot = preserveAfocsSkdOnRows(roomWithLocalAfocs?.rows || [], slotAfocsRows);
       // latest-schedule(서버) AFOCS로 남은 빈 칸을 채웁니다.
-      const rowsMerged = fillEmptyAfocsSkdOnRows(rowsFromSlot, rawServerRoom?.rows || []);
+      const rowsFromServer = fillEmptyAfocsSkdOnRows(rowsFromSlot, rawServerRoom?.rows || []);
+      // PC 로컬에만 있던 AFOCS도 빈 칸에 채웁니다.
+      const rowsMerged = fillEmptyAfocsSkdOnRows(rowsFromServer, localLatestRoom?.rows || []);
       const serverRoom = roomWithLocalAfocs
         ? {
             ...roomWithLocalAfocs,
@@ -1795,6 +1798,23 @@ export default function HomePage() {
       const nextRooms = mergeLatestScheduleRoom(loadRooms(), serverRoom);
       setRooms(nextRooms);
       saveRooms(nextRooms);
+
+      // 로컬/슬롯에서 합쳐진 AFOCS가 서버보다 많으면 서버에 올려 아이폰과 맞춥니다.
+      if (
+        serverRoom &&
+        hasAfocsSkdUpdates(rawServerRoom?.rows || [], rowsMerged)
+      ) {
+        try {
+          const result = await saveScheduleSlotToServer(serverRoom, {
+            rotate: false,
+            slot: linkedScheduleSlotRef.current,
+          });
+          linkedScheduleSlotRef.current = result.linkedSlot;
+          await saveLatestScheduleToServer(serverRoom);
+        } catch (error) {
+          console.error("Failed to push merged AFOCS SKD to server:", error);
+        }
+      }
 
       if (!serverRoom) {
         setFlightAlertSnapshot(null);

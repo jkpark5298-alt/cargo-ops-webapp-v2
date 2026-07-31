@@ -431,6 +431,26 @@ export function fillEmptyAfocsSkdOnRows<
   });
 }
 
+/** merged에 base에 없던(또는 다른) AFOCS가 있으면 true — 서버 재저장 여부 판단용 */
+export function hasAfocsSkdUpdates<
+  T extends { flightId?: string; flightNo?: string; afocsSkd?: string },
+>(baseRows: T[] | null | undefined, mergedRows: T[] | null | undefined): boolean {
+  const baseMap = new Map<string, string>();
+  (baseRows || []).forEach((row) => {
+    const key = getRowFlightKeyForAfocs(row);
+    const afocs = String(row.afocsSkd || "").trim();
+    if (key && afocs) baseMap.set(key, afocs);
+  });
+
+  for (const row of mergedRows || []) {
+    const key = getRowFlightKeyForAfocs(row);
+    const afocs = String(row.afocsSkd || "").trim();
+    if (!key || !afocs) continue;
+    if (baseMap.get(key) !== afocs) return true;
+  }
+  return false;
+}
+
 export function mergeRowPreservingAfocsSkd<T extends { afocsSkd?: string }>(
   existing: T,
   incoming: T,
