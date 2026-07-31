@@ -46,9 +46,9 @@ type DailyRecordCardProps = {
   ) => void;
   handlePastedImage: (slotKey: ImageSlotKey, file: File) => void;
   author: string;
-  setAuthor: Dispatch<SetStateAction<string>>;
+  setAuthor: (value: string) => void;
   note: string;
-  setNote: Dispatch<SetStateAction<string>>;
+  setNote: (value: string) => void;
   dailyNotionRecord: DailyNotionRecord | null;
   isDailySaving: boolean;
   isDailyTextSyncing: boolean;
