@@ -717,24 +717,38 @@ function CompactDateTimeFields({
       {showEditor ? (
         <>
           <input
+            key={`${flight}-${tone}-date-${date}`}
             className="cargo-ops-skd-part"
             type="text"
-            inputMode="decimal"
+            inputMode="text"
+            enterKeyHint="done"
             value={dateValue}
             placeholder="MM.DD"
             onChange={(event) => setDateValue(event.target.value)}
             onBlur={() => commit(dateValue, timeValue)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.currentTarget.blur();
+              }
+            }}
             style={fieldStyles.date}
             aria-label={`${flight} ${label} 월일`}
           />
           <input
+            key={`${flight}-${tone}-time-${time}`}
             className="cargo-ops-skd-part"
             type="text"
             inputMode="numeric"
+            enterKeyHint="done"
             value={timeValue}
             placeholder="HH:mm"
             onChange={(event) => setTimeValue(event.target.value)}
             onBlur={() => commit(dateValue, timeValue)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.currentTarget.blur();
+              }
+            }}
             style={fieldStyles.time}
             aria-label={`${flight} ${label} 시간`}
           />

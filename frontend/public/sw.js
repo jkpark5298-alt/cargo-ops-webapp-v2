@@ -1,3 +1,4 @@
+// cache-bust: afocs-sync-20260731
 self.addEventListener("install", (event) => {
   self.skipWaiting();
 });

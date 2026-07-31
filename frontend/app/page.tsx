@@ -592,7 +592,7 @@ function mergeScheduleRegistrationIntoRoom(
 
   const registrationMap = buildScheduleRegistrationMap(previousRoom?.rows);
   addAircraftRegistrationRecordsToMap(registrationMap, loadAircraftRegistrationRecords());
-  // 서버/슬롯 값이 있으면 유지하고, 로컬은 빈 칸만 채웁니다(기기 간 AFOCS 불일치 방지).
+  // 서버/슬롯에 있는 AFOCS는 유지합니다. 로컬은 빈 칸만 채웁니다.
   const rowsWithManualAfocs = fillEmptyAfocsSkdOnRows(
     incomingRoom.rows || [],
     previousRoom?.rows,
@@ -1089,6 +1089,7 @@ export default function HomePage() {
   const [draftHydrated, setDraftHydrated] = useState(false);
   const latestRoom = useMemo(() => {
     const currentRoom = getLatestScheduleRoom(rooms);
+    // rows(AFOCS 포함)는 React state를 우선하고, 등록번호만 로컬 보조 맵을 적용합니다.
     return mergeScheduleRegistrationIntoRoom(currentRoom, getLocalLatestScheduleRoom());
   }, [rooms]);
 
@@ -1729,16 +1730,18 @@ export default function HomePage() {
       rows: finalRows,
     };
 
-    const nextRooms = mergeLatestScheduleRoom(rooms, updatedRoom);
+    const nextRooms = mergeLatestScheduleRoom(loadRooms(), updatedRoom);
     setRooms(nextRooms);
     saveRooms(nextRooms);
 
     try {
+      // 슬롯 + latest-schedule 모두에 저장해 아이폰 등 다른 기기가 바로 받을 수 있게 합니다.
       const result = await saveScheduleSlotToServer(updatedRoom, {
         rotate: false,
         slot: linkedScheduleSlotRef.current,
       });
       linkedScheduleSlotRef.current = result.linkedSlot;
+      await saveLatestScheduleToServer(updatedRoom);
     } catch (error) {
       console.error("Failed to sync updated AFOCS SKD to server:", error);
       try {
@@ -1778,10 +1781,14 @@ export default function HomePage() {
       }
 
       const roomWithLocalAfocs = mergeScheduleRegistrationIntoRoom(rawServerRoom, localLatestRoom);
+      // 슬롯 AFOCS를 최우선으로 덮어 기기 간 수동 입력값을 맞춥니다.
+      const rowsFromSlot = preserveAfocsSkdOnRows(roomWithLocalAfocs?.rows || [], slotAfocsRows);
+      // latest-schedule(서버) AFOCS로 남은 빈 칸을 채웁니다.
+      const rowsMerged = fillEmptyAfocsSkdOnRows(rowsFromSlot, rawServerRoom?.rows || []);
       const serverRoom = roomWithLocalAfocs
         ? {
             ...roomWithLocalAfocs,
-            rows: preserveAfocsSkdOnRows(roomWithLocalAfocs.rows || [], slotAfocsRows),
+            rows: rowsMerged,
           }
         : null;
 
