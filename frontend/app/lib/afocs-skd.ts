@@ -16,10 +16,18 @@ export function getRowScheduleDateTimeSource(row?: AfocsSkdFlightRow | null): st
   );
 }
 
+function normalizeAfocsDateTimeInput(value: string): string {
+  return value
+    .trim()
+    .replace(/[\u00A0\u202F\u2007\u2009\u200A\uFEFF]/g, " ")
+    .replace(/[．｡]/g, ".")
+    .replace(/\s+/g, " ");
+}
+
 export function parseAfocsDateTime(value?: string | null): Date | null {
   if (!value || value === "-") return null;
 
-  const trimmed = value.trim();
+  const trimmed = normalizeAfocsDateTimeInput(value);
 
   // ko-KR display: "07. 31. 12:49"
   const koMatch = trimmed.match(/^(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{1,2}):(\d{2})$/);
@@ -85,6 +93,32 @@ export function parseAfocsDateTime(value?: string | null): Date | null {
     const [, month, day, hour, minute] = monthDayMatch;
     const now = new Date();
     return new Date(now.getFullYear(), Number(month) - 1, Number(day), Number(hour), Number(minute), 0);
+  }
+
+  // Last resort: pull digits from mixed/Intl output (YYYY? MM DD HH mm)
+  const yearLoose = trimmed.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})\D+(\d{1,2})\D+(\d{2})/);
+  if (yearLoose) {
+    return new Date(
+      Number(yearLoose[1]),
+      Number(yearLoose[2]) - 1,
+      Number(yearLoose[3]),
+      Number(yearLoose[4]),
+      Number(yearLoose[5]),
+      0,
+    );
+  }
+
+  const monthDayLoose = trimmed.match(/(\d{1,2})\D+(\d{1,2})\D+(\d{1,2})\D+(\d{2})/);
+  if (monthDayLoose) {
+    const now = new Date();
+    return new Date(
+      now.getFullYear(),
+      Number(monthDayLoose[1]) - 1,
+      Number(monthDayLoose[2]),
+      Number(monthDayLoose[3]),
+      Number(monthDayLoose[4]),
+      0,
+    );
   }
 
   const direct = new Date(raw);

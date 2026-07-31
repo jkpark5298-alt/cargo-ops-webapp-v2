@@ -136,6 +136,8 @@ function FlightRouteRows({
   const [startY, setStartY] = useState<number>(0);
   const [showAll, setShowAll] = useState(false);
   const [expandedFlights, setExpandedFlights] = useState<Record<string, boolean>>({});
+  // SSR/CSR Date.now() 차이를 피해 hydration mismatch(React #423)를 막습니다.
+  const [focusNowMs, setFocusNowMs] = useState<number | null>(null);
 
   const toggleExpandFlight = (flight: string) => {
     const key = normalizeSummaryFlightKey(flight);
@@ -148,6 +150,12 @@ function FlightRouteRows({
   useEffect(() => {
     setManualOrder(loadScheduleFlightOrder(orderStorageKey));
   }, [orderStorageKey]);
+
+  useEffect(() => {
+    setFocusNowMs(Date.now());
+    const timer = window.setInterval(() => setFocusNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const items = useMemo(
     () => sortFlightItemsByMode(baseItems, sortMode, manualOrder),
@@ -301,11 +309,12 @@ function FlightRouteRows({
       {visibleItems.length > 0 ? (
         visibleItems.map((item, index) => {
           const completed = isFinalCompletedFlightStatus(item.status);
-          const focused = !completed && isItemInFocusWindow(item);
+          const focused =
+            focusNowMs != null && !completed && isItemInFocusWindow(item, focusNowMs);
 
           return (
           <div
-            key={`${item.flight}-${item.route}-${index}`}
+            key={`${normalizeSummaryFlightKey(item.flight)}-${item.route}`}
             style={{
               background: "#091326",
               border: focused ? "1px solid #fbbf24" : (draggingIndex === index ? "1px solid #3b82f6" : "1px solid #1f2c43"),
@@ -1225,13 +1234,11 @@ function formatMonthDayTime(value?: string | null) {
 
   const parsed = parseDateTime(value);
   if (parsed) {
-    return new Intl.DateTimeFormat("ko-KR", {
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).format(parsed);
+    const month = String(parsed.getMonth() + 1).padStart(2, "0");
+    const day = String(parsed.getDate()).padStart(2, "0");
+    const hour = String(parsed.getHours()).padStart(2, "0");
+    const minute = String(parsed.getMinutes()).padStart(2, "0");
+    return `${month}. ${day}. ${hour}:${minute}`;
   }
 
   return value;
@@ -1246,20 +1253,19 @@ function getItemDirection(item: Pick<FlightRouteItem, "departureCode" | "arrival
   return "unknown";
 }
 
-function isItemInFocusWindow(item: FlightRouteItem) {
+function isItemInFocusWindow(item: FlightRouteItem, nowMs: number) {
   const dt = parseDateTime(item.displayTime || item.time);
   if (!dt) return false;
 
-  const now = Date.now();
   const t = dt.getTime();
   const direction = getItemDirection(item);
 
   if (direction === "departure") {
-    return now >= t - 30 * 60 * 1000 && now <= t + 60 * 60 * 1000;
+    return nowMs >= t - 30 * 60 * 1000 && nowMs <= t + 60 * 60 * 1000;
   }
 
   if (direction === "arrival") {
-    return now >= t - 60 * 60 * 1000 && now <= t + 30 * 60 * 1000;
+    return nowMs >= t - 60 * 60 * 1000 && nowMs <= t + 30 * 60 * 1000;
   }
 
   return false;
