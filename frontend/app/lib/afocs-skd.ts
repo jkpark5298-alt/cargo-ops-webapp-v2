@@ -431,6 +431,28 @@ export function fillEmptyAfocsSkdOnRows<
   });
 }
 
+/** AFOCS가 비어 있으면 변경(스케줄) 시각으로 채웁니다. */
+export function seedEmptyAfocsSkdFromSchedule<
+  T extends {
+    flightId?: string;
+    flightNo?: string;
+    afocsSkd?: string;
+    formattedEstimatedTime?: string;
+    estimatedDateTime?: string;
+    formattedScheduleTime?: string;
+    scheduleDateTime?: string;
+  },
+>(rows: T[]): T[] {
+  return rows.map((row) => {
+    if (String(row.afocsSkd || "").trim()) return row;
+    const parts = splitScheduleCompactParts(row);
+    if (!parts.date || !parts.time) return row;
+    const seeded = combineAfocsSkdParts(parts.date, parts.time, row);
+    if (!seeded) return row;
+    return { ...row, afocsSkd: seeded };
+  });
+}
+
 /** merged에 base에 없던(또는 다른) AFOCS가 있으면 true — 서버 재저장 여부 판단용 */
 export function hasAfocsSkdUpdates<
   T extends { flightId?: string; flightNo?: string; afocsSkd?: string },

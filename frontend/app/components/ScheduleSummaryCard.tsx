@@ -773,8 +773,13 @@ function getFlightRouteItems(room: MonitorRoom | null) {
       const flight = getFlightNo(row);
       if (!flight) return null;
 
-      const afocsParts = splitAfocsSkdPartsStoredOnly(row.afocsSkd || "");
+      const afocsPartsStored = splitAfocsSkdPartsStoredOnly(row.afocsSkd || "");
       const changeParts = splitScheduleCompactParts(row);
+      // 저장된 AFOCS가 없으면 변경 시각을 표시값으로 사용합니다.
+      const afocsParts = {
+        date: afocsPartsStored.date || changeParts.date,
+        time: afocsPartsStored.time || changeParts.time,
+      };
       const scheduleSource =
         row.formattedEstimatedTime ||
         row.estimatedDateTime ||

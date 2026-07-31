@@ -9,6 +9,7 @@ import {
   preserveAfocsSkdOnRows,
   resolveAfocsSkdForDisplay,
   getAfocsSkdPlaceholderFromRow,
+  seedEmptyAfocsSkdFromSchedule,
 } from "../lib/afocs-skd";
 import { DEFAULT_DAILY_AUTHOR, normalizeDailyAuthor } from "../lib/local-storage";
 
@@ -307,9 +308,8 @@ function mergeScheduleRegistrationIntoRoom(
 
   const registrationMap = buildScheduleRegistrationMap(previousRoom?.rows);
   addAircraftRegistrationRecordsToMap(registrationMap, loadAircraftRegistrationRecords());
-  const rowsWithManualAfocs = fillEmptyAfocsSkdOnRows(
-    incomingRoom.rows || [],
-    previousRoom?.rows,
+  const rowsWithManualAfocs = seedEmptyAfocsSkdFromSchedule(
+    fillEmptyAfocsSkdOnRows(incomingRoom.rows || [], previousRoom?.rows),
   );
   const nextRows = applyRegistrationMapToRows(rowsWithManualAfocs, registrationMap);
 

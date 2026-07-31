@@ -70,6 +70,7 @@ import {
   fillEmptyAfocsSkdOnRows,
   hasAfocsSkdUpdates,
   preserveAfocsSkdOnRows,
+  seedEmptyAfocsSkdFromSchedule,
 } from "./lib/afocs-skd";
 
 const STORAGE_KEY = "cargo_ops_monitor_rooms_v6";
@@ -594,9 +595,9 @@ function mergeScheduleRegistrationIntoRoom(
   const registrationMap = buildScheduleRegistrationMap(previousRoom?.rows);
   addAircraftRegistrationRecordsToMap(registrationMap, loadAircraftRegistrationRecords());
   // 서버/슬롯에 있는 AFOCS는 유지합니다. 로컬은 빈 칸만 채웁니다.
-  const rowsWithManualAfocs = fillEmptyAfocsSkdOnRows(
-    incomingRoom.rows || [],
-    previousRoom?.rows,
+  // 그래도 비어 있으면 변경(스케줄) 시각으로 채웁니다.
+  const rowsWithManualAfocs = seedEmptyAfocsSkdFromSchedule(
+    fillEmptyAfocsSkdOnRows(incomingRoom.rows || [], previousRoom?.rows),
   );
   const nextRows = applyRegistrationMapToRows(rowsWithManualAfocs, registrationMap);
 
@@ -1787,7 +1788,9 @@ export default function HomePage() {
       // latest-schedule(서버) AFOCS로 남은 빈 칸을 채웁니다.
       const rowsFromServer = fillEmptyAfocsSkdOnRows(rowsFromSlot, rawServerRoom?.rows || []);
       // PC 로컬에만 있던 AFOCS도 빈 칸에 채웁니다.
-      const rowsMerged = fillEmptyAfocsSkdOnRows(rowsFromServer, localLatestRoom?.rows || []);
+      const rowsFromLocal = fillEmptyAfocsSkdOnRows(rowsFromServer, localLatestRoom?.rows || []);
+      // 그래도 비어 있으면 변경(스케줄) 시각으로 채웁니다.
+      const rowsMerged = seedEmptyAfocsSkdFromSchedule(rowsFromLocal);
       const serverRoom = roomWithLocalAfocs
         ? {
             ...roomWithLocalAfocs,
