@@ -5,6 +5,7 @@ import {
   parseAfocsDateTime,
   parseAfocsSkdSortValue,
   prepareAfocsSkdForSave,
+  fillEmptyAfocsSkdOnRows,
   preserveAfocsSkdOnRows,
   resolveAfocsSkdForDisplay,
   getAfocsSkdPlaceholderFromRow,
@@ -306,7 +307,7 @@ function mergeScheduleRegistrationIntoRoom(
 
   const registrationMap = buildScheduleRegistrationMap(previousRoom?.rows);
   addAircraftRegistrationRecordsToMap(registrationMap, loadAircraftRegistrationRecords());
-  const rowsWithManualAfocs = preserveAfocsSkdOnRows(
+  const rowsWithManualAfocs = fillEmptyAfocsSkdOnRows(
     incomingRoom.rows || [],
     previousRoom?.rows,
   );

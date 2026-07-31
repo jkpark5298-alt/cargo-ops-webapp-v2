@@ -706,24 +706,33 @@ function CompactDateTimeFields({
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "nowrap" }}>
+      <style>{`
+        input.cargo-ops-skd-part::placeholder {
+          color: #64748b !important;
+          opacity: 1;
+          font-weight: 600;
+        }
+      `}</style>
       <span style={compactDateTimeLabelStyle}>{label}</span>
       {showEditor ? (
         <>
           <input
+            className="cargo-ops-skd-part"
             type="text"
             inputMode="decimal"
             value={dateValue}
-            placeholder="07.27"
+            placeholder="MM.DD"
             onChange={(event) => setDateValue(event.target.value)}
             onBlur={() => commit(dateValue, timeValue)}
             style={fieldStyles.date}
             aria-label={`${flight} ${label} 월일`}
           />
           <input
+            className="cargo-ops-skd-part"
             type="text"
             inputMode="numeric"
             value={timeValue}
-            placeholder="06:20"
+            placeholder="HH:mm"
             onChange={(event) => setTimeValue(event.target.value)}
             onBlur={() => commit(dateValue, timeValue)}
             style={fieldStyles.time}

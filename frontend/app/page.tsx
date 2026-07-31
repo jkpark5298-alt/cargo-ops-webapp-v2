@@ -65,7 +65,11 @@ import {
   saveScheduleSlotToServer,
   type ScheduleSlotKey,
 } from "./flights/lib/schedule-slots";
-import { combineAfocsSkdParts, preserveAfocsSkdOnRows } from "./lib/afocs-skd";
+import {
+  combineAfocsSkdParts,
+  fillEmptyAfocsSkdOnRows,
+  preserveAfocsSkdOnRows,
+} from "./lib/afocs-skd";
 
 const STORAGE_KEY = "cargo_ops_monitor_rooms_v6";
 const AIRCRAFT_REGISTRATION_STORAGE_KEY = "cargo_ops_aircraft_registration_records_v1";
@@ -588,7 +592,8 @@ function mergeScheduleRegistrationIntoRoom(
 
   const registrationMap = buildScheduleRegistrationMap(previousRoom?.rows);
   addAircraftRegistrationRecordsToMap(registrationMap, loadAircraftRegistrationRecords());
-  const rowsWithManualAfocs = preserveAfocsSkdOnRows(
+  // 서버/슬롯 값이 있으면 유지하고, 로컬은 빈 칸만 채웁니다(기기 간 AFOCS 불일치 방지).
+  const rowsWithManualAfocs = fillEmptyAfocsSkdOnRows(
     incomingRoom.rows || [],
     previousRoom?.rows,
   );

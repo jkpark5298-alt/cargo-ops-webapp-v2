@@ -407,6 +407,30 @@ export function preserveAfocsSkdOnRows<
   });
 }
 
+/** previous에만 값이 있고 incoming이 비어 있을 때만 AFOCS를 채웁니다(로컬이 서버 값을 덮지 않게). */
+export function fillEmptyAfocsSkdOnRows<
+  T extends { flightId?: string; flightNo?: string; afocsSkd?: string },
+>(incomingRows: T[], previousRows?: T[] | null): T[] {
+  if (!previousRows?.length) return incomingRows;
+
+  const prevMap = new Map<string, T>();
+  previousRows.forEach((row) => {
+    const key = getRowFlightKeyForAfocs(row);
+    if (key) prevMap.set(key, row);
+  });
+
+  return incomingRows.map((row) => {
+    const incomingAfocs = String(row.afocsSkd || "").trim();
+    if (incomingAfocs) return row;
+
+    const key = getRowFlightKeyForAfocs(row);
+    const prev = key ? prevMap.get(key) : undefined;
+    const prevAfocs = String(prev?.afocsSkd || "").trim();
+    if (!prev || !prevAfocs) return row;
+    return { ...row, afocsSkd: prev.afocsSkd };
+  });
+}
+
 export function mergeRowPreservingAfocsSkd<T extends { afocsSkd?: string }>(
   existing: T,
   incoming: T,
