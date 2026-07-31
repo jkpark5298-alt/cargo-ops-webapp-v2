@@ -4,7 +4,13 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { FlightRow, MonitorRoom } from "../page";
 import type { FlightAlertHistoryItem } from "../lib/flight-alerts";
 import { formatAlertTitle, renderAlertDescription, formatHistoryTime } from "./FlightAlertHistoryCard";
-import { parseAfocsSkdSortValue, resolveAfocsSkdForDisplay, splitAfocsSkdPartsStoredOnly, splitScheduleCompactParts } from "../lib/afocs-skd";
+import {
+  parseAfocsDateTime,
+  parseAfocsSkdSortValueFromParts,
+  resolveAfocsSkdForDisplay,
+  splitAfocsSkdPartsStoredOnly,
+  splitScheduleCompactParts,
+} from "../lib/afocs-skd";
 
 type ScheduleSummaryCardProps = {
   latestRoom: MonitorRoom | null;
@@ -1211,26 +1217,7 @@ function getFlightNoColor(dep?: string, arr?: string): string {
 }
 
 function parseDateTime(value?: string | null): Date | null {
-  if (!value || value === "-") return null;
-
-  const raw = value.trim().replace(/\./g, "-").replace(/\//g, "-").replace("T", " ");
-  const direct = new Date(raw);
-  if (!Number.isNaN(direct.getTime())) return direct;
-
-  const fullMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/);
-  if (fullMatch) {
-    const [, y, m, d, hh, mm, ss] = fullMatch;
-    return new Date(Number(y), Number(m) - 1, Number(d), Number(hh), Number(mm), Number(ss || "0"));
-  }
-
-  const monthDayMatch = raw.match(/^(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
-  if (monthDayMatch) {
-    const [, m, d, hh, mm] = monthDayMatch;
-    const now = new Date();
-    return new Date(now.getFullYear(), Number(m) - 1, Number(d), Number(hh), Number(mm), 0);
-  }
-
-  return null;
+  return parseAfocsDateTime(value);
 }
 
 function formatMonthDayTime(value?: string | null) {
@@ -1278,12 +1265,19 @@ function isItemInFocusWindow(item: FlightRouteItem) {
   return false;
 }
 
-function parseAfocsSkdSortValueLocal(value?: string) {
-  return parseAfocsSkdSortValue(value);
+function parseAfocsItemSortValue(item: FlightRouteItem) {
+  return parseAfocsSkdSortValueFromParts(item.afocsSkdDate, item.afocsSkdTime, item.afocsSkd);
 }
 
 function parseScheduleSortValue(item: FlightRouteItem) {
-  const dt = parseDateTime(item.displayTime || item.time);
+  const changeCombined =
+    item.changeTimeDate && item.changeTimeTime
+      ? `${item.changeTimeDate} ${item.changeTimeTime}`
+      : "";
+  const dt =
+    parseDateTime(changeCombined) ||
+    parseDateTime(item.displayTime) ||
+    parseDateTime(item.time);
   return dt ? dt.getTime() : Number.MAX_SAFE_INTEGER;
 }
 
@@ -1297,7 +1291,7 @@ function sortFlightItemsByMode(items: FlightRouteItem[], mode: FlightSortMode, m
       return parseScheduleSortValue(a) - parseScheduleSortValue(b);
     }
 
-    const diff = parseAfocsSkdSortValueLocal(a.afocsSkd) - parseAfocsSkdSortValueLocal(b.afocsSkd);
+    const diff = parseAfocsItemSortValue(a) - parseAfocsItemSortValue(b);
     if (diff !== 0) return diff;
     return parseScheduleSortValue(a) - parseScheduleSortValue(b);
   });

@@ -20,6 +20,8 @@ export function parseAfocsDateTime(value?: string | null): Date | null {
   if (!value || value === "-") return null;
 
   const trimmed = value.trim();
+
+  // ko-KR display: "07. 31. 12:49"
   const koMatch = trimmed.match(/^(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{1,2}):(\d{2})$/);
   if (koMatch) {
     const [, month, day, hour, minute] = koMatch;
@@ -34,9 +36,36 @@ export function parseAfocsDateTime(value?: string | null): Date | null {
     );
   }
 
+  // Some Intl locales include year: "2026. 07. 31. 12:49"
+  const koYearMatch = trimmed.match(/^(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{1,2}):(\d{2})$/);
+  if (koYearMatch) {
+    const [, year, month, day, hour, minute] = koYearMatch;
+    return new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      0,
+    );
+  }
+
+  // Compact UI parts: "07.31 12:49"
+  const compactPartsMatch = trimmed.match(/^(\d{1,2})\.(\d{1,2})\s+(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (compactPartsMatch) {
+    const [, month, day, hour, minute] = compactPartsMatch;
+    const now = new Date();
+    return new Date(
+      now.getFullYear(),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      0,
+    );
+  }
+
   const raw = trimmed.replace(/\./g, "-").replace(/\//g, "-").replace("T", " ");
-  const direct = new Date(raw);
-  if (!Number.isNaN(direct.getTime())) return direct;
 
   const fullMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/);
   if (fullMatch) {
@@ -51,12 +80,15 @@ export function parseAfocsDateTime(value?: string | null): Date | null {
     );
   }
 
-  const monthDayMatch = raw.match(/^(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
+  const monthDayMatch = raw.match(/^(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})$/);
   if (monthDayMatch) {
     const [, month, day, hour, minute] = monthDayMatch;
     const now = new Date();
     return new Date(now.getFullYear(), Number(month) - 1, Number(day), Number(hour), Number(minute), 0);
   }
+
+  const direct = new Date(raw);
+  if (!Number.isNaN(direct.getTime())) return direct;
 
   return null;
 }
@@ -88,13 +120,12 @@ function hasDatePart(value: string): boolean {
 }
 
 export function formatAfocsSkdDateTime(date: Date): string {
-  return new Intl.DateTimeFormat("ko-KR", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(date);
+  // Intl 출력은 환경마다 달라 파싱 round-trip이 깨질 수 있어 고정 포맷 사용
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${month}. ${day}. ${hour}:${minute}`;
 }
 
 export function isCompleteAfocsSkdInput(value: string): boolean {
@@ -148,9 +179,40 @@ export function parseAfocsSkdSortValue(value?: string): number {
   if (parsed) return parsed.getTime();
 
   const timeOnly = parseTimeOnly(value);
-  if (timeOnly) return timeOnly.hours * 60 + timeOnly.minutes;
+  if (timeOnly) {
+    const now = new Date();
+    return new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      timeOnly.hours,
+      timeOnly.minutes,
+      0,
+    ).getTime();
+  }
 
   return Number.MAX_SAFE_INTEGER;
+}
+
+/** UI에 보이는 MM.DD / HH:mm 파츠를 우선해 AFOCS 정렬키 계산 */
+export function parseAfocsSkdSortValueFromParts(
+  date?: string,
+  time?: string,
+  fallbackValue?: string,
+): number {
+  const dateValue = String(date || "").trim();
+  const timeValue = String(time || "").trim();
+
+  if (dateValue && timeValue) {
+    const fromParts = parseAfocsDateTime(`${dateValue} ${timeValue}`);
+    if (fromParts) return fromParts.getTime();
+  }
+
+  if (timeValue && !dateValue) {
+    return parseAfocsSkdSortValue(timeValue);
+  }
+
+  return parseAfocsSkdSortValue(fallbackValue);
 }
 
 export function formatExcelAfocsSkdValue(val: unknown, row?: AfocsSkdFlightRow | null): string {

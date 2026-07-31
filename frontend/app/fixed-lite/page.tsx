@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
+  parseAfocsDateTime,
   parseAfocsSkdSortValue,
   prepareAfocsSkdForSave,
   preserveAfocsSkdOnRows,
@@ -364,41 +365,10 @@ function normalizeFlightsInput(rawInput: string) {
 function parseDateTime(value?: string | null): Date | null {
   if (!value || value === "-") return null;
 
+  const parsed = parseAfocsDateTime(value);
+  if (parsed) return parsed;
+
   const raw = value.trim().replace(/\./g, "-").replace(/\//g, "-").replace("T", " ");
-
-  const direct = new Date(raw);
-  if (!Number.isNaN(direct.getTime())) return direct;
-
-  const fullMatch = raw.match(
-    /^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/
-  );
-
-  if (fullMatch) {
-    const [, y, m, d, hh, mm, ss] = fullMatch;
-    return new Date(
-      Number(y),
-      Number(m) - 1,
-      Number(d),
-      Number(hh),
-      Number(mm),
-      Number(ss || "0")
-    );
-  }
-
-  const monthDayMatch = raw.match(/^(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
-
-  if (monthDayMatch) {
-    const now = new Date();
-    const [, m, d, hh, mm] = monthDayMatch;
-    return new Date(
-      now.getFullYear(),
-      Number(m) - 1,
-      Number(d),
-      Number(hh),
-      Number(mm)
-    );
-  }
-
   const digits = raw.replace(/\D/g, "");
   if (digits.length === 12) {
     return new Date(
