@@ -402,7 +402,7 @@ export function preserveAfocsSkdOnRows<
     const key = getRowFlightKeyForAfocs(row);
     const prev = key ? prevMap.get(key) : undefined;
     const prevAfocs = String(prev?.afocsSkd || "").trim();
-    if (!prevAfocs) return row;
+    if (!prev || !prevAfocs) return row;
     return { ...row, afocsSkd: prev.afocsSkd };
   });
 }
