@@ -11,6 +11,7 @@ import {
   splitAfocsSkdPartsStoredOnly,
   splitScheduleCompactParts,
 } from "../lib/afocs-skd";
+import { openCsmChecklistWithFlights } from "../lib/csm-checklist";
 
 type ScheduleSummaryCardProps = {
   latestRoom: MonitorRoom | null;
@@ -138,6 +139,7 @@ function FlightRouteRows({
   const [expandedFlights, setExpandedFlights] = useState<Record<string, boolean>>({});
   // SSR/CSR Date.now() 차이를 피해 hydration mismatch(React #423)를 막습니다.
   const [focusNowMs, setFocusNowMs] = useState<number | null>(null);
+  const [csmTransferStatus, setCsmTransferStatus] = useState("");
 
   const toggleExpandFlight = (flight: string) => {
     const key = normalizeSummaryFlightKey(flight);
@@ -176,6 +178,11 @@ function FlightRouteRows({
   const handleSortModeChange = (mode: "schedule" | "afocs") => {
     setSortMode((prev) => (prev === mode ? "manual" : mode));
     setDraggingIndex(null);
+  };
+
+  const handleSendToCsmChecklist = () => {
+    const result = openCsmChecklistWithFlights(visibleItems);
+    setCsmTransferStatus(result.message);
   };
 
   const startDrag = (e: React.PointerEvent<HTMLDivElement>, index: number) => {
@@ -284,7 +291,15 @@ function FlightRouteRows({
               {showAll ? `총편수보기 ON` : `총편수보기 (완료 ${completedItems.length}편 숨김)`}
             </button>
           )}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={handleSendToCsmChecklist}
+              title="편명(KJ 제외)과 SPOT(주기장)만 CSM CHECK LIST로 전달"
+              style={csmTransferButtonStyle}
+            >
+              CSM 전달
+            </button>
             <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>정렬</span>
             <button
               type="button"
@@ -305,6 +320,7 @@ function FlightRouteRows({
           </div>
         </div>
       )}
+      {csmTransferStatus ? <div style={csmTransferStatusStyle}>{csmTransferStatus}</div> : null}
 
       {visibleItems.length > 0 ? (
         visibleItems.map((item, index) => {
@@ -1350,6 +1366,31 @@ function getSortCircleButtonStyle(active: boolean): CSSProperties {
     padding: 0,
   };
 }
+
+const csmTransferButtonStyle: CSSProperties = {
+  border: "1px solid rgba(52, 211, 153, 0.45)",
+  borderRadius: 8,
+  background: "rgba(6, 78, 59, 0.55)",
+  color: "#6ee7b7",
+  fontSize: 11,
+  fontWeight: 850,
+  padding: "4px 9px",
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+};
+
+const csmTransferStatusStyle: CSSProperties = {
+  marginTop: 8,
+  marginBottom: 4,
+  padding: "8px 10px",
+  borderRadius: 10,
+  border: "1px solid rgba(52, 211, 153, 0.35)",
+  background: "rgba(6, 78, 59, 0.28)",
+  color: "#a7f3d0",
+  fontSize: 12,
+  fontWeight: 700,
+  lineHeight: 1.45,
+};
 
 const focusBadgeStyle: CSSProperties = {
   color: "#fbbf24",
