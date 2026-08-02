@@ -433,6 +433,15 @@ function saveDailyWorkDate(value: string) {
   }
 }
 
+function formatDailyStatusLabel(status: "normal" | "issue") {
+  return status === "normal" ? "정상" : "비정상";
+}
+
+function getWorkDateMismatchMessage(workDate: string, today = getTodayDateInputValue()) {
+  if (!workDate || workDate === today) return "";
+  return `다른 날짜(${formatDateInputForTitle(workDate)}) 정보가 있습니다. 시스템 날짜는 ${formatDateInputForTitle(today)} 입니다. 업무일자를 수정하거나 오늘로 맞춘 뒤 저장/업데이트 하세요.`;
+}
+
 function formatDateInputForTitle(value: string) {
   const [yyyy, mm, dd] = value.split("-").map((part) => Number(part));
   if (!yyyy || !mm || !dd) return formatDateForTitle(new Date());
@@ -1110,6 +1119,9 @@ export default function HomePage() {
   const markDailyLocalEdit = () => {
     dailyLocalEditAtRef.current = Date.now();
   };
+
+  const systemTodayDate = getTodayDateInputValue();
+  const workDateMismatchWarning = getWorkDateMismatchMessage(dailyWorkDate, systemTodayDate);
 
   const handleDailyWorkDateChange = (value: string) => {
     setDailyWorkDate(value || getTodayDateInputValue());
@@ -2597,9 +2609,13 @@ export default function HomePage() {
     setAuthor(nextAuthor);
     setNote(nextNote);
 
-    const targetWorkDate = typeof record.workDate === "string" && record.workDate ? record.workDate : dailyWorkDate;
-    if (typeof record.workDate === "string" && record.workDate) {
-      setDailyWorkDate(record.workDate);
+    const today = getTodayDateInputValue();
+    const recordWorkDate =
+      typeof record.workDate === "string" && record.workDate.trim() ? record.workDate.trim() : "";
+    const targetWorkDate = recordWorkDate || dailyWorkDate || today;
+
+    if (recordWorkDate) {
+      setDailyWorkDate(recordWorkDate);
     }
 
     saveNote(nextNote);
@@ -2856,7 +2872,9 @@ export default function HomePage() {
   };
 
 
-  const buildDailyPayload = () => {
+  const buildDailyPayload = (workDateOverride?: string) => {
+    const workDate = workDateOverride || dailyWorkDate || getTodayDateInputValue();
+    const workDateTitle = formatDateInputForTitle(workDate);
     const dailyImages = IMAGE_SLOTS.flatMap((slot) =>
       getImagesBySlot(images, slot.key).map((image) => ({
         slotKey: slot.key,
@@ -2872,10 +2890,10 @@ export default function HomePage() {
     );
 
     return {
-      title: `${dailyWorkDateTitle} KJ 일일 업무`,
-      date: getDailyWorkDateIso(dailyWorkDate),
-      workDate: dailyWorkDate,
-      workDateText: dailyWorkDateTitle,
+      title: `${workDateTitle} KJ 일일 업무`,
+      date: getDailyWorkDateIso(workDate),
+      workDate,
+      workDateText: workDateTitle,
       author,
       status: dailyStatus === "normal" ? "이상 없음" : "특이사항 있음",
       memo: note,
@@ -2894,8 +2912,16 @@ export default function HomePage() {
       return;
     }
 
-    const payload = buildDailyPayload();
+    const today = getTodayDateInputValue();
+    const mismatch = getWorkDateMismatchMessage(dailyWorkDate, today);
+    if (mismatch) {
+      setNotice(mismatch);
+      return;
+    }
+
+    const payload = buildDailyPayload(today);
     const signature = makeSaveSignature(payload);
+    const statusLabel = formatDailyStatusLabel(dailyStatus);
 
     if (isRecentSameSave(getLastDailySaveSignature(), signature)) {
       setNotice("방금 같은 일일 업무 기록을 저장했습니다. 중복 저장을 막았습니다.");
@@ -2908,6 +2934,10 @@ export default function HomePage() {
     try {
       const result = await saveDailyRecord(payload);
 
+      if (!result?.success || !result?.pageId) {
+        throw new Error(result?.detail || result?.message || "Notion 저장 완료를 확인하지 못했습니다.");
+      }
+
       const record = {
         pageId: result.pageId,
         url: result.url,
@@ -2917,9 +2947,11 @@ export default function HomePage() {
       setDailyNotionRecord(record);
       saveDailyNotionRecord(record);
       saveLastDailySaveSignature({ signature, savedAt: Date.now() });
-      setNotice("Notion에 일일 업무 기록을 저장했습니다.");
+      setNotice(`Notion 일일 기록 저장 완료 · ${statusLabel}`);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Notion 저장 중 오류가 발생했습니다.");
+      setNotice(
+        `Notion 일일 기록 저장 실패 · ${error instanceof Error ? error.message : "저장 중 오류가 발생했습니다."}`,
+      );
     } finally {
       dailySavingRef.current = false;
       setIsDailySaving(false);
@@ -2932,8 +2964,21 @@ export default function HomePage() {
       return;
     }
 
+    const today = getTodayDateInputValue();
+    const mismatch = getWorkDateMismatchMessage(dailyWorkDate, today);
+    if (mismatch) {
+      setNotice(mismatch);
+      return;
+    }
+
+    const statusLabel = formatDailyStatusLabel(dailyStatus);
+
     try {
-      const result = await updateDailyRecord(dailyNotionRecord.pageId, buildDailyPayload());
+      const result = await updateDailyRecord(dailyNotionRecord.pageId, buildDailyPayload(today));
+
+      if (!result?.success || !result?.pageId) {
+        throw new Error(result?.detail || result?.message || "Notion 수정 완료를 확인하지 못했습니다.");
+      }
 
       const nextRecord = {
         ...dailyNotionRecord,
@@ -2943,9 +2988,11 @@ export default function HomePage() {
 
       setDailyNotionRecord(nextRecord);
       saveDailyNotionRecord(nextRecord);
-      setNotice("Notion 일일 업무 기록을 수정했습니다.");
+      setNotice(`Notion 일일 기록 수정 완료 · ${statusLabel}`);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Notion 수정 중 오류가 발생했습니다.");
+      setNotice(
+        `Notion 일일 기록 수정 실패 · ${error instanceof Error ? error.message : "수정 중 오류가 발생했습니다."}`,
+      );
     }
   };
 
@@ -3243,6 +3290,7 @@ export default function HomePage() {
           dailyWorkDateTitle={dailyWorkDateTitle}
           setDailyWorkDate={handleDailyWorkDateChange}
           resetDailyWorkDateToToday={resetDailyWorkDateToToday}
+          workDateMismatchWarning={workDateMismatchWarning}
           images={images}
           imageSlots={IMAGE_SLOTS}
           getImageBySlot={getImageBySlot}
@@ -3319,7 +3367,17 @@ export default function HomePage() {
           />
         )}
 
-        {notice && <div style={noticeStyle}>{notice}</div>}
+        {notice && (
+          <div
+            style={
+              notice.includes("다른 날짜") || notice.includes("업무일자")
+                ? noticeDangerStyle
+                : noticeStyle
+            }
+          >
+            {notice}
+          </div>
+        )}
       </section>
 
       <ImageViewerModal
@@ -3858,6 +3916,18 @@ const noticeStyle: CSSProperties = {
   fontSize: 14,
   lineHeight: 1.5,
 };
+
+const noticeDangerStyle: CSSProperties = {
+  padding: 12,
+  borderRadius: 18,
+  background: "rgba(127, 29, 29, 0.45)",
+  border: "1px solid rgba(239, 68, 68, 0.75)",
+  color: "#fecaca",
+  fontSize: 14,
+  lineHeight: 1.5,
+  fontWeight: 750,
+};
+
 const footerStyle: CSSProperties = {
   maxWidth: 520,
   margin: "16px auto 0",

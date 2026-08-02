@@ -30,6 +30,7 @@ type DailyRecordCardProps = {
   dailyWorkDateTitle: string;
   setDailyWorkDate: (value: string) => void;
   resetDailyWorkDateToToday: () => void;
+  workDateMismatchWarning?: string;
   images: SavedImage[];
   imageSlots: ImageSlot[];
   getImageBySlot: (images: SavedImage[], slotKey: ImageSlotKey) => SavedImage | null;
@@ -71,6 +72,7 @@ export function DailyRecordCard({
   dailyWorkDateTitle,
   setDailyWorkDate,
   resetDailyWorkDateToToday,
+  workDateMismatchWarning = "",
   images,
   imageSlots,
   getImageBySlot,
@@ -155,7 +157,17 @@ export function DailyRecordCard({
         항목별로 이미지를 먼저 선택해 저장합니다. 잘못 올린 사진은 보기, 변경, 삭제할 수 있습니다.
       </p>
 
-      <div style={datePickerBoxStyle}>
+      <div
+        style={
+          workDateMismatchWarning
+            ? {
+                ...datePickerBoxStyle,
+                border: "1px solid rgba(239, 68, 68, 0.75)",
+                background: "rgba(127, 29, 29, 0.22)",
+              }
+            : datePickerBoxStyle
+        }
+      >
         <div>
           <label style={fieldLabelStyle}>업무일자</label>
           <div style={dateTitleStyle}>{dailyWorkDateTitle}</div>
@@ -168,7 +180,7 @@ export function DailyRecordCard({
             onChange={(event) => setDailyWorkDate(event.target.value)}
             aria-label="업무일자 캘린더 선택"
             title="업무일자 캘린더 선택"
-            style={dateInputStyle}
+            style={workDateMismatchWarning ? dateInputWarningStyle : dateInputStyle}
           />
           <button
             type="button"
@@ -179,6 +191,16 @@ export function DailyRecordCard({
           </button>
         </div>
       </div>
+
+      {workDateMismatchWarning ? (
+        <div style={workDateMismatchWarningStyle} role="alert">
+          <div style={workDateMismatchWarningTitleStyle}>업무일자 불일치</div>
+          <div>{workDateMismatchWarning}</div>
+          <button type="button" onClick={resetDailyWorkDateToToday} style={workDateFixButtonStyle}>
+            오늘 날짜로 맞추기
+          </button>
+        </div>
+      ) : null}
 
       <div style={statusToggleStyle}>
         <button
@@ -788,6 +810,44 @@ const dateInputStyle: CSSProperties = {
   fontWeight: 850,
   outline: "none",
   colorScheme: "dark",
+};
+
+const dateInputWarningStyle: CSSProperties = {
+  ...dateInputStyle,
+  border: "1px solid #ef4444",
+  boxShadow: "0 0 0 1px rgba(239, 68, 68, 0.35)",
+};
+
+const workDateMismatchWarningStyle: CSSProperties = {
+  margin: "-6px 0 16px",
+  padding: "12px 14px",
+  borderRadius: 14,
+  border: "1px solid rgba(239, 68, 68, 0.75)",
+  background: "rgba(127, 29, 29, 0.45)",
+  color: "#fecaca",
+  fontSize: 13,
+  fontWeight: 750,
+  lineHeight: 1.55,
+  display: "grid",
+  gap: 10,
+};
+
+const workDateMismatchWarningTitleStyle: CSSProperties = {
+  color: "#fee2e2",
+  fontSize: 14,
+  fontWeight: 950,
+};
+
+const workDateFixButtonStyle: CSSProperties = {
+  justifySelf: "start",
+  border: "1px solid rgba(252, 165, 165, 0.65)",
+  borderRadius: 12,
+  background: "rgba(185, 28, 28, 0.9)",
+  color: "#fff1f2",
+  padding: "8px 12px",
+  fontSize: 13,
+  fontWeight: 900,
+  cursor: "pointer",
 };
 
 const todayButtonStyle: CSSProperties = {

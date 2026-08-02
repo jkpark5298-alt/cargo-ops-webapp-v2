@@ -1300,10 +1300,11 @@ function isItemInFocusWindow(item: FlightRouteItem, nowMs: number) {
 }
 
 function parseAfocsItemSortValue(item: FlightRouteItem) {
+  // 화면에 보이는 AFOCS MM.DD / HH:mm 을 우선 사용 (저장 문자열 파싱 실패 방지)
   return parseAfocsSkdSortValueFromParts(item.afocsSkdDate, item.afocsSkdTime, item.afocsSkd);
 }
 
-function parseScheduleSortValue(item: FlightRouteItem) {
+function parseChangeSortValue(item: FlightRouteItem) {
   const changeCombined =
     item.changeTimeDate && item.changeTimeTime
       ? `${item.changeTimeDate} ${item.changeTimeTime}`
@@ -1321,13 +1322,14 @@ function sortFlightItemsByMode(items: FlightRouteItem[], mode: FlightSortMode, m
   }
 
   return [...items].sort((a, b) => {
+    // S(schedule): 변경 시각 / A(afocs): AFOCS SKD
     if (mode === "schedule") {
-      return parseScheduleSortValue(a) - parseScheduleSortValue(b);
+      return parseChangeSortValue(a) - parseChangeSortValue(b);
     }
 
     const diff = parseAfocsItemSortValue(a) - parseAfocsItemSortValue(b);
     if (diff !== 0) return diff;
-    return parseScheduleSortValue(a) - parseScheduleSortValue(b);
+    return parseChangeSortValue(a) - parseChangeSortValue(b);
   });
 }
 

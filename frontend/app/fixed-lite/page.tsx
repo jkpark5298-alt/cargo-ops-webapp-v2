@@ -3,13 +3,15 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   parseAfocsDateTime,
-  parseAfocsSkdSortValue,
+  parseAfocsSkdSortValueFromParts,
   prepareAfocsSkdForSave,
   fillEmptyAfocsSkdOnRows,
   preserveAfocsSkdOnRows,
   resolveAfocsSkdForDisplay,
   getAfocsSkdPlaceholderFromRow,
   seedEmptyAfocsSkdFromSchedule,
+  splitAfocsSkdPartsStoredOnly,
+  splitScheduleCompactParts,
 } from "../lib/afocs-skd";
 import { DEFAULT_DAILY_AUTHOR, normalizeDailyAuthor } from "../lib/local-storage";
 
@@ -2416,11 +2418,21 @@ function getFlightNoColor(dep?: string, arr?: string): string {
   return "#e2e8f0"; // 기본 흰색 계열
 }
 
-function parseAfocsSkdSortValueLocal(value?: string) {
-  return parseAfocsSkdSortValue(value);
+function parseWidgetAfocsSortValue(item: WidgetSummaryItem) {
+  const stored = splitAfocsSkdPartsStoredOnly(item.afocsSkd || "");
+  // 저장된 AFOCS가 없으면 변경(displayTime)을 화면과 동일하게 fallback
+  if (!stored.date || !stored.time) {
+    const changeParts = splitScheduleCompactParts({
+      formattedEstimatedTime: item.displayTime,
+    });
+    const date = stored.date || changeParts.date;
+    const time = stored.time || changeParts.time;
+    return parseAfocsSkdSortValueFromParts(date, time, item.afocsSkd || item.displayTime);
+  }
+  return parseAfocsSkdSortValueFromParts(stored.date, stored.time, item.afocsSkd);
 }
 
-function parseWidgetScheduleSortValue(item: WidgetSummaryItem) {
+function parseWidgetChangeSortValue(item: WidgetSummaryItem) {
   const dt = parseDateTime(item.displayTime);
   return dt ? dt.getTime() : Number.MAX_SAFE_INTEGER;
 }
@@ -2435,13 +2447,14 @@ function sortWidgetItemsByMode(
   }
 
   return [...items].sort((a, b) => {
+    // S(schedule): 변경 시각 / A(afocs): AFOCS SKD
     if (mode === "schedule") {
-      return parseWidgetScheduleSortValue(a) - parseWidgetScheduleSortValue(b);
+      return parseWidgetChangeSortValue(a) - parseWidgetChangeSortValue(b);
     }
 
-    const diff = parseAfocsSkdSortValueLocal(a.afocsSkd) - parseAfocsSkdSortValueLocal(b.afocsSkd);
+    const diff = parseWidgetAfocsSortValue(a) - parseWidgetAfocsSortValue(b);
     if (diff !== 0) return diff;
-    return parseWidgetScheduleSortValue(a) - parseWidgetScheduleSortValue(b);
+    return parseWidgetChangeSortValue(a) - parseWidgetChangeSortValue(b);
   });
 }
 
