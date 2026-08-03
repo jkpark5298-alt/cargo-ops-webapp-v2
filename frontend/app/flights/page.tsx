@@ -935,6 +935,67 @@ function getAircraftRegistrationCell(row: Record<string, unknown>, candidates: s
   return "";
 }
 
+/** 제목 행이 있는 엑셀도 헤더(편명/등록기호/일자 등)를 찾아 객체 배열로 변환합니다. */
+function sheetToRegistrationAfocsRows(sheet: XLSX.WorkSheet): Record<string, unknown>[] {
+  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+    header: 1,
+    defval: "",
+    blankrows: false,
+  });
+
+  if (!Array.isArray(matrix) || matrix.length === 0) return [];
+
+  const normalizeCell = (value: unknown) => String(value ?? "").replace(/\s+/g, "").toLowerCase();
+
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(matrix.length, 40); i++) {
+    const cells = Array.isArray(matrix[i]) ? matrix[i] : [];
+    const normalized = cells.map(normalizeCell);
+    const hasFlight = normalized.some(
+      (cell) => cell === "편명" || cell === "flight" || cell === "flightid" || cell === "flightno",
+    );
+    const hasMarker = normalized.some(
+      (cell) =>
+        cell === "등록기호" ||
+        cell === "등록" ||
+        cell === "일자" ||
+        cell === "date" ||
+        cell === "etd/eta" ||
+        cell === "etd" ||
+        cell === "eta" ||
+        cell === "afocsskd",
+    );
+    if (hasFlight && hasMarker) {
+      headerIdx = i;
+      break;
+    }
+  }
+
+  if (headerIdx < 0) {
+    return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+  }
+
+  const headers = (Array.isArray(matrix[headerIdx]) ? matrix[headerIdx] : []).map((cell) =>
+    String(cell ?? "").trim(),
+  );
+  const rows: Record<string, unknown>[] = [];
+
+  for (let r = headerIdx + 1; r < matrix.length; r++) {
+    const cells = Array.isArray(matrix[r]) ? matrix[r] : [];
+    const isEmpty = cells.every((cell) => String(cell ?? "").trim() === "");
+    if (isEmpty) continue;
+
+    const row: Record<string, unknown> = {};
+    headers.forEach((header, index) => {
+      if (!header) return;
+      row[header] = cells[index] ?? "";
+    });
+    rows.push(row);
+  }
+
+  return rows;
+}
+
 function parseAircraftRegistrationRows(rawRows: Record<string, unknown>[]) {
   const now = new Date().toISOString();
   const records: AircraftRegistrationRecord[] = [];
@@ -1924,7 +1985,7 @@ export default function FlightsPage() {
         return;
       }
 
-      const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, { defval: "" });
+      const rawRows = sheetToRegistrationAfocsRows(firstSheet);
       const parsedRecords = parseAircraftRegistrationRows(rawRows);
 
       if (parsedRecords.length === 0) {
@@ -2128,7 +2189,7 @@ export default function FlightsPage() {
         return;
       }
 
-      const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, { defval: "" });
+      const rawRows = sheetToRegistrationAfocsRows(firstSheet);
       const parsedRecords = parseAircraftRegistrationRows(rawRows);
 
       const afocsMappings: Record<string, string> = {};
@@ -2193,7 +2254,7 @@ export default function FlightsPage() {
       const afocsCount = Object.keys(afocsMappings).length;
       if (parsedRecords.length === 0 && hlCount === 0 && afocsCount === 0) {
         setHlMappingStatus(
-          "엑셀에서 등록기호/AFOCS 데이터를 찾지 못했습니다. 편명·등록기호·일자·ETD/ETA 컬럼을 확인해 주세요.",
+          "엑셀에서 등록기호/AFOCS 데이터를 찾지 못했습니다. 제목 행 아래 헤더에 편명·등록기호·일자·ETD/ETA가 있는지 확인해 주세요.",
         );
         return;
       }
