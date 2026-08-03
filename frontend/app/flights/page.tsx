@@ -23,10 +23,11 @@ import {
 } from "./lib/schedule-slots";
 import {
   formatExcelAfocsSkdValue,
-  getAfocsSkdPlaceholderFromRow,
   mergeRowPreservingAfocsSkd,
   prepareAfocsSkdForSave,
   resolveAfocsSkdForDisplay,
+  splitAfocsSkdParts,
+  splitAfocsSkdPartsStoredOnly,
 } from "../lib/afocs-skd";
 import { getComputedFlightStatus } from "../lib/flight-status";
 
@@ -1186,6 +1187,101 @@ function TimeSelect24({
   );
 }
 
+function combineAfocsSkdParts(date: string, time: string): string {
+  const datePart = date.trim();
+  const timePart = time.trim();
+  if (!datePart && !timePart) return "";
+  if (datePart && timePart) return prepareAfocsSkdForSave(`${datePart} ${timePart}`);
+  return prepareAfocsSkdForSave(datePart || timePart);
+}
+
+function AfocsSkdPartInputs({
+  flightKey,
+  storedValue,
+  draftValue,
+  row,
+  onChange,
+}: {
+  flightKey: string;
+  storedValue: string;
+  draftValue?: string;
+  row: FlightRow;
+  onChange: (flight: string, value: string) => void;
+}) {
+  const sourceValue = draftValue !== undefined ? draftValue : resolveAfocsSkdForDisplay(storedValue, row);
+  const seedParts = (() => {
+    if (draftValue !== undefined) {
+      const storedOnly = splitAfocsSkdPartsStoredOnly(draftValue);
+      if (storedOnly.date || storedOnly.time) return storedOnly;
+    }
+    return splitAfocsSkdParts(sourceValue, row);
+  })();
+  const [dateValue, setDateValue] = useState(seedParts.date);
+  const [timeValue, setTimeValue] = useState(seedParts.time);
+
+  useEffect(() => {
+    const nextParts = (() => {
+      if (draftValue !== undefined) {
+        const storedOnly = splitAfocsSkdPartsStoredOnly(draftValue);
+        if (storedOnly.date || storedOnly.time) return storedOnly;
+        return splitAfocsSkdParts(draftValue, row);
+      }
+      return splitAfocsSkdParts(storedValue, row);
+    })();
+    setDateValue(nextParts.date);
+    setTimeValue(nextParts.time);
+    // row identity는 flightKey로 대체
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flightKey, storedValue, draftValue]);
+
+  const commit = (nextDate: string, nextTime: string) => {
+    onChange(flightKey, combineAfocsSkdParts(nextDate, nextTime));
+  };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      <input
+        value={dateValue}
+        onChange={(event) => setDateValue(event.target.value)}
+        onBlur={() => commit(dateValue, timeValue)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+        }}
+        placeholder="MM.DD"
+        style={{
+          ...hlInlineInputStyle,
+          minWidth: 58,
+          width: 64,
+          color: "#fcd34d",
+          fontWeight: 800,
+          border: "1px solid rgba(59, 130, 246, 0.4)",
+          textAlign: "center",
+        }}
+        aria-label={`${flightKey} AFOCS 월일`}
+      />
+      <input
+        value={timeValue}
+        onChange={(event) => setTimeValue(event.target.value)}
+        onBlur={() => commit(dateValue, timeValue)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+        }}
+        placeholder="HH:mm"
+        style={{
+          ...hlInlineInputStyle,
+          minWidth: 54,
+          width: 58,
+          color: "#fcd34d",
+          fontWeight: 800,
+          border: "1px solid rgba(59, 130, 246, 0.4)",
+          textAlign: "center",
+        }}
+        aria-label={`${flightKey} AFOCS 시간`}
+      />
+    </div>
+  );
+}
+
 function FixedResultsTable({
   rows,
   expandedKeys,
@@ -1197,6 +1293,7 @@ function FixedResultsTable({
   onAfocsSkdDraftChange,
   onToggleDetail,
   onToggleSelect,
+  showSelection = true,
 }: {
   rows: FlightRow[];
   expandedKeys: Record<string, boolean>;
@@ -1208,7 +1305,10 @@ function FixedResultsTable({
   onAfocsSkdDraftChange: (flight: string, value: string) => void;
   onToggleDetail: (key: string) => void;
   onToggleSelect: (row: FlightRow, idx: number) => void;
+  showSelection?: boolean;
 }) {
+  const colSpan = showSelection ? 10 : 9;
+
   return (
     <div style={{ marginTop: 30, overflowX: "auto" }}>
       <table
@@ -1222,10 +1322,10 @@ function FixedResultsTable({
       >
         <thead>
           <tr style={{ background: "#18263f" }}>
-            <th style={thStyle}>선택</th>
+            {showSelection ? <th style={thStyle}>선택</th> : null}
             <th style={thStyle}>편명</th>
             <th style={thStyle}>등록기호</th>
-            <th style={thStyle}>AFOCS SKD</th>
+            <th style={thStyle}>AFOCS SKD (MM.DD / HH:mm)</th>
             <th style={thStyle}>구분</th>
             <th style={thStyle}>출발</th>
             <th style={thStyle}>도착</th>
@@ -1237,7 +1337,7 @@ function FixedResultsTable({
         <tbody>
           {rows.length === 0 && (
             <tr>
-              <td style={tdStyle} colSpan={10}>
+              <td style={tdStyle} colSpan={colSpan}>
                 조회 결과가 없습니다.
               </td>
             </tr>
@@ -1250,6 +1350,7 @@ function FixedResultsTable({
             const selected = Boolean(selectedKeys[selectionKey]);
             const finalCompleted = isFinalCompletedRow(row);
             const detailRows = buildFixedDetailRows(row);
+            const flightKey = getFlightKeyFromRow(row);
 
             return (
               <FragmentRow key={rowKey}>
@@ -1261,18 +1362,21 @@ function FixedResultsTable({
                     background: getRowBackground(row),
                   }}
                 >
-                  <td style={tdStyle}>
-                    <input
-                      type="checkbox"
-                      checked={selected}
-                      onChange={() => onToggleSelect(row, idx)}
-                      style={{
-                        width: 18,
-                        height: 18,
-                        cursor: "pointer",
-                      }}
-                    />
-                  </td>
+                  {showSelection ? (
+                    <td style={tdStyle}>
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => onToggleSelect(row, idx)}
+                        style={{
+                          width: 18,
+                          height: 18,
+                          cursor: "pointer",
+                        }}
+                        title="편명 수정 모드에서 삭제할 편 선택"
+                      />
+                    </td>
+                  ) : null}
                   <td style={{ ...tdStyle, color: getFlightNoColor(row.departureCode, row.arrivalCode) }}>
                     {formatFlightDisplayWithMarker(row, hlDrafts)}
                   </td>
@@ -1280,30 +1384,23 @@ function FixedResultsTable({
                     <input
                       value={getEditableHlValue(row, hlNumberMap, hlDrafts)}
                       onChange={(event) =>
-                        onHlDraftChange(getFlightKeyFromRow(row), event.target.value.toUpperCase())
+                        onHlDraftChange(flightKey, event.target.value.toUpperCase())
                       }
                       placeholder="7423"
                       style={hlInlineInputStyle}
                     />
                   </td>
                   <td style={tdStyle}>
-                    <input
-                      value={
-                        afocsSkdDrafts[getFlightKeyFromRow(row)] ??
-                        resolveAfocsSkdForDisplay(row.afocsSkd || "", row)
+                    <AfocsSkdPartInputs
+                      flightKey={flightKey}
+                      storedValue={row.afocsSkd || ""}
+                      draftValue={
+                        Object.prototype.hasOwnProperty.call(afocsSkdDrafts, flightKey)
+                          ? afocsSkdDrafts[flightKey]
+                          : undefined
                       }
-                      onChange={(event) =>
-                        onAfocsSkdDraftChange(getFlightKeyFromRow(row), event.target.value)
-                      }
-                      placeholder={getAfocsSkdPlaceholderFromRow(row)}
-                      style={{
-                        ...hlInlineInputStyle,
-                        minWidth: 120,
-                        width: 130,
-                        color: "#fcd34d",
-                        fontWeight: "bold",
-                        border: "1px solid rgba(59, 130, 246, 0.4)",
-                      }}
+                      row={row}
+                      onChange={onAfocsSkdDraftChange}
                     />
                   </td>
                   <td
@@ -1329,7 +1426,7 @@ function FixedResultsTable({
 
                 {expanded && (
                   <tr style={{ background: "#0c1a31", borderBottom: "1px solid #2b4269" }}>
-                    <td colSpan={10} style={{ padding: 14 }}>
+                    <td colSpan={colSpan} style={{ padding: 14 }}>
                       <table
                         style={{
                           width: "100%",
@@ -4254,7 +4351,7 @@ export default function FlightsPage() {
                 AFOCS SKD 저장
               </button>
               <span style={hlInlineHelpStyle}>
-                시간은 엑셀 업로드 또는 표에 직접 수동 입력 가능 · 시간 형식: HH:MM 또는 YYYY-MM-DD HH:MM
+                AFOCS는 MM.DD / HH:mm 칸에 입력 · 예: 08.03 · 23:00 · 포커스 벗어나면 반영 · 엑셀도 가능
               </span>
             </div>
           </>
@@ -4401,6 +4498,7 @@ export default function FlightsPage() {
             onAfocsSkdDraftChange={handleAfocsSkdInlineDraftChange}
             onToggleDetail={handleToggleDetail}
             onToggleSelect={handleToggleScheduleSelection}
+            showSelection={flightMode === "edit"}
           />
         )}
 
