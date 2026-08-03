@@ -1,5 +1,6 @@
 import copy
 import os
+import asyncio
 import time
 import httpx
 import xml.etree.ElementTree as ET
@@ -244,39 +245,58 @@ async def _fetch_one_day(
         (ARRIVALS_PATH, "arrival"),
     ]:
         url = f"{BASE_URL}{path}"
+        attempt_error: Optional[Exception] = None
 
-        try:
-            res = await client.get(url, params=common_params)
-            body_text = res.text
+        for attempt in range(3):
+            try:
+                res = await client.get(url, params=common_params)
+                body_text = res.text
 
-            if _is_quota_exceeded_response(res.status_code, body_text):
-                raise IncheonApiQuotaExceededError("한도 초과로 조회 불가")
+                if _is_quota_exceeded_response(res.status_code, body_text):
+                    raise IncheonApiQuotaExceededError("한도 초과로 조회 불가")
 
-            if res.status_code in {401, 403}:
-                raise IncheonApiAuthError(
-                    "인천 화물기 API 인증에 실패했습니다. INCHEON_API_SERVICE_KEY(Decoding)를 확인하세요."
-                )
+                if res.status_code in {401, 403}:
+                    raise IncheonApiAuthError(
+                        "인천 화물기 API 인증에 실패했습니다. INCHEON_API_SERVICE_KEY(Decoding)를 확인하세요."
+                    )
 
-            if res.status_code != 200:
-                last_error = IncheonApiResponseError(str(res.status_code), f"HTTP {res.status_code}")
-                continue
+                if res.status_code != 200:
+                    attempt_error = IncheonApiResponseError(str(res.status_code), f"HTTP {res.status_code}")
+                    await asyncio_sleep_backoff(attempt)
+                    continue
 
-            parsed = _parse_xml_items(body_text, source_type=source_type)
-            results.extend(parsed)
+                parsed = _parse_xml_items(body_text, source_type=source_type)
+                results.extend(parsed)
+                attempt_error = None
+                break
 
-        except (IncheonApiQuotaExceededError, IncheonApiAuthError):
-            raise
-        except IncheonApiResponseError as exc:
-            last_error = exc
-            continue
-        except Exception as exc:
-            last_error = exc
-            continue
+            except (IncheonApiQuotaExceededError, IncheonApiAuthError):
+                raise
+            except IncheonApiResponseError as exc:
+                attempt_error = exc
+                # 공공데이터 게이트웨이 HTTP_ERROR(04)는 일시적인 경우가 많아 재시도합니다.
+                if exc.code in {"04", "500", "502", "503", "504"} and attempt < 2:
+                    await asyncio_sleep_backoff(attempt)
+                    continue
+                break
+            except Exception as exc:
+                attempt_error = exc
+                if attempt < 2:
+                    await asyncio_sleep_backoff(attempt)
+                    continue
+                break
+
+        if attempt_error is not None:
+            last_error = attempt_error
 
     if not results and last_error is not None:
         raise last_error
 
     return results
+
+
+async def asyncio_sleep_backoff(attempt: int) -> None:
+    await asyncio.sleep(0.4 * (attempt + 1))
 
 
 def _date_range(start_date: str, end_date: str) -> List[str]:
