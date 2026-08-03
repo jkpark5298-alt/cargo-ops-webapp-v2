@@ -441,7 +441,7 @@ function formatDailyStatusLabel(status: "normal" | "issue") {
 
 function getWorkDateMismatchMessage(workDate: string, today = getTodayDateInputValue()) {
   if (!workDate || workDate === today) return "";
-  return `다른 날짜(${formatDateInputForTitle(workDate)}) 정보가 있습니다. 시스템 날짜는 ${formatDateInputForTitle(today)} 입니다. 업무일자를 수정하거나 오늘로 맞춘 뒤 저장/업데이트 하세요.`;
+  return `선택 업무일자는 ${formatDateInputForTitle(workDate)} 이고, 시스템 날짜는 ${formatDateInputForTitle(today)} 입니다. Notion에는 선택 업무일자로 저장됩니다.`;
 }
 
 function formatDateInputForTitle(value: string) {
@@ -2910,14 +2910,7 @@ export default function HomePage() {
       return;
     }
 
-    const today = getTodayDateInputValue();
-    const mismatch = getWorkDateMismatchMessage(dailyWorkDate, today);
-    if (mismatch) {
-      setNotice(mismatch);
-      return;
-    }
-
-    const payload = buildDailyPayload(today);
+    const payload = buildDailyPayload(dailyWorkDate || getTodayDateInputValue());
     const signature = makeSaveSignature(payload);
     const statusLabel = formatDailyStatusLabel(dailyStatus);
 
@@ -2945,7 +2938,7 @@ export default function HomePage() {
       setDailyNotionRecord(record);
       saveDailyNotionRecord(record);
       saveLastDailySaveSignature({ signature, savedAt: Date.now() });
-      setNotice(`Notion 일일 기록 저장 완료 · ${statusLabel}`);
+      setNotice(`Notion 일일 기록 저장 완료 · ${payload.workDateText} · ${statusLabel}`);
     } catch (error) {
       setNotice(
         `Notion 일일 기록 저장 실패 · ${error instanceof Error ? error.message : "저장 중 오류가 발생했습니다."}`,
@@ -2962,17 +2955,11 @@ export default function HomePage() {
       return;
     }
 
-    const today = getTodayDateInputValue();
-    const mismatch = getWorkDateMismatchMessage(dailyWorkDate, today);
-    if (mismatch) {
-      setNotice(mismatch);
-      return;
-    }
-
+    const payload = buildDailyPayload(dailyWorkDate || getTodayDateInputValue());
     const statusLabel = formatDailyStatusLabel(dailyStatus);
 
     try {
-      const result = await updateDailyRecord(dailyNotionRecord.pageId, buildDailyPayload(today));
+      const result = await updateDailyRecord(dailyNotionRecord.pageId, payload);
 
       if (!result?.success || !result?.pageId) {
         throw new Error(result?.detail || result?.message || "Notion 수정 완료를 확인하지 못했습니다.");
@@ -2986,7 +2973,7 @@ export default function HomePage() {
 
       setDailyNotionRecord(nextRecord);
       saveDailyNotionRecord(nextRecord);
-      setNotice(`Notion 일일 기록 수정 완료 · ${statusLabel}`);
+      setNotice(`Notion 일일 기록 수정 완료 · ${payload.workDateText} · ${statusLabel}`);
     } catch (error) {
       setNotice(
         `Notion 일일 기록 수정 실패 · ${error instanceof Error ? error.message : "수정 중 오류가 발생했습니다."}`,

@@ -194,7 +194,7 @@ export function DailyRecordCard({
 
       {workDateMismatchWarning ? (
         <div style={workDateMismatchWarningStyle} role="alert">
-          <div style={workDateMismatchWarningTitleStyle}>업무일자 불일치</div>
+          <div style={workDateMismatchWarningTitleStyle}>업무일자 안내</div>
           <div>{workDateMismatchWarning}</div>
           <button type="button" onClick={resetDailyWorkDateToToday} style={workDateFixButtonStyle}>
             오늘 날짜로 맞추기
