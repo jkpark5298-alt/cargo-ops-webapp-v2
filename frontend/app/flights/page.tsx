@@ -1289,6 +1289,9 @@ export default function FlightsPage() {
 
   const [startDateTime, setStartDateTime] = useState("");
   const [endDateTime, setEndDateTime] = useState("");
+  // ③ 등록번호/AFOCS 전용 조회 기간 (Schedule Flight 카드 기간과 분리)
+  const [registrationStartDateTime, setRegistrationStartDateTime] = useState("");
+  const [registrationEndDateTime, setRegistrationEndDateTime] = useState("");
 
   const [fixed, setFixed] = useState(false);
   const [lastFetchedAt, setLastFetchedAt] = useState("");
@@ -1307,14 +1310,22 @@ export default function FlightsPage() {
     return `${startDateTime.replace("T", " ")} ~ ${endDateTime.replace("T", " ")}`;
   }, [startDateTime, endDateTime]);
 
+  const registrationRangeText = useMemo(() => {
+    return `${registrationStartDateTime.replace("T", " ")} ~ ${registrationEndDateTime.replace("T", " ")}`;
+  }, [registrationStartDateTime, registrationEndDateTime]);
+
   const alertCounts = useMemo(() => getAlertCounts(rows), [rows]);
 
   const hlNumberMap = useMemo(() => parseHlMappingText(hlMappingText), [hlMappingText]);
   const hlMappingCount = useMemo(() => Object.keys(hlNumberMap).length, [hlNumberMap]);
 
   useEffect(() => {
-    setStartDateTime(getDefaultStartDateTime());
-    setEndDateTime(getDefaultEndDateTime());
+    const defaultStart = getDefaultStartDateTime();
+    const defaultEnd = getDefaultEndDateTime();
+    setStartDateTime(defaultStart);
+    setEndDateTime(defaultEnd);
+    setRegistrationStartDateTime(defaultStart);
+    setRegistrationEndDateTime(defaultEnd);
     setHlMappingText(loadHlMappingText());
 
     const localRecords = loadAircraftRegistrationRecords();
@@ -1413,6 +1424,8 @@ export default function FlightsPage() {
     setInput(entry.room.flightsInput);
     setStartDateTime(entry.room.startDateTime);
     setEndDateTime(entry.room.endDateTime);
+    setRegistrationStartDateTime(entry.room.startDateTime || getDefaultStartDateTime());
+    setRegistrationEndDateTime(entry.room.endDateTime || getDefaultEndDateTime());
     setFixed(true);
     setLastFetchedAt(entry.room.lastFetchedAt);
     setRows(entry.room.rows || []);
@@ -2128,12 +2141,16 @@ export default function FlightsPage() {
 
   const handleStartDateTimeChange = (value: string) => {
     setStartDateTime(value);
-    updateSelectedRoomDraft({ startDateTime: value });
+    if (flightMode !== "registration") {
+      updateSelectedRoomDraft({ startDateTime: value });
+    }
   };
 
   const handleEndDateTimeChange = (value: string) => {
     setEndDateTime(value);
-    updateSelectedRoomDraft({ endDateTime: value });
+    if (flightMode !== "registration") {
+      updateSelectedRoomDraft({ endDateTime: value });
+    }
   };
 
   const handleStartDateChange = (value: string) => {
@@ -2152,7 +2169,27 @@ export default function FlightsPage() {
     handleEndDateTimeChange(buildDateTime(getDatePart(endDateTime), value));
   };
 
-  const refreshRoomData = async (room: MonitorRoom, showLoading = true) => {
+  const handleRegistrationStartDateChange = (value: string) => {
+    setRegistrationStartDateTime(buildDateTime(value, getTimePart(registrationStartDateTime)));
+  };
+
+  const handleRegistrationStartTimeChange = (value: string) => {
+    setRegistrationStartDateTime(buildDateTime(getDatePart(registrationStartDateTime), value));
+  };
+
+  const handleRegistrationEndDateChange = (value: string) => {
+    setRegistrationEndDateTime(buildDateTime(value, getTimePart(registrationEndDateTime)));
+  };
+
+  const handleRegistrationEndTimeChange = (value: string) => {
+    setRegistrationEndDateTime(buildDateTime(getDatePart(registrationEndDateTime), value));
+  };
+
+  const refreshRoomData = async (
+    room: MonitorRoom,
+    showLoading = true,
+    rangeOverride?: { start: string; end: string },
+  ) => {
     if (showLoading) {
       setLoading(true);
     }
@@ -2163,6 +2200,8 @@ export default function FlightsPage() {
       const activeFlights = getActiveRefreshFlights(room);
       const excludedCount = (room.rows || []).filter(isFinalCompletedRow).length;
       let nextRows: FlightRow[];
+      const queryStart = rangeOverride?.start || room.startDateTime;
+      const queryEnd = rangeOverride?.end || room.endDateTime;
 
       if (activeFlights.length === 0) {
         nextRows = room.rows || [];
@@ -2177,8 +2216,8 @@ export default function FlightsPage() {
           },
           body: JSON.stringify({
             flights: activeFlights,
-            start: room.startDateTime,
-            end: room.endDateTime,
+            start: queryStart,
+            end: queryEnd,
           }),
         });
 
@@ -2192,6 +2231,7 @@ export default function FlightsPage() {
       }
 
       const fetchedAt = new Date().toLocaleString("ko-KR");
+      // 등록번호/AFOCS 전용 기간 조회 시에도 Schedule Flight 카드의 저장 기간은 유지합니다.
       const updatedRoom: MonitorRoom = normalizeScheduleRoomRows({
         ...room,
         rows: nextRows,
@@ -2208,8 +2248,10 @@ export default function FlightsPage() {
 
       if (selectedRoomId === updatedRoom.id) {
         setInput(updatedRoom.flightsInput);
-        setStartDateTime(updatedRoom.startDateTime);
-        setEndDateTime(updatedRoom.endDateTime);
+        if (!rangeOverride) {
+          setStartDateTime(updatedRoom.startDateTime);
+          setEndDateTime(updatedRoom.endDateTime);
+        }
         setFixed(updatedRoom.fixed);
         setRows(updatedRoom.rows);
         setLastFetchedAt(fetchedAt);
@@ -2895,6 +2937,8 @@ export default function FlightsPage() {
     setInput(room.flightsInput);
     setStartDateTime(room.startDateTime);
     setEndDateTime(room.endDateTime);
+    setRegistrationStartDateTime(room.startDateTime || getDefaultStartDateTime());
+    setRegistrationEndDateTime(room.endDateTime || getDefaultEndDateTime());
     setFixed(room.fixed);
     setLastFetchedAt(room.lastFetchedAt);
     setRows(room.rows);
@@ -2908,6 +2952,21 @@ export default function FlightsPage() {
   const refreshSelectedRoom = async () => {
     if (!selectedRoom) {
       setError("다시 조회할 Monitor를 먼저 선택하세요.");
+      return;
+    }
+
+    if (flightMode === "registration") {
+      if (!registrationStartDateTime || !registrationEndDateTime) {
+        setError("등록번호/AFOCS 조회 기간을 먼저 설정하세요.");
+        return;
+      }
+      await refreshRoomData(selectedRoom, true, {
+        start: registrationStartDateTime,
+        end: registrationEndDateTime,
+      });
+      setHlMappingStatus(
+        `등록번호/AFOCS 조회 기간(${registrationStartDateTime.replace("T", " ")} ~ ${registrationEndDateTime.replace("T", " ")})으로 재조회했습니다. Schedule Flight 카드 저장 기간은 유지됩니다.`,
+      );
       return;
     }
 
@@ -2993,6 +3052,13 @@ export default function FlightsPage() {
       setSelectedScheduleKeys({});
       setSelectedScheduleOrder([]);
       return;
+    }
+
+    if (mode === "registration") {
+      const seedStart = selectedRoom?.startDateTime || startDateTime || getDefaultStartDateTime();
+      const seedEnd = selectedRoom?.endDateTime || endDateTime || getDefaultEndDateTime();
+      setRegistrationStartDateTime(seedStart);
+      setRegistrationEndDateTime(seedEnd);
     }
 
     const preferredSlot =
@@ -3169,7 +3235,7 @@ export default function FlightsPage() {
               <div>
                 <h2 style={{ fontSize: 28, margin: 0 }}>✈️ 등록번호 / AFOCS 저장</h2>
                 <p style={{ color: "#9fb3c8", margin: "6px 0 0 0", fontSize: 14 }}>
-                  선택한 Schedule Flight 카드의 등록번호와 AFOCS SKD를 입력·저장합니다.
+                  선택한 카드에 등록번호·AFOCS를 저장합니다. 조회 기간은 Schedule Flight와 별도로 설정할 수 있습니다.
                 </p>
               </div>
               <div style={{ display: "flex", gap: 10 }}>
@@ -3466,8 +3532,15 @@ export default function FlightsPage() {
                   편명: {selectedRoom.flightsInput}
                 </div>
                 <div style={{ color: "#cbd5e1", marginBottom: 6 }}>
-                  조회 범위: {startDateTime.replace("T", " ")} ~ {endDateTime.replace("T", " ")}
+                  Schedule Flight 기간:{" "}
+                  {(selectedRoom.startDateTime || startDateTime).replace("T", " ")} ~{" "}
+                  {(selectedRoom.endDateTime || endDateTime).replace("T", " ")}
                 </div>
+                {flightMode === "registration" ? (
+                  <div style={{ color: "#93c5fd", marginBottom: 6 }}>
+                    등록번호/AFOCS 조회 기간: {registrationRangeText}
+                  </div>
+                ) : null}
                 <div style={{ color: "#cbd5e1", marginBottom: 6 }}>
                   마지막 조회: {selectedRoom.lastFetchedAt || "-"}
                 </div>
@@ -3475,7 +3548,86 @@ export default function FlightsPage() {
                   상태: {selectedRoom.fixed ? "Schedule Flight" : "일반"}
                 </div>
 
-                {selectedRoom.fixed && (
+                {selectedRoom.fixed && flightMode === "registration" && (
+                  <div
+                    style={{
+                      marginTop: 14,
+                      padding: 14,
+                      background: "#0a1528",
+                      border: "1px solid #28436b",
+                      borderRadius: 8,
+                    }}
+                  >
+                    <div style={{ fontWeight: 800, marginBottom: 8, color: "#e5edf7" }}>
+                      등록번호 / AFOCS 조회 기간
+                    </div>
+                    <div style={{ color: "#9fb3c8", fontSize: 12, marginBottom: 12, lineHeight: 1.5 }}>
+                      Schedule Flight 카드 저장 기간과 분리됩니다. 아래에서 기간을 바꾼 뒤 재조회하면
+                      해당 기간 기준으로 등록번호·AFOCS를 맞출 수 있습니다.
+                    </div>
+
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "90px 1fr 90px 160px",
+                        gap: 10,
+                        alignItems: "center",
+                        marginBottom: 10,
+                      }}
+                    >
+                      <label style={{ color: "#9fb3c8", fontSize: 13 }}>시작일</label>
+                      <input
+                        type="date"
+                        value={getDatePart(registrationStartDateTime)}
+                        onChange={(e) => handleRegistrationStartDateChange(e.target.value)}
+                        style={inlineDateInputStyle}
+                      />
+
+                      <label style={{ color: "#9fb3c8", fontSize: 13 }}>시작시간</label>
+                      <TimeSelect24
+                        value={getTimePart(registrationStartDateTime)}
+                        onChange={handleRegistrationStartTimeChange}
+                      />
+                    </div>
+
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "90px 1fr 90px 160px",
+                        gap: 10,
+                        alignItems: "center",
+                      }}
+                    >
+                      <label style={{ color: "#9fb3c8", fontSize: 13 }}>종료일</label>
+                      <input
+                        type="date"
+                        value={getDatePart(registrationEndDateTime)}
+                        onChange={(e) => handleRegistrationEndDateChange(e.target.value)}
+                        style={inlineDateInputStyle}
+                      />
+
+                      <label style={{ color: "#9fb3c8", fontSize: 13 }}>종료시간</label>
+                      <TimeSelect24
+                        value={getTimePart(registrationEndDateTime)}
+                        onChange={handleRegistrationEndTimeChange}
+                      />
+                    </div>
+
+                    <div style={{ color: "#93c5fd", marginTop: 12, fontSize: 13 }}>
+                      현재 등록 조회 범위: {registrationRangeText}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void refreshSelectedRoom()}
+                      disabled={loading}
+                      style={{ ...refreshBtn, marginTop: 12 }}
+                    >
+                      이 기간으로 재조회
+                    </button>
+                  </div>
+                )}
+
+                {selectedRoom.fixed && flightMode !== "registration" && (
                   <div
                     style={{
                       marginTop: 14,
@@ -3569,7 +3721,9 @@ export default function FlightsPage() {
 
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <button onClick={() => void refreshSelectedRoom()} disabled={loading} style={refreshBtn}>
-                    선택된 Monitor 다시 조회
+                    {flightMode === "registration"
+                      ? "등록 기간으로 다시 조회"
+                      : "선택된 Monitor 다시 조회"}
                   </button>
 
                   <button
