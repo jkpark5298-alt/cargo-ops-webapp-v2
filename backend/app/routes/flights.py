@@ -22,6 +22,7 @@ from app.services.incheon_api import (
     IncheonApiResponseError,
     get_all_kj_flight_data,
     get_flight_data,
+    probe_incheon_api,
 )
 
 router = APIRouter()
@@ -2817,6 +2818,18 @@ async def get_incheon_api_usage() -> Dict[str, Any]:
         "success": True,
         **usage,
     }
+
+
+@router.get("/incheon-api-probe")
+async def incheon_api_probe(
+    searchday: Optional[str] = None,
+    flightNo: str = "KJ925",
+) -> Dict[str, Any]:
+    """공공 API 응답 코드/키 메타를 확인합니다. 서비스키 전문은 노출하지 않습니다."""
+    try:
+        return await probe_incheon_api(search_day=searchday, flight_no=flightNo)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/health")

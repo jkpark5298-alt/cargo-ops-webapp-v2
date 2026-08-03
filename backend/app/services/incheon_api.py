@@ -6,7 +6,7 @@ import httpx
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import unquote
+from urllib.parse import quote, unquote, urlencode
 
 
 class IncheonApiQuotaExceededError(RuntimeError):
@@ -24,11 +24,15 @@ class IncheonApiResponseError(RuntimeError):
         super().__init__(f"Incheon API error {self.code}: {self.message}")
 
 
-def _clean_service_key(value: str | None) -> str:
+def _raw_service_key(value: str | None) -> str:
     if not value:
         return ""
+    return value.strip().strip('"').strip("'")
+
+
+def _clean_service_key(value: str | None) -> str:
     # data.go.kr Encoding 키를 그대로 넣으면 httpx params가 한 번 더 인코딩합니다.
-    return unquote(value.strip())
+    return unquote(_raw_service_key(value))
 
 
 SERVICE_KEY = _clean_service_key(os.getenv("INCHEON_API_SERVICE_KEY", ""))
@@ -43,6 +47,47 @@ _flight_cache: Dict[Tuple[str, str, str], Tuple[float, List[Dict[str, Any]]]] = 
 
 def _get_service_key() -> str:
     return _clean_service_key(os.getenv("INCHEON_API_SERVICE_KEY", "")) or SERVICE_KEY
+
+
+def _get_raw_service_key() -> str:
+    raw = _raw_service_key(os.getenv("INCHEON_API_SERVICE_KEY", ""))
+    return raw or _get_service_key()
+
+
+def service_key_debug_meta() -> Dict[str, Any]:
+    raw = _raw_service_key(os.getenv("INCHEON_API_SERVICE_KEY", ""))
+    cleaned = _clean_service_key(raw)
+    return {
+        "configured": bool(cleaned),
+        "rawLength": len(raw),
+        "cleanedLength": len(cleaned),
+        "looksEncoded": "%" in raw,
+        "prefix": cleaned[:4] if cleaned else "",
+        "suffix": cleaned[-4:] if cleaned else "",
+    }
+
+
+def _build_request_url(path: str, params: Dict[str, Any], *, encoded_key: bool) -> str:
+    """
+    공공데이터포털은 serviceKey를 쿼리에 붙이는 방식에 민감합니다.
+    - encoded_key=True: Encoding 키를 재인코딩 없이 그대로 붙임 (브라우저 미리보기와 동일)
+    - encoded_key=False: Decoding 키를 quote 해서 붙임
+    """
+    raw = _get_raw_service_key()
+    cleaned = _clean_service_key(raw) or _get_service_key()
+    if not cleaned:
+        raise ValueError("INCHEON_API_SERVICE_KEY 환경변수가 비어 있습니다.")
+
+    other = {k: v for k, v in params.items() if k != "serviceKey" and v is not None and v != ""}
+    qs = urlencode(other, doseq=True)
+
+    if encoded_key:
+        # env에 Encoding 키가 있으면 그대로, Decoding이면 quote
+        key_part = raw if "%" in raw else quote(cleaned, safe="")
+    else:
+        key_part = quote(cleaned, safe="")
+
+    return f"{BASE_URL}{path}?serviceKey={key_part}&{qs}"
 
 
 def _text(node: ET.Element, tag: str) -> str:
@@ -237,7 +282,6 @@ async def _fetch_one_day(
     last_error: Optional[Exception] = None
 
     common_params: Dict[str, Any] = {
-        "serviceKey": _get_service_key(),
         "pageNo": 1,
         "numOfRows": 200,
         "searchday": search_day,
@@ -251,53 +295,64 @@ async def _fetch_one_day(
     if str(flight_no or "").strip():
         common_params["flight_id"] = str(flight_no).strip().upper()
 
+    # Encoding 키 방식(브라우저 미리보기)을 먼저 시도한 뒤 Decoding quote 방식을 시도합니다.
+    key_modes = (True, False)
+
     for path, source_type in [
         (DEPARTURES_PATH, "departure"),
         (ARRIVALS_PATH, "arrival"),
     ]:
-        url = f"{BASE_URL}{path}"
         attempt_error: Optional[Exception] = None
+        got_rows = False
 
-        for attempt in range(3):
-            try:
-                res = await client.get(url, params=common_params)
-                body_text = res.text
-
-                if _is_quota_exceeded_response(res.status_code, body_text):
-                    raise IncheonApiQuotaExceededError("한도 초과로 조회 불가")
-
-                if res.status_code in {401, 403}:
-                    raise IncheonApiAuthError(
-                        "인천 화물기 API 인증에 실패했습니다. INCHEON_API_SERVICE_KEY(Decoding)를 확인하세요."
-                    )
-
-                if res.status_code != 200:
-                    attempt_error = IncheonApiResponseError(str(res.status_code), f"HTTP {res.status_code}")
-                    await asyncio_sleep_backoff(attempt)
-                    continue
-
-                parsed = _parse_xml_items(body_text, source_type=source_type)
-                results.extend(parsed)
-                attempt_error = None
+        for encoded_key in key_modes:
+            if got_rows:
                 break
+            url = _build_request_url(path, common_params, encoded_key=encoded_key)
 
-            except (IncheonApiQuotaExceededError, IncheonApiAuthError):
-                raise
-            except IncheonApiResponseError as exc:
-                attempt_error = exc
-                # 공공데이터 게이트웨이 HTTP_ERROR(04)는 일시적인 경우가 많아 재시도합니다.
-                if exc.code in {"04", "500", "502", "503", "504"} and attempt < 2:
-                    await asyncio_sleep_backoff(attempt)
-                    continue
-                break
-            except Exception as exc:
-                attempt_error = exc
-                if attempt < 2:
-                    await asyncio_sleep_backoff(attempt)
-                    continue
-                break
+            for attempt in range(3):
+                try:
+                    res = await client.get(url, follow_redirects=True)
+                    body_text = res.text
 
-        if attempt_error is not None:
+                    if _is_quota_exceeded_response(res.status_code, body_text):
+                        raise IncheonApiQuotaExceededError("한도 초과로 조회 불가")
+
+                    if res.status_code in {401, 403}:
+                        raise IncheonApiAuthError(
+                            "인천 화물기 API 인증에 실패했습니다. INCHEON_API_SERVICE_KEY(Decoding)를 확인하세요."
+                        )
+
+                    if res.status_code != 200:
+                        attempt_error = IncheonApiResponseError(
+                            str(res.status_code), f"HTTP {res.status_code}"
+                        )
+                        await asyncio_sleep_backoff(attempt)
+                        continue
+
+                    parsed = _parse_xml_items(body_text, source_type=source_type)
+                    results.extend(parsed)
+                    attempt_error = None
+                    got_rows = True
+                    break
+
+                except (IncheonApiQuotaExceededError, IncheonApiAuthError):
+                    raise
+                except IncheonApiResponseError as exc:
+                    attempt_error = exc
+                    # 공공데이터 게이트웨이 HTTP_ERROR(04)는 일시적인 경우가 많아 재시도합니다.
+                    if exc.code in {"04", "500", "502", "503", "504"} and attempt < 2:
+                        await asyncio_sleep_backoff(attempt)
+                        continue
+                    break
+                except Exception as exc:
+                    attempt_error = exc
+                    if attempt < 2:
+                        await asyncio_sleep_backoff(attempt)
+                        continue
+                    break
+
+        if attempt_error is not None and not got_rows:
             last_error = attempt_error
 
     if not results and last_error is not None:
@@ -458,3 +513,79 @@ async def get_all_kj_flight_data(
 
     _set_cached_flight_data(cache_flight_no, start_date, end_date, deduped)
     return copy.deepcopy(deduped)
+
+
+async def probe_incheon_api(
+    search_day: Optional[str] = None,
+    flight_no: str = "KJ925",
+) -> Dict[str, Any]:
+    """Render에서 공공 API 응답 코드를 바로 확인하기 위한 진단용 호출."""
+    day = (search_day or datetime.utcnow().strftime("%Y%m%d")).strip()
+    if len(day) == 10 and "-" in day:
+        day = day.replace("-", "")
+
+    params: Dict[str, Any] = {
+        "pageNo": 1,
+        "numOfRows": 10,
+        "searchday": day,
+        "from_time": "0000",
+        "to_time": "2400",
+        "inqtimechcd": "E",
+        "lang": "K",
+        "type": "xml",
+    }
+    if str(flight_no or "").strip():
+        params["flight_id"] = str(flight_no).strip().upper()
+
+    attempts: List[Dict[str, Any]] = []
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        for path_label, path in (
+            ("departures", DEPARTURES_PATH),
+            ("arrivals", ARRIVALS_PATH),
+        ):
+            for encoded_key in (True, False):
+                url = _build_request_url(path, params, encoded_key=encoded_key)
+                safe_url = url
+                if "serviceKey=" in safe_url:
+                    head, rest = safe_url.split("serviceKey=", 1)
+                    after = rest.split("&", 1)
+                    safe_url = head + "serviceKey=***" + (("&" + after[1]) if len(after) > 1 else "")
+                try:
+                    res = await client.get(url, follow_redirects=True)
+                    body = res.text or ""
+                    code = ""
+                    msg = ""
+                    try:
+                        root = ET.fromstring(body)
+                        code = _find_result_code(root)
+                        msg = _find_result_message(root)
+                    except ET.ParseError:
+                        pass
+                    attempts.append(
+                        {
+                            "endpoint": path_label,
+                            "encodedKeyMode": encoded_key,
+                            "httpStatus": res.status_code,
+                            "resultCode": code,
+                            "resultMsg": msg,
+                            "bodyPreview": body[:240],
+                            "url": safe_url,
+                        }
+                    )
+                except Exception as exc:
+                    attempts.append(
+                        {
+                            "endpoint": path_label,
+                            "encodedKeyMode": encoded_key,
+                            "error": str(exc),
+                            "url": safe_url,
+                        }
+                    )
+
+    return {
+        "success": True,
+        "searchday": day,
+        "flightNo": str(flight_no or "").strip().upper(),
+        "key": service_key_debug_meta(),
+        "attempts": attempts,
+    }
