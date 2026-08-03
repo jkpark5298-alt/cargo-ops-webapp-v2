@@ -52,6 +52,14 @@ def _text(node: ET.Element, tag: str) -> str:
     return found.text.strip()
 
 
+def _text_any(node: ET.Element, *tags: str) -> str:
+    for tag in tags:
+        value = _text(node, tag)
+        if value:
+            return value
+    return ""
+
+
 def _format_time(value: str) -> str:
     if not value:
         return ""
@@ -152,13 +160,14 @@ def _rows_from_items(items: List[ET.Element], source_type: str) -> List[Dict[str
         airport_name = _text(item, "airport")
         airport_code = _text(item, "airportCode")
         codeshare = _text(item, "codeshare")
-        estimated = _text(item, "estimatedDateTime")
-        flight_id = _text(item, "flightId")
-        gate = _text(item, "gatenumber")
-        master = _text(item, "masterflightid")
+        estimated = _text_any(item, "estimatedDateTime", "estimateDateTime")
+        flight_id = _text_any(item, "flightId", "flightid")
+        gate = _text_any(item, "gatenumber", "gateNumber")
+        master = _text_any(item, "masterflightid", "masterFlightId")
         remark = _text(item, "remark")
-        schedule = _text(item, "scheduleDateTime")
-        terminal = _text(item, "terminalid")
+        # 공공 API는 scheduledDateTime / scheduleDateTime 혼용
+        schedule = _text_any(item, "scheduledDateTime", "scheduleDateTime")
+        terminal = _text_any(item, "terminalid", "terminalId")
         type_of_flight = _text(item, "typeOfFlight")
         fid = _text(item, "fid")
 
@@ -227,18 +236,20 @@ async def _fetch_one_day(
     results: List[Dict[str, Any]] = []
     last_error: Optional[Exception] = None
 
-    common_params = {
+    common_params: Dict[str, Any] = {
         "serviceKey": _get_service_key(),
         "pageNo": 1,
-        "numOfRows": 100,
+        "numOfRows": 200,
         "searchday": search_day,
         "from_time": "0000",
         "to_time": "2400",
-        "flight_id": flight_no,
         "inqtimechcd": "E",
         "lang": "K",
         "type": "xml",
     }
+    # 빈 flight_id를 넣으면 공공 API가 HTTP_ERROR(04)를 내는 경우가 있습니다.
+    if str(flight_no or "").strip():
+        common_params["flight_id"] = str(flight_no).strip().upper()
 
     for path, source_type in [
         (DEPARTURES_PATH, "departure"),
