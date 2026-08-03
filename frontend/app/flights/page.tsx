@@ -169,6 +169,43 @@ function mergeManualRegistrationFields(
   });
 }
 
+/** 등록번호/AFOCS 작업 결과를 Schedule Flight 카드 행에만 병합 (기간·편명 목록은 유지) */
+function patchScheduleRowsWithRegistrationFields(
+  slotRows: FlightRow[],
+  sourceRows: FlightRow[],
+): FlightRow[] {
+  const sourceByFlight = new Map<string, FlightRow>();
+  sourceRows.forEach((row) => {
+    const key = getFlightKeyFromRow(row);
+    if (key && key !== "-") sourceByFlight.set(key, row);
+  });
+
+  return slotRows.map((row) => {
+    const key = getFlightKeyFromRow(row);
+    const source = key ? sourceByFlight.get(key) : undefined;
+    if (!source) return row;
+
+    const registrationNo =
+      normalizeHlNumber(
+        String(source.registrationNo || source.hlnbr || source.aircraftRegNo || ""),
+      ) ||
+      normalizeHlNumber(String(row.registrationNo || row.hlnbr || row.aircraftRegNo || ""));
+
+    return {
+      ...row,
+      afocsSkd: source.afocsSkd || row.afocsSkd || "",
+      registrationNoEdited: Boolean(source.registrationNoEdited || row.registrationNoEdited),
+      ...(registrationNo
+        ? {
+            hlnbr: registrationNo,
+            registrationNo,
+            aircraftRegNo: registrationNo,
+          }
+        : {}),
+    };
+  });
+}
+
 function formatMonitorRoomName(date: Date) {
   const yyyy = date.getFullYear();
   const mm = String(date.getMonth() + 1).padStart(2, "0");
@@ -1479,7 +1516,48 @@ export default function FlightsPage() {
     return slots;
   };
 
+  /** 등록 화면에서 저장한 HL/AFOCS를 기존 Schedule Flight 카드에만 병합 (카드 기간·편명 목록 유지) */
+  const syncRegistrationFieldsToScheduleSlots = async (sourceRows: FlightRow[]) => {
+    let nextSlots: ScheduleSlotsState = { ...scheduleSlots };
+    let synced = 0;
+
+    for (const key of ["active", "archive"] as const) {
+      const entry = nextSlots[key];
+      if (!entry?.room || !isActiveScheduleRoom(entry.room)) continue;
+
+      const patchedRows = patchScheduleRowsWithRegistrationFields(entry.room.rows || [], sourceRows);
+      const updatedRoom: MonitorRoom = {
+        ...entry.room,
+        fixed: true,
+        rows: patchedRows,
+      };
+
+      const result = await saveScheduleSlotToServer(updatedRoom, {
+        rotate: false,
+        slot: key,
+      });
+      nextSlots = {
+        active: result.active,
+        archive: result.archive,
+        linkedSlot: result.linkedSlot,
+      };
+      synced += 1;
+    }
+
+    if (synced > 0) {
+      setScheduleSlots(nextSlots);
+      const nextRooms = slotsToRooms(nextSlots);
+      setRooms(nextRooms);
+      saveRooms(nextRooms);
+    }
+
+    return synced;
+  };
+
   const handleSelectSlot = (slotKey: ScheduleSlotKey) => {
+    // 등록번호/AFOCS 모드는 왼쪽 카드와 분리된 작업 화면입니다.
+    if (flightMode === "registration") return;
+
     const entry = scheduleSlots[slotKey];
     if (!entry || !isActiveScheduleRoom(entry.room)) return;
 
@@ -1844,6 +1922,43 @@ export default function FlightsPage() {
   };
 
   const handleSaveInlineAfocsSkd = async () => {
+    if (flightMode === "registration") {
+      if (rows.length === 0) {
+        setHlMappingStatus("먼저 등록 전용 기간으로 조회한 뒤 AFOCS SKD를 입력하세요.");
+        return;
+      }
+
+      const updatedRows = rows.map((row) => {
+        const flightKey = getFlightKeyFromRow(row);
+        if (Object.prototype.hasOwnProperty.call(afocsSkdInlineDrafts, flightKey)) {
+          return {
+            ...row,
+            afocsSkd: prepareAfocsSkdForSave(afocsSkdInlineDrafts[flightKey], row),
+          };
+        }
+        return row;
+      });
+
+      setRows(updatedRows);
+      setAfocsSkdInlineDrafts({});
+
+      try {
+        const synced = await syncRegistrationFieldsToScheduleSlots(updatedRows);
+        setHlMappingStatus(
+          synced > 0
+            ? `AFOCS SKD 저장 완료 · Schedule Flight 카드 ${synced}장에 동일 편명 반영`
+            : "AFOCS SKD 저장 완료 · 반영할 Schedule Flight 카드가 없어 등록 조회 결과에만 유지됩니다.",
+        );
+      } catch (syncError) {
+        setHlMappingStatus(
+          syncError instanceof Error
+            ? `AFOCS SKD 로컬 저장 완료 · 카드 반영 실패: ${syncError.message}`
+            : "AFOCS SKD 로컬 저장 완료 · 카드 반영 실패",
+        );
+      }
+      return;
+    }
+
     if (!selectedRoom || !selectedRoom.fixed) {
       setHlMappingStatus("수정할 Schedule Flight 방이 선택되지 않았습니다.");
       return;
@@ -1892,8 +2007,19 @@ export default function FlightsPage() {
     event.target.value = "";
     if (!file) return;
 
-    if (!selectedRoom || !selectedRoom.fixed) {
-      setHlMappingStatus("업로드할 Schedule Flight 방이 활성화되어 있지 않습니다.");
+    const targetRows =
+      flightMode === "registration"
+        ? rows
+        : selectedRoom?.fixed
+          ? selectedRoom.rows || []
+          : [];
+
+    if (targetRows.length === 0) {
+      setHlMappingStatus(
+        flightMode === "registration"
+          ? "먼저 등록 전용 기간으로 조회한 뒤 엑셀을 업로드하세요."
+          : "업로드할 Schedule Flight 방이 활성화되어 있지 않습니다.",
+      );
       return;
     }
 
@@ -1915,7 +2041,7 @@ export default function FlightsPage() {
         const timeVal = getAircraftRegistrationCell(row, ["시간", "AFOCSSKD", "AFOCS SKD", "time", "schedule", "scheduledatetime", "etd/eta", "etd", "eta"]);
 
         const flightKey = normalizeFlightKey(String(flightVal || ""));
-        const matchedRow = (selectedRoom.rows || []).find(
+        const matchedRow = targetRows.find(
           (scheduleRow) => getFlightKeyFromRow(scheduleRow) === flightKey,
         );
         const timeStr = formatExcelAfocsSkdValue(timeVal, matchedRow);
@@ -1932,7 +2058,7 @@ export default function FlightsPage() {
       }
 
       let matchedCount = 0;
-      const updatedRows = (selectedRoom.rows || []).map((row) => {
+      const updatedRows = targetRows.map((row) => {
         const flightKey = getFlightKeyFromRow(row);
         if (excelMappings[flightKey]) {
           matchedCount++;
@@ -1945,9 +2071,36 @@ export default function FlightsPage() {
       });
 
       if (matchedCount === 0) {
-        setHlMappingStatus(`엑셀에서 ${keys.length}건의 시간 데이터를 읽었으나, 현재 Schedule Flight 목록과 일치하는 편명이 없습니다.`);
+        setHlMappingStatus(`엑셀에서 ${keys.length}건의 시간 데이터를 읽었으나, 현재 조회 목록과 일치하는 편명이 없습니다.`);
         return;
       }
+
+      setRows(updatedRows);
+      setAfocsSkdInlineDrafts((prev) => {
+        const next = { ...prev };
+        Object.keys(excelMappings).forEach((k) => {
+          delete next[k];
+        });
+        return next;
+      });
+
+      if (flightMode === "registration") {
+        try {
+          const synced = await syncRegistrationFieldsToScheduleSlots(updatedRows);
+          setHlMappingStatus(
+            `AFOCS SKD 엑셀 ${matchedCount}건 반영${synced > 0 ? ` · Schedule Flight 카드 ${synced}장 동기화` : ""}`,
+          );
+        } catch (syncError) {
+          setHlMappingStatus(
+            syncError instanceof Error
+              ? `AFOCS SKD 엑셀 ${matchedCount}건 반영 · 카드 동기화 실패: ${syncError.message}`
+              : `AFOCS SKD 엑셀 ${matchedCount}건 반영 · 카드 동기화 실패`,
+          );
+        }
+        return;
+      }
+
+      if (!selectedRoom) return;
 
       const updatedRoom: MonitorRoom = {
         ...selectedRoom,
@@ -1961,15 +2114,6 @@ export default function FlightsPage() {
 
       setRooms(nextRooms);
       saveRooms(nextRooms);
-      setRows(updatedRows);
-      
-      setAfocsSkdInlineDrafts((prev) => {
-        const next = { ...prev };
-        Object.keys(excelMappings).forEach((k) => {
-          delete next[k];
-        });
-        return next;
-      });
 
       await saveLatestScheduleToServer(updatedRoom);
       setHlMappingStatus(`AFOCS SKD 엑셀 업로드 성공: ${matchedCount}건의 시간이 반영 및 동기화되었습니다.`);
@@ -2074,6 +2218,24 @@ export default function FlightsPage() {
     setRooms(nextRooms);
     saveRooms(nextRooms);
     setHlInlineDrafts({});
+
+    if (flightMode === "registration") {
+      try {
+        const synced = await syncRegistrationFieldsToScheduleSlots(nextRows);
+        setHlMappingStatus(
+          `등록기호 ${savedCount}건 저장${serverRegistrationSyncMessage}${
+            synced > 0 ? ` · Schedule Flight 카드 ${synced}장 반영` : ""
+          }`,
+        );
+      } catch (error) {
+        setHlMappingStatus(
+          error instanceof Error
+            ? `등록기호 ${savedCount}건 저장${serverRegistrationSyncMessage} · 카드 반영 실패: ${error.message}`
+            : `등록기호 ${savedCount}건 저장${serverRegistrationSyncMessage} · 카드 반영 실패`,
+        );
+      }
+      return;
+    }
 
     const nextSelectedRoom = selectedRoom
       ? nextRooms.find((room) => room.id === selectedRoom.id) || null
@@ -2662,6 +2824,127 @@ export default function FlightsPage() {
     }
   };
 
+  const fetchRegistrationFlights = async () => {
+    if (!registrationStartDateTime || !registrationEndDateTime) {
+      setError("등록번호/AFOCS 조회 기간을 먼저 설정하세요.");
+      return;
+    }
+
+    const flights = normalizeFlightsInput(input);
+    if (flights.length === 0) {
+      setError("편명을 입력하세요. 예: 247,972 또는 KJ247,KJ972");
+      return;
+    }
+
+    saveRegistrationQueryRange(registrationStartDateTime, registrationEndDateTime);
+    const normalizedInput = flights.join(", ");
+    const cacheKey = getFlightLookupCacheKey(
+      "manual",
+      `REG|${normalizedInput}`,
+      registrationStartDateTime,
+      registrationEndDateTime,
+    );
+
+    setQueryMode("manual");
+    setInput(normalizedInput);
+    setFixed(false);
+    setSelectedRoomId("");
+    setSelectedSlotKey(null);
+    setSelectedScheduleKeys({});
+    setSelectedScheduleOrder([]);
+    setExpandedDetailKeys({});
+    setError("");
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/flights/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          flights,
+          start: registrationStartDateTime,
+          end: registrationEndDateTime,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.success === false) {
+        throw new Error(json.message || json.detail || `서버 오류 (${res.status})`);
+      }
+
+      const nextRows = applyAllRegistrationSources(json.data || []);
+      const fetchedAt = new Date().toLocaleString("ko-KR");
+      saveFlightLookupCache(cacheKey, nextRows, fetchedAt);
+      setRows(nextRows);
+      setLastFetchedAt(json.cached ? `${fetchedAt} · 서버 캐시` : fetchedAt);
+      setHlMappingStatus(
+        `등록 전용 기간(${registrationStartDateTime.replace("T", " ")} ~ ${registrationEndDateTime.replace("T", " ")}) 편명 조회 ${nextRows.length}건`,
+      );
+      if (nextRows.length === 0) {
+        setError("조회 결과가 없습니다. 기간 또는 편명을 확인해 주세요.");
+      }
+    } catch (e: any) {
+      setError(e.message || "등록 조회 실패");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchRegistrationKjAll = async () => {
+    if (!registrationStartDateTime || !registrationEndDateTime) {
+      setError("등록번호/AFOCS 조회 기간을 먼저 설정하세요.");
+      return;
+    }
+
+    saveRegistrationQueryRange(registrationStartDateTime, registrationEndDateTime);
+    const cacheKey = getFlightLookupCacheKey(
+      "kj-all",
+      "REG_KJ_ALL",
+      registrationStartDateTime,
+      registrationEndDateTime,
+    );
+
+    setQueryMode("kj-all");
+    setFixed(false);
+    setSelectedRoomId("");
+    setSelectedSlotKey(null);
+    setSelectedScheduleKeys({});
+    setSelectedScheduleOrder([]);
+    setExpandedDetailKeys({});
+    setError("");
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/flights/kj-all`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          start: registrationStartDateTime,
+          end: registrationEndDateTime,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.success === false) {
+        throw new Error(json.message || json.detail || `서버 오류 (${res.status})`);
+      }
+
+      const nextRows = applyAllRegistrationSources(json.data || []);
+      const fetchedAt = new Date().toLocaleString("ko-KR");
+      saveFlightLookupCache(cacheKey, nextRows, fetchedAt);
+      setRows(nextRows);
+      setLastFetchedAt(json.cached ? `${fetchedAt} · 서버 캐시` : fetchedAt);
+      setHlMappingStatus(
+        `등록 전용 기간(${registrationStartDateTime.replace("T", " ")} ~ ${registrationEndDateTime.replace("T", " ")}) KJ 전체 ${nextRows.length}건`,
+      );
+      if (nextRows.length === 0) {
+        setError(json.message || "조회 결과가 없습니다. 기간을 확인해 주세요.");
+      }
+    } catch (e: any) {
+      setError(e.message || "등록 KJ 전체 조회 실패");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleToggleScheduleSelection = (row: FlightRow, idx: number) => {
     if (isFinalCompletedRow(row)) return;
 
@@ -3155,6 +3438,18 @@ export default function FlightsPage() {
       setRegistrationEndDateTime(
         (prev) => prev || saved?.end || getDefaultEndDateTime(),
       );
+      setFixed(false);
+      setSelectedSlotKey(null);
+      setSelectedRoomId("");
+      setSelectedScheduleKeys({});
+      setSelectedScheduleOrder([]);
+      setExpandedDetailKeys({});
+      setRows([]);
+      setLastFetchedAt("");
+      setError("");
+      setHlMappingStatus("");
+      setQueryMode("kj-all");
+      return;
     }
 
     const preferredSlot =
@@ -3234,9 +3529,9 @@ export default function FlightsPage() {
           </div>
         )}
 
-        {flightMode === "registration" && !selectedSlotKey && (
-          <div style={{ color: "#94a3b8", marginBottom: 16, fontSize: 14 }}>
-            왼쪽에서 등록번호/AFOCS를 수정할 Schedule Flight 카드를 선택하세요.
+        {flightMode === "registration" && (
+          <div style={{ color: "#94a3b8", marginBottom: 12, fontSize: 13 }}>
+            왼쪽 Schedule Flight 카드와 별개로 동작합니다. 카드 선택 없이 전용 기간으로 조회·등록하세요.
           </div>
         )}
 
@@ -3316,7 +3611,7 @@ export default function FlightsPage() {
           </>
         ) : null}
 
-        {flightMode === "registration" && selectedSlotKey && (
+        {flightMode === "registration" && (
           <>
             <div
               style={{
@@ -3331,7 +3626,7 @@ export default function FlightsPage() {
               <div>
                 <h2 style={{ fontSize: 28, margin: 0 }}>✈️ 등록번호 / AFOCS 저장</h2>
                 <p style={{ color: "#9fb3c8", margin: "6px 0 0 0", fontSize: 14 }}>
-                  조회 기간을 Schedule Flight와 따로 설정한 뒤 재조회하고, 등록번호·AFOCS를 저장합니다.
+                  Schedule Flight 카드와 별개입니다. 전용 조회 기간으로 조회한 뒤 등록번호·AFOCS SKD를 입력·저장합니다.
                 </p>
               </div>
               <div style={{ display: "flex", gap: 10 }}>
@@ -3346,7 +3641,7 @@ export default function FlightsPage() {
 
             <div
               style={{
-                marginBottom: 20,
+                marginBottom: 16,
                 padding: 16,
                 background: "#0a1528",
                 border: "1px solid #3b82f6",
@@ -3357,8 +3652,7 @@ export default function FlightsPage() {
                 ① 등록번호 / AFOCS 전용 조회 기간
               </div>
               <div style={{ color: "#9fb3c8", fontSize: 13, marginBottom: 14, lineHeight: 1.5 }}>
-                Schedule Flight 카드 저장 기간은 바뀌지 않습니다. 아래에서 기간을 정한 뒤 재조회하고
-                등록하세요.
+                왼쪽 카드 기간·편명과 무관합니다. 기간을 설정한 뒤 편명 또는 KJ 전체로 조회하세요.
               </div>
 
               <div
@@ -3406,27 +3700,73 @@ export default function FlightsPage() {
                 />
               </div>
 
-              <div
-                style={{
-                  marginTop: 14,
-                  display: "flex",
-                  gap: 12,
-                  alignItems: "center",
-                  flexWrap: "wrap",
-                }}
-              >
-                <div style={{ color: "#93c5fd", fontSize: 13 }}>
-                  등록 조회 범위: {registrationRangeText}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void refreshSelectedRoom()}
-                  disabled={loading || !selectedRoom}
-                  style={refreshBtn}
-                >
-                  ② 이 기간으로 조회
-                </button>
+              <div style={{ color: "#93c5fd", marginTop: 12, fontSize: 13 }}>
+                등록 조회 범위: {registrationRangeText}
               </div>
+            </div>
+
+            <div style={queryButtonRowStyle}>
+              <button
+                onClick={() => {
+                  setQueryMode("manual");
+                  if (input === "KJ 전체") setInput("");
+                }}
+                style={queryMode === "manual" ? modeActiveBtn : modeBtn}
+              >
+                편명 직접 조회
+              </button>
+              <button
+                onClick={() => {
+                  setQueryMode("kj-all");
+                  setInput("");
+                }}
+                style={queryMode === "kj-all" ? modeActiveBtn : modeBtn}
+              >
+                KJ 전체 조회
+              </button>
+            </div>
+
+            {queryMode === "manual" ? (
+              <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+                <input
+                  value={input}
+                  onChange={(e) => handleFlightsInputChange(e.target.value)}
+                  placeholder="예: 247,972 또는 KJ247,KJ972"
+                  style={{
+                    flex: 1,
+                    padding: 12,
+                    background: "#111",
+                    border: "1px solid #444",
+                    borderRadius: 6,
+                    color: "white",
+                    fontSize: 16,
+                  }}
+                />
+              </div>
+            ) : (
+              <div style={{ marginTop: 14, color: "#93c5fd", fontSize: 14, lineHeight: 1.55 }}>
+                등록 전용 기간의 KJ 화물기를 전체 조회합니다. Schedule Flight 카드는 변경되지 않습니다.
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
+              {queryMode === "manual" ? (
+                <button
+                  onClick={() => void fetchRegistrationFlights()}
+                  disabled={loading}
+                  style={primaryBtn}
+                >
+                  ② 이 기간으로 편명 조회
+                </button>
+              ) : (
+                <button
+                  onClick={() => void fetchRegistrationKjAll()}
+                  disabled={loading}
+                  style={primaryBtn}
+                >
+                  ② 이 기간으로 KJ 전체 조회
+                </button>
+              )}
             </div>
           </>
         )}
@@ -3683,7 +4023,7 @@ export default function FlightsPage() {
           </div>
         )}
 
-        {selectedRoom && flightMode !== "query" && (
+        {selectedRoom && flightMode === "edit" && (
           <div
             style={{
               marginTop: 20,
@@ -3717,11 +4057,6 @@ export default function FlightsPage() {
                   {(selectedRoom.startDateTime || startDateTime).replace("T", " ")} ~{" "}
                   {(selectedRoom.endDateTime || endDateTime).replace("T", " ")}
                 </div>
-                {flightMode === "registration" ? (
-                  <div style={{ color: "#93c5fd", marginBottom: 6 }}>
-                    등록번호/AFOCS 조회 기간: {registrationRangeText}
-                  </div>
-                ) : null}
                 <div style={{ color: "#cbd5e1", marginBottom: 6 }}>
                   마지막 조회: {selectedRoom.lastFetchedAt || "-"}
                 </div>
@@ -3729,7 +4064,7 @@ export default function FlightsPage() {
                   상태: {selectedRoom.fixed ? "Schedule Flight" : "일반"}
                 </div>
 
-                {selectedRoom.fixed && flightMode !== "registration" && (
+                {selectedRoom.fixed && (
                   <div
                     style={{
                       marginTop: 14,
@@ -3823,9 +4158,7 @@ export default function FlightsPage() {
 
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <button onClick={() => void refreshSelectedRoom()} disabled={loading} style={refreshBtn}>
-                    {flightMode === "registration"
-                      ? "등록 기간으로 다시 조회"
-                      : "선택된 Monitor 다시 조회"}
+                    선택된 Monitor 다시 조회
                   </button>
 
                   <button
@@ -3863,7 +4196,7 @@ export default function FlightsPage() {
           </div>
         )}
 
-        {flightMode === "registration" && selectedSlotKey && rows.length > 0 && (
+        {flightMode === "registration" && rows.length > 0 && (
           <>
             <div style={{ marginTop: 18, marginBottom: 8, fontWeight: 800, color: "#e5edf7", fontSize: 16 }}>
               ③ 등록번호 / AFOCS 저장
@@ -3886,18 +4219,9 @@ export default function FlightsPage() {
               <button type="button" onClick={() => void handleSaveInlineHlMapping()} style={hlMappingSaveButtonStyle}>
                 등록기호 저장
               </button>
-              <button
-                type="button"
-                onClick={() => void handleDeleteSelectedFlightsFromSchedule()}
-                disabled={selectedScheduleRows.length === 0}
-                style={selectedScheduleRows.length > 0 ? hlMappingDeleteButtonStyle : disabledBtn}
-              >
-                {selectedScheduleRows.length > 0
-                  ? `선택 ${selectedScheduleRows.length}건 삭제`
-                  : "삭제할 항공편 선택"}
-              </button>
               <span style={hlInlineHelpStyle}>
                 엑셀 업로드 또는 표 직접 입력 가능 · 숫자만 입력해도 HL이 자동으로 붙습니다. 예) 7423 → HL7423 · 관리 {aircraftRegistrationRecords.length}건
+                · 저장 시 동일 편명이 있으면 Schedule Flight 카드에도 반영됩니다(카드 기간은 유지).
               </span>
             </div>
             <div style={{ ...hlInlineSaveRowStyle, marginTop: 12 }}>
@@ -4065,7 +4389,7 @@ export default function FlightsPage() {
           </div>
         )}
 
-        {(flightMode === "edit" || flightMode === "registration") && fixed && (
+        {((flightMode === "edit" && fixed) || (flightMode === "registration" && rows.length > 0)) && (
           <FixedResultsTable
             rows={rows}
             expandedKeys={expandedDetailKeys}
