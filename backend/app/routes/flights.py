@@ -17,7 +17,9 @@ from pydantic import BaseModel, Field
 from pywebpush import WebPushException, webpush
 
 from app.services.incheon_api import (
+    IncheonApiAuthError,
     IncheonApiQuotaExceededError,
+    IncheonApiResponseError,
     get_all_kj_flight_data,
     get_flight_data,
 )
@@ -2534,6 +2536,16 @@ async def _run_schedule_change_check(push_on_change: bool = True) -> Dict[str, A
 
     except IncheonApiQuotaExceededError:
         raise HTTPException(status_code=429, detail="한도 초과로 조회 불가")
+    except IncheonApiAuthError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc) or "인천 화물기 API 인증 실패. INCHEON_API_SERVICE_KEY(Decoding)를 확인하세요.",
+        ) from exc
+    except IncheonApiResponseError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"인천 화물기 API 오류({exc.code}): {exc.message}",
+        ) from exc
 
     fresh_latest = _latest_rows_by_flight(fresh_rows)
     changed_items: List[Dict[str, Any]] = []
@@ -3319,6 +3331,18 @@ async def search_all_kj_flights(payload: FlightRangeRequest) -> Dict[str, Any]:
 
     except IncheonApiQuotaExceededError:
         raise HTTPException(status_code=429, detail="한도 초과로 조회 불가")
+    except IncheonApiAuthError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc) or "인천 화물기 API 인증 실패. Render의 INCHEON_API_SERVICE_KEY에 Decoding 키를 넣었는지 확인하세요.",
+        ) from exc
+    except IncheonApiResponseError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"인천 화물기 API 오류({exc.code}): {exc.message}",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     filtered_rows.sort(key=_get_row_sort_key)
 
@@ -3340,6 +3364,8 @@ async def search_all_kj_flights(payload: FlightRangeRequest) -> Dict[str, Any]:
         "cached": False,
         "source": "incheon-api",
     }
+    if not filtered_rows:
+        result["message"] = "조회 결과가 없습니다. 기간을 넓히거나 인천 화물기 API 상태를 확인하세요."
     _flight_search_cache_set(cache_key, result)
     return result
 
@@ -3385,6 +3411,18 @@ async def search_flights(payload: FlightQueryRequest) -> Dict[str, Any]:
 
     except IncheonApiQuotaExceededError:
         raise HTTPException(status_code=429, detail="한도 초과로 조회 불가")
+    except IncheonApiAuthError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc) or "인천 화물기 API 인증 실패. Render의 INCHEON_API_SERVICE_KEY에 Decoding 키를 넣었는지 확인하세요.",
+        ) from exc
+    except IncheonApiResponseError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"인천 화물기 API 오류({exc.code}): {exc.message}",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     all_rows.sort(key=_get_row_sort_key)
 
@@ -3398,5 +3436,7 @@ async def search_flights(payload: FlightQueryRequest) -> Dict[str, Any]:
         "cached": False,
         "source": "incheon-api",
     }
+    if not all_rows:
+        result["message"] = "조회 결과가 없습니다. 기간을 넓히거나 인천 화물기 API 상태를 확인하세요."
     _flight_search_cache_set(cache_key, result)
     return result

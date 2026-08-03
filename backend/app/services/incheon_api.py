@@ -5,13 +5,32 @@ import httpx
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import unquote
 
 
 class IncheonApiQuotaExceededError(RuntimeError):
     pass
 
 
-SERVICE_KEY = os.getenv("INCHEON_API_SERVICE_KEY", "").strip()
+class IncheonApiAuthError(RuntimeError):
+    pass
+
+
+class IncheonApiResponseError(RuntimeError):
+    def __init__(self, code: str, message: str):
+        self.code = str(code or "")
+        self.message = str(message or "")
+        super().__init__(f"Incheon API error {self.code}: {self.message}")
+
+
+def _clean_service_key(value: str | None) -> str:
+    if not value:
+        return ""
+    # data.go.kr Encoding 키를 그대로 넣으면 httpx params가 한 번 더 인코딩합니다.
+    return unquote(value.strip())
+
+
+SERVICE_KEY = _clean_service_key(os.getenv("INCHEON_API_SERVICE_KEY", ""))
 
 BASE_URL = "https://apis.data.go.kr/B551177/StatusOfCargoFlightsDeOdp"
 DEPARTURES_PATH = "/getCargoDeparturesDeOdp"
@@ -19,6 +38,10 @@ ARRIVALS_PATH = "/getCargoArrivalsDeOdp"
 
 CACHE_TTL_SECONDS = 60
 _flight_cache: Dict[Tuple[str, str, str], Tuple[float, List[Dict[str, Any]]]] = {}
+
+
+def _get_service_key() -> str:
+    return _clean_service_key(os.getenv("INCHEON_API_SERVICE_KEY", "")) or SERVICE_KEY
 
 
 def _text(node: ET.Element, tag: str) -> str:
@@ -48,6 +71,25 @@ def _find_result_code(root: ET.Element) -> str:
         "./header/resultCode",
         "./response/header/resultCode",
         ".//header/resultCode",
+        "./cmmMsgHeader/returnReasonCode",
+        ".//returnReasonCode",
+    ]
+    for path in candidates:
+        value = root.findtext(path, default="").strip()
+        if value:
+            return value
+    return ""
+
+
+def _find_result_message(root: ET.Element) -> str:
+    candidates = [
+        "./header/resultMsg",
+        "./response/header/resultMsg",
+        ".//header/resultMsg",
+        "./cmmMsgHeader/errMsg",
+        "./cmmMsgHeader/returnAuthMsg",
+        ".//errMsg",
+        ".//returnAuthMsg",
     ]
     for path in candidates:
         value = root.findtext(path, default="").strip()
@@ -74,15 +116,33 @@ def _find_items(root: ET.Element) -> List[ET.Element]:
 def _parse_xml_items(xml_text: str, source_type: str) -> List[Dict[str, Any]]:
     try:
         root = ET.fromstring(xml_text)
-    except ET.ParseError:
-        return []
+    except ET.ParseError as exc:
+        raise IncheonApiResponseError("PARSE", f"XML 파싱 실패: {exc}") from exc
 
     result_code = _find_result_code(root)
+    result_msg = _find_result_message(root)
     items = _find_items(root)
 
-    if result_code not in {"00", "0", ""}:
-        return []
+    auth_hint = f"{result_code} {result_msg} {xml_text[:400]}".upper()
+    if (
+        "SERVICE KEY IS NOT REGISTERED" in auth_hint
+        or "SERVICE_KEY_IS_NOT_REGISTERED" in auth_hint
+        or "UNAUTHORIZED" in auth_hint
+        or "HTTP ERROR 401" in auth_hint
+        or "HTTP ERROR 403" in auth_hint
+    ):
+        raise IncheonApiAuthError(
+            result_msg or result_code or "인천 화물기 API 인증에 실패했습니다. 서비스키(Decoding)를 확인하세요."
+        )
 
+    # 정상 / 데이터 없음
+    if result_code in {"", "00", "0", "0000", "03"}:
+        return _rows_from_items(items, source_type)
+
+    raise IncheonApiResponseError(result_code, result_msg or "인천 화물기 API 오류")
+
+
+def _rows_from_items(items: List[ET.Element], source_type: str) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     now_str = _get_kst_now_str()
 
@@ -120,7 +180,7 @@ def _parse_xml_items(xml_text: str, source_type: str) -> List[Dict[str, Any]]:
         delay = bool(schedule and estimated and schedule != estimated and not canceled)
 
         if estimated and estimated <= now_str:
-          status_text = "출발" if is_departure else "도착"
+            status_text = "출발" if is_departure else "도착"
 
         rows.append(
             {
@@ -164,9 +224,10 @@ async def _fetch_one_day(
     search_day: str,
 ) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
+    last_error: Optional[Exception] = None
 
     common_params = {
-        "serviceKey": SERVICE_KEY,
+        "serviceKey": _get_service_key(),
         "pageNo": 1,
         "numOfRows": 100,
         "searchday": search_day,
@@ -191,16 +252,29 @@ async def _fetch_one_day(
             if _is_quota_exceeded_response(res.status_code, body_text):
                 raise IncheonApiQuotaExceededError("한도 초과로 조회 불가")
 
+            if res.status_code in {401, 403}:
+                raise IncheonApiAuthError(
+                    "인천 화물기 API 인증에 실패했습니다. INCHEON_API_SERVICE_KEY(Decoding)를 확인하세요."
+                )
+
             if res.status_code != 200:
+                last_error = IncheonApiResponseError(str(res.status_code), f"HTTP {res.status_code}")
                 continue
 
             parsed = _parse_xml_items(body_text, source_type=source_type)
             results.extend(parsed)
 
-        except IncheonApiQuotaExceededError:
+        except (IncheonApiQuotaExceededError, IncheonApiAuthError):
             raise
-        except Exception:
+        except IncheonApiResponseError as exc:
+            last_error = exc
             continue
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    if not results and last_error is not None:
+        raise last_error
 
     return results
 
@@ -256,7 +330,7 @@ async def get_flight_data(
     start_date: str,
     end_date: str,
 ) -> List[Dict[str, Any]]:
-    if not SERVICE_KEY:
+    if not _get_service_key():
         raise ValueError("INCHEON_API_SERVICE_KEY 환경변수가 비어 있습니다.")
 
     cached = _get_cached_flight_data(flight_no, start_date, end_date)
@@ -304,7 +378,7 @@ async def get_all_kj_flight_data(
     start_date: str,
     end_date: str,
 ) -> List[Dict[str, Any]]:
-    if not SERVICE_KEY:
+    if not _get_service_key():
         raise ValueError("INCHEON_API_SERVICE_KEY 환경변수가 비어 있습니다.")
 
     cache_flight_no = "__ALL_KJ__"

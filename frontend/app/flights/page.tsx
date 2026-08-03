@@ -2564,6 +2564,9 @@ export default function FlightsPage() {
       });
       setSelectedScheduleKeys(initialKeys);
       setSelectedScheduleOrder(initialOrder);
+      if (nextRows.length === 0) {
+        setError(json.message || "조회 결과가 없습니다. 기간을 넓히거나 인천 화물기 API 상태를 확인하세요.");
+      }
     } catch (e: any) {
       setError(e.message || "KJ 전체 조회 실패");
     } finally {
