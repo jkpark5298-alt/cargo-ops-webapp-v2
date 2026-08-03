@@ -14,6 +14,10 @@ import {
   splitScheduleCompactParts,
 } from "../lib/afocs-skd";
 import { DEFAULT_DAILY_AUTHOR, normalizeDailyAuthor } from "../lib/local-storage";
+import {
+  getComputedFlightStatus,
+  isFinalCompletedFlightStatus,
+} from "../lib/flight-status";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_API_URL || "https://cargo-ops-backend.onrender.com";
@@ -444,59 +448,8 @@ function getFlightTimeFromRow(row: FlightRow): Date | null {
   );
 }
 
-function getRemarkStatus(row: FlightRow): string {
-  return `${row.status || ""} ${row.remark || ""}`.trim().toUpperCase();
-}
-
 function getComputedStatus(row: FlightRow) {
-  const remarkStatus = getRemarkStatus(row);
-
-  if (row.canceled || remarkStatus.includes("CANCEL")) return "결항";
-  if (row.gateChanged) return "게이트 변경";
-
-  if (
-    remarkStatus.includes("DELAY") ||
-    remarkStatus.includes("지연") ||
-    row.delay
-  ) {
-    if (
-      remarkStatus.includes("ARRIV") ||
-      remarkStatus.includes("도착") ||
-      row.status === "도착"
-    ) {
-      return "도착(지연)";
-    }
-
-    if (
-      remarkStatus.includes("DEPAR") ||
-      remarkStatus.includes("출발") ||
-      row.status === "출발"
-    ) {
-      return "출발(지연)";
-    }
-
-    return "지연";
-  }
-
-  if (
-    row.status === "출발" ||
-    remarkStatus.includes("DEPART") ||
-    remarkStatus.includes("DEP") ||
-    remarkStatus.includes("출발")
-  ) {
-    return "출발";
-  }
-
-  if (
-    row.status === "도착" ||
-    remarkStatus.includes("ARRIV") ||
-    remarkStatus.includes("ARR") ||
-    remarkStatus.includes("도착")
-  ) {
-    return "도착";
-  }
-
-  return "-";
+  return getComputedFlightStatus(row);
 }
 
 function getRefreshExcludeReasonFromRow(row: FlightRow) {
@@ -514,14 +467,7 @@ function getRefreshExcludeReasonFromRow(row: FlightRow) {
 }
 
 function isFinalCompletedStatus(status: string) {
-  if (!status || status === "-") return false;
-  const s = status;
-  // 출발(지연) 포함 - 이미 출발했으므로 지상 작업 완료
-  return (
-    s.includes("도착") ||
-    s.includes("출발") ||
-    s.includes("결항")
-  );
+  return isFinalCompletedFlightStatus(status);
 }
 
 function getLatestRowsByFlight(rows: FlightRow[]) {

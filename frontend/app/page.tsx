@@ -21,6 +21,7 @@ import {
   clearFlightAlertSnapshot,
   loadFlightAlertHistory,
   loadFlightAlertSnapshot,
+  mergeFlightAlertHistoryItems,
   saveFlightAlertHistory,
   saveFlightAlertSnapshot,
   type FlightAlertHistoryItem,
@@ -243,6 +244,7 @@ export type FlightRow = {
   delay?: boolean;
   canceled?: boolean;
   gateChanged?: boolean;
+  sourceType?: string;
   fid?: string;
   aircraftRegNo?: string;
   registrationNo?: string;
@@ -1519,9 +1521,11 @@ export default function HomePage() {
         String(value.checkedAt || value.createdAt || value.savedAt || value.timestamp || value.time || "");
       const roomName =
         String(value.roomName || value.room || value.source || "서버 알림 이력");
+      const originalKey = String(value.key || "").trim();
 
       return {
-        key: `server-${checkedAt || Date.now()}-${index}-${flight || title}`,
+        // 서버 원본 key를 유지해야 개별 삭제가 서버와 일치합니다.
+        key: originalKey || `server-${checkedAt || Date.now()}-${index}-${flight || title}`,
         title: title || (route ? `${flight} ${route}` : flight) || "Schedule Flight 변경",
         description,
         checkedAt: checkedAt || getCurrentTimeLabel(),
@@ -1531,29 +1535,21 @@ export default function HomePage() {
   };
 
 
-  const mergeFlightAlertHistoryItems = (
-    incomingItems: FlightAlertHistoryItem[],
-    existingItems: FlightAlertHistoryItem[],
+  const syncFlightAlertHistoryFromCheck = async (
+    result: BackendScheduleCheckResult,
+    sourceLabel: string,
   ) => {
-    const seen = new Set<string>();
-    const merged: FlightAlertHistoryItem[] = [];
+    const changed = result.changed ?? 0;
+    if (changed <= 0) return;
 
-    [...incomingItems, ...existingItems].forEach((item) => {
-      const key = [
-        item.title,
-        item.description,
-        item.checkedAt,
-        item.roomName,
-      ]
-        .map((value) => String(value || "").trim())
-        .join("|");
+    const beforeCount = loadFlightAlertHistory().length;
+    await handleLoadServerFlightAlertHistory(false);
+    const afterItems = loadFlightAlertHistory();
 
-      if (!key.trim() || seen.has(key)) return;
-      seen.add(key);
-      merged.push(item);
-    });
-
-    return merged.slice(0, 20);
+    // 서버 append가 아직 반영되지 않은 경우에만 로컬 fallback 저장
+    if (afterItems.length <= beforeCount) {
+      appendBackendFlightAlertHistory(result, sourceLabel);
+    }
   };
 
   const deleteServerFlightAlertHistoryItem = async (item: FlightAlertHistoryItem) => {
@@ -1613,10 +1609,11 @@ export default function HomePage() {
       const rawItems = json.items || json.history || json.notifications || json.data || [];
       const serverItems = mapServerNotificationHistory(rawItems);
       const localItems = loadFlightAlertHistory();
+      // 서버가 비어 있어도 로컬 이력을 지우지 않습니다. (/tmp 재시작·재배포 유실 대비)
       const nextItems =
         serverItems.length > 0
           ? mergeFlightAlertHistoryItems(serverItems, localItems)
-          : [];
+          : localItems;
 
       setFlightAlertHistory(nextItems);
       setServerFlightAlertChangeCount(nextItems.length);
@@ -1628,7 +1625,9 @@ export default function HomePage() {
         setServerFlightAlertStatus(
           serverItems.length > 0
             ? `서버 미처리 이력 ${serverItems.length}건 확인 · 출도착 알림 이력에 자동 표시 · 신규 ${addedCount}건`
-            : "서버 미처리 이력이 없습니다.",
+            : localItems.length > 0
+              ? `서버 이력 없음 · 앱 저장 이력 ${localItems.length}건 유지`
+              : "서버 미처리 이력이 없습니다.",
         );
       } else if (addedCount > 0) {
         setServerFlightAlertStatus(
@@ -1678,7 +1677,7 @@ export default function HomePage() {
     });
 
     const currentHistory = loadFlightAlertHistory();
-    const nextHistory = [...historyItems, ...currentHistory].slice(0, 20);
+    const nextHistory = mergeFlightAlertHistoryItems(historyItems, currentHistory);
     setFlightAlertHistory(nextHistory);
     setServerFlightAlertChangeCount(nextHistory.length);
     setFlightAlertDetailsVisible(false);
@@ -1898,7 +1897,7 @@ export default function HomePage() {
       }
 
       const result = json as BackendScheduleCheckResult;
-      appendBackendFlightAlertHistory(result, "API 즉시 확인");
+      await syncFlightAlertHistoryFromCheck(result, "API 즉시 확인");
       await syncLatestScheduleFromServer(false);
       await fetchIncheonApiUsage();
 
@@ -2129,7 +2128,7 @@ export default function HomePage() {
       }
 
       const result = json as BackendScheduleCheckResult;
-      appendBackendFlightAlertHistory(result, "수동 변경 확인");
+      await syncFlightAlertHistoryFromCheck(result, "수동 변경 확인");
 
       const changed = result.changed ?? 0;
       const sent = result.sent ?? 0;
@@ -2142,7 +2141,6 @@ export default function HomePage() {
         );
         await syncLatestScheduleFromServer(false);
         await fetchIncheonApiUsage();
-        await handleLoadServerFlightAlertHistory(false);
       } else {
         setPwaStatusMessage(`Schedule Flight 변경 없음. 재조회 대상 ${checked}건 확인 완료`);
         await syncLatestScheduleFromServer(false);

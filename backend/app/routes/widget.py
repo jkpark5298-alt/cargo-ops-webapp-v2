@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -106,8 +106,55 @@ def _get_remark_status(row: Dict[str, Any]) -> str:
     return f"{row.get('status', '')} {row.get('remark', '')}".strip().upper()
 
 
+def _now_kst_naive() -> datetime:
+    return datetime.utcnow() + timedelta(hours=9)
+
+
+def _get_row_estimated_datetime(row: Dict[str, Any]) -> Optional[datetime]:
+    raw = (
+        row.get("formattedEstimatedTime")
+        or row.get("formattedScheduleTime")
+        or row.get("estimatedDateTime")
+        or row.get("scheduleDateTime")
+        or ""
+    )
+    text = str(raw).strip()
+    if not text:
+        return None
+
+    normalized = text.replace(".", "-").replace("/", "-").replace("T", " ")
+    for fmt in (
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y%m%d%H%M%S",
+        "%Y%m%d%H%M",
+    ):
+        try:
+            return datetime.strptime(normalized, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _get_direction_kind(row: Dict[str, Any]) -> Optional[str]:
+    source = str(row.get("sourceType") or "").strip().lower()
+    if source == "departure":
+        return "departure"
+    if source == "arrival":
+        return "arrival"
+
+    dep = str(row.get("departureCode") or "").strip().upper()
+    arr = str(row.get("arrivalCode") or "").strip().upper()
+    if dep == "ICN":
+        return "departure"
+    if arr == "ICN":
+        return "arrival"
+    return None
+
+
 def _compute_status(row: Dict[str, Any]) -> str:
     remark_status = _get_remark_status(row)
+    now = _now_kst_naive()
 
     if row.get("canceled") or "CANCEL" in remark_status:
         return "결항"
@@ -115,11 +162,19 @@ def _compute_status(row: Dict[str, Any]) -> str:
     if row.get("gateChanged"):
         return "게이트 변경"
 
-    if row.get("delay") or "DELAY" in remark_status or "지연" in remark_status:
+    delayed = bool(row.get("delay")) or "DELAY" in remark_status or "지연" in remark_status
+    if delayed:
         if row.get("status") == "도착" or "ARRIV" in remark_status or "도착" in remark_status:
             return "도착(지연)"
         if row.get("status") == "출발" or "DEPAR" in remark_status or "출발" in remark_status:
             return "출발(지연)"
+        elapsed = _get_row_estimated_datetime(row)
+        if elapsed and elapsed <= now:
+            kind = _get_direction_kind(row)
+            if kind == "departure":
+                return "출발(지연)"
+            if kind == "arrival":
+                return "도착(지연)"
         return "지연"
 
     if row.get("status") == "출발" or "DEPAR" in remark_status or "출발" in remark_status:
@@ -127,6 +182,14 @@ def _compute_status(row: Dict[str, Any]) -> str:
 
     if row.get("status") == "도착" or "ARRIV" in remark_status or "도착" in remark_status:
         return "도착"
+
+    elapsed = _get_row_estimated_datetime(row)
+    if elapsed and elapsed <= now:
+        kind = _get_direction_kind(row)
+        if kind == "departure":
+            return "출발"
+        if kind == "arrival":
+            return "도착"
 
     return "-"
 

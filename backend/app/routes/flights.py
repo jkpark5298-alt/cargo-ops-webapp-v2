@@ -2239,7 +2239,33 @@ def _merge_latest_rows(
 
     merged = list(merged_by_flight.values())
     merged.sort(key=_get_row_sort_key)
-    return merged
+    return [_apply_elapsed_status_to_row(row) for row in merged]
+
+
+def _apply_elapsed_status_to_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """API remark/status가 비어 있어도 예정시각이 지났으면 출발/도착을 반영한다."""
+    next_row = dict(row)
+    current_status = str(next_row.get("status") or "").strip()
+    remark = str(next_row.get("remark") or "").strip()
+    if current_status or any(token in remark for token in ("출발", "도착", "결항", "DEPART", "ARRIV", "CANCEL")):
+        return next_row
+
+    row_dt = _get_row_datetime(next_row)
+    if row_dt is None or row_dt > _now_kst():
+        return next_row
+
+    source = str(next_row.get("sourceType") or "").strip().lower()
+    dep = str(next_row.get("departureCode") or "").strip().upper()
+    arr = str(next_row.get("arrivalCode") or "").strip().upper()
+    is_departure = source == "departure" or dep == "ICN"
+    is_arrival = source == "arrival" or arr == "ICN"
+
+    if is_departure:
+        next_row["status"] = "출발"
+    elif is_arrival:
+        next_row["status"] = "도착"
+
+    return next_row
 
 
 def _preserve_manual_afocs_skd(
@@ -2974,16 +3000,27 @@ async def clear_notification_history_post() -> Dict[str, Any]:
 async def delete_notification_history_item(payload: NotificationHistoryDeleteItemRequest) -> Dict[str, Any]:
     items = _read_notification_history()
 
+    def _norm_checked(value: Any) -> str:
+        return str(value or "").replace("T", " ").strip()
+
     def _same_item(item: Dict[str, Any]) -> bool:
-        if payload.key and str(item.get("key") or "") == payload.key:
+        item_key = str(item.get("key") or "").strip()
+        payload_key = str(payload.key or "").strip()
+        if payload_key and item_key and item_key == payload_key:
             return True
 
-        return (
+        same_core = (
             str(item.get("title") or "") == str(payload.title or "")
             and str(item.get("description") or "") == str(payload.description or "")
-            and str(item.get("checkedAt") or "") == str(payload.checkedAt or "")
-            and str(item.get("roomName") or "") == str(payload.roomName or "")
+            and _norm_checked(item.get("checkedAt")) == _norm_checked(payload.checkedAt)
         )
+        if not same_core:
+            return False
+
+        # roomName은 표시용이라 달라도 같은 항목으로 처리합니다.
+        if not payload.roomName:
+            return True
+        return str(item.get("roomName") or "") == str(payload.roomName or "")
 
     next_items = [item for item in items if not _same_item(item)]
     deleted = len(items) - len(next_items)

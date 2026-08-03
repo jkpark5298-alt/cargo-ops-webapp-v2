@@ -12,6 +12,10 @@ import {
   splitScheduleCompactParts,
 } from "../lib/afocs-skd";
 import { openCsmChecklistWithFlights } from "../lib/csm-checklist";
+import {
+  getComputedFlightStatus,
+  isFinalCompletedFlightStatus,
+} from "../lib/flight-status";
 
 type ScheduleSummaryCardProps = {
   latestRoom: MonitorRoom | null;
@@ -103,20 +107,6 @@ type FlightRouteItem = {
   departureCode: string;
   arrivalCode: string;
 };
-
-function isFinalCompletedFlightStatus(status: string) {
-  if (!status || status === "-") return false;
-  const s = status.toLowerCase();
-  return (
-    s.includes("도착") ||
-    s.includes("출발") ||
-    s.includes("결항") ||
-    s === "arrival" ||
-    s === "departure" ||
-    s === "cancel" ||
-    s === "cancelled"
-  );
-}
 
 function FlightRouteRows({
   room,
@@ -808,7 +798,7 @@ function getFlightRouteItems(room: MonitorRoom | null) {
         registrationNo: getRegistrationNo(row),
         route: getRouteDisplay(row) || "구간 확인 중",
         direction: "기준",
-        status: getComputedStatus(row),
+        status: getComputedFlightStatus(row),
         time: getFlightTimeDisplay(row),
         displayTime: formatMonthDayTime(scheduleSource),
         changeTimeDate: changeParts.date,
@@ -926,25 +916,6 @@ function getDirectionLabel(row?: FlightRow) {
   if (remark.includes("departure") || remark.includes("출발") || route.startsWith("ICN→")) return "출발";
 
   return "운항";
-}
-
-function getComputedStatus(row?: FlightRow) {
-  if (!row) return "-";
-  const remarkStatus = `${row.status || ""} ${row.remark || ""}`.trim().toUpperCase();
-
-  if (row.canceled || remarkStatus.includes("CANCEL")) return "결항";
-  if (row.gateChanged) return "게이트 변경";
-
-  if (remarkStatus.includes("DELAY") || remarkStatus.includes("지연") || row.delay) {
-    if (remarkStatus.includes("ARRIV") || remarkStatus.includes("도착") || row.status === "도착") return "도착(지연)";
-    if (remarkStatus.includes("DEPAR") || remarkStatus.includes("출발") || row.status === "출발") return "출발(지연)";
-    return "지연";
-  }
-
-  if (row.status === "출발" || remarkStatus.includes("DEPART") || remarkStatus.includes("DEP") || remarkStatus.includes("출발")) return "출발";
-  if (row.status === "도착" || remarkStatus.includes("ARRIV") || remarkStatus.includes("ARR") || remarkStatus.includes("도착")) return "도착";
-
-  return "-";
 }
 
 function getFlightTimeDisplay(row?: FlightRow) {

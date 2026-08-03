@@ -28,6 +28,7 @@ import {
   prepareAfocsSkdForSave,
   resolveAfocsSkdForDisplay,
 } from "../lib/afocs-skd";
+import { getComputedFlightStatus } from "../lib/flight-status";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_API_URL || "https://cargo-ops-backend.onrender.com";
@@ -332,63 +333,7 @@ function getRemarkStatus(row: FlightRow): string {
 }
 
 function getComputedStatus(row: FlightRow) {
-  const remarkStatus = getRemarkStatus(row);
-
-  if (row.canceled || remarkStatus.includes("CANCEL")) return "결항";
-  if (row.gateChanged) return "게이트 변경";
-
-  if (
-    remarkStatus.includes("DELAY") ||
-    remarkStatus.includes("지연") ||
-    row.delay
-  ) {
-    if (
-      remarkStatus.includes("ARRIV") ||
-      remarkStatus.includes("도착") ||
-      row.status === "도착"
-    ) {
-      return "도착(지연)";
-    }
-    if (
-      remarkStatus.includes("DEPAR") ||
-      remarkStatus.includes("출발") ||
-      row.status === "출발"
-    ) {
-      return "출발(지연)";
-    }
-    return "지연";
-  }
-
-  if (
-    row.status === "출발" ||
-    remarkStatus.includes("DEPART") ||
-    remarkStatus.includes("DEP") ||
-    remarkStatus.includes("출발")
-  ) {
-    return "출발";
-  }
-
-  if (
-    row.status === "도착" ||
-    remarkStatus.includes("ARRIV") ||
-    remarkStatus.includes("ARR") ||
-    remarkStatus.includes("도착")
-  ) {
-    return "도착";
-  }
-
-  const dt = parseFlightTime(row);
-  const now = new Date();
-
-  if (dt && dt.getTime() <= now.getTime()) {
-    const dep = (row.departureCode || "").toUpperCase();
-    const arr = (row.arrivalCode || "").toUpperCase();
-
-    if (dep === "ICN") return "출발";
-    if (arr === "ICN") return "도착";
-  }
-
-  return "-";
+  return getComputedFlightStatus(row);
 }
 
 function getStatusColor(row: FlightRow) {

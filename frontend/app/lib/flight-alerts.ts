@@ -34,6 +34,56 @@ export type FlightAlertHistoryItem = FlightAlertItem & {
   roomName: string;
 };
 
+function normalizeHistoryText(value?: string) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/[·•|/]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeHistoryCheckedAt(value?: string) {
+  const raw = String(value || "").replace("T", " ").trim();
+  const full = raw.match(/(\d{4}[-/.]\d{2}[-/.]\d{2})\s+(\d{2}:\d{2})/);
+  if (full) return `${full[1].replace(/[/.]/g, "-")} ${full[2]}`;
+  const clock = raw.match(/(\d{2}:\d{2})/);
+  return clock ? clock[1] : raw;
+}
+
+/** 동일 알림을 description 포맷 차이(개행 vs ·)가 있어도 하나로 묶습니다. */
+export function getFlightAlertHistoryDedupeKey(item: FlightAlertHistoryItem) {
+  return [
+    normalizeHistoryText(item.title),
+    normalizeHistoryText(item.description),
+    normalizeHistoryCheckedAt(item.checkedAt),
+  ].join("|");
+}
+
+export function mergeFlightAlertHistoryItems(
+  incomingItems: FlightAlertHistoryItem[],
+  existingItems: FlightAlertHistoryItem[],
+  limit = 20,
+) {
+  const seenKeys = new Set<string>();
+  const seenContent = new Set<string>();
+  const merged: FlightAlertHistoryItem[] = [];
+
+  for (const item of [...incomingItems, ...existingItems]) {
+    if (!item) continue;
+
+    if (item.key && seenKeys.has(item.key)) continue;
+    const contentKey = getFlightAlertHistoryDedupeKey(item);
+    if (contentKey && seenContent.has(contentKey)) continue;
+
+    if (item.key) seenKeys.add(item.key);
+    if (contentKey) seenContent.add(contentKey);
+    merged.push(item);
+  }
+
+  return merged.slice(0, limit);
+}
+
 export function loadFlightAlertSnapshot(): FlightAlertSnapshot | null {
   if (typeof window === "undefined") return null;
 
