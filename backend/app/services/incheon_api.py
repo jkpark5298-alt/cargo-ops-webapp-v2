@@ -67,7 +67,31 @@ def service_key_debug_meta() -> Dict[str, Any]:
     }
 
 
-def _build_request_url(path: str, params: Dict[str, Any], *, encoded_key: bool) -> str:
+BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/127.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/xml,text/xml,*/*",
+}
+
+
+def _mask_service_key_url(url: str) -> str:
+    if "serviceKey=" not in url:
+        return url
+    head, rest = url.split("serviceKey=", 1)
+    after = rest.split("&", 1)
+    return head + "serviceKey=***" + (("&" + after[1]) if len(after) > 1 else "")
+
+
+def _build_request_url(
+    path: str,
+    params: Dict[str, Any],
+    *,
+    encoded_key: bool,
+    base_url: str = BASE_URL,
+) -> str:
     """
     공공데이터포털은 serviceKey를 쿼리에 붙이는 방식에 민감합니다.
     - encoded_key=True: Encoding 키를 재인코딩 없이 그대로 붙임 (브라우저 미리보기와 동일)
@@ -82,12 +106,11 @@ def _build_request_url(path: str, params: Dict[str, Any], *, encoded_key: bool) 
     qs = urlencode(other, doseq=True)
 
     if encoded_key:
-        # env에 Encoding 키가 있으면 그대로, Decoding이면 quote
         key_part = raw if "%" in raw else quote(cleaned, safe="")
     else:
         key_part = quote(cleaned, safe="")
 
-    return f"{BASE_URL}{path}?serviceKey={key_part}&{qs}"
+    return f"{base_url}{path}?serviceKey={key_part}&{qs}"
 
 
 def _text(node: ET.Element, tag: str) -> str:
@@ -312,7 +335,11 @@ async def _fetch_one_day(
 
             for attempt in range(3):
                 try:
-                    res = await client.get(url, follow_redirects=True)
+                    res = await client.get(
+                        url,
+                        follow_redirects=True,
+                        headers=BROWSER_HEADERS,
+                    )
                     body_text = res.text
 
                     if _is_quota_exceeded_response(res.status_code, body_text):
@@ -426,7 +453,7 @@ async def get_flight_data(
     day_list = _date_range(start_date, end_date)
     all_rows: List[Dict[str, Any]] = []
 
-    async with httpx.AsyncClient(timeout=20.0) as client:
+    async with httpx.AsyncClient(timeout=20.0, http2=False, headers=BROWSER_HEADERS) as client:
         for day in day_list:
             rows = await _fetch_one_day(client, flight_no, day)
             all_rows.extend(rows)
@@ -475,7 +502,7 @@ async def get_all_kj_flight_data(
     day_list = _date_range(start_date, end_date)
     all_rows: List[Dict[str, Any]] = []
 
-    async with httpx.AsyncClient(timeout=20.0) as client:
+    async with httpx.AsyncClient(timeout=20.0, http2=False, headers=BROWSER_HEADERS) as client:
         for day in day_list:
             rows = await _fetch_one_day(client, "", day)
             all_rows.extend(rows)
@@ -524,7 +551,7 @@ async def probe_incheon_api(
     if len(day) == 10 and "-" in day:
         day = day.replace("-", "")
 
-    params: Dict[str, Any] = {
+    full_params: Dict[str, Any] = {
         "pageNo": 1,
         "numOfRows": 10,
         "searchday": day,
@@ -535,57 +562,99 @@ async def probe_incheon_api(
         "type": "xml",
     }
     if str(flight_no or "").strip():
-        params["flight_id"] = str(flight_no).strip().upper()
+        full_params["flight_id"] = str(flight_no).strip().upper()
+
+    minimal_params: Dict[str, Any] = {
+        "pageNo": 1,
+        "numOfRows": 10,
+        "type": "xml",
+        "searchday": day,
+    }
+    if str(flight_no or "").strip():
+        minimal_params["flight_id"] = str(flight_no).strip().upper()
+
+    variants: List[Tuple[str, str, Dict[str, Any], bool]] = [
+        ("deodp-arrivals-full", f"{BASE_URL}{ARRIVALS_PATH}", full_params, True),
+        ("deodp-arrivals-minimal", f"{BASE_URL}{ARRIVALS_PATH}", minimal_params, True),
+        ("deodp-departures-minimal", f"{BASE_URL}{DEPARTURES_PATH}", minimal_params, True),
+        (
+            "legacy-arrivals",
+            "https://apis.data.go.kr/B551177/StatusOfCargoFlights/getCargoArrivals",
+            {
+                "from_time": "0000",
+                "to_time": "2400",
+                "flight_id": str(flight_no or "").strip().upper(),
+                "lang": "K",
+                "type": "xml",
+            },
+            True,
+        ),
+    ]
 
     attempts: List[Dict[str, Any]] = []
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        for path_label, path in (
-            ("departures", DEPARTURES_PATH),
-            ("arrivals", ARRIVALS_PATH),
-        ):
-            for encoded_key in (True, False):
-                url = _build_request_url(path, params, encoded_key=encoded_key)
-                safe_url = url
-                if "serviceKey=" in safe_url:
-                    head, rest = safe_url.split("serviceKey=", 1)
-                    after = rest.split("&", 1)
-                    safe_url = head + "serviceKey=***" + (("&" + after[1]) if len(after) > 1 else "")
+    async with httpx.AsyncClient(timeout=20.0, http2=False, headers=BROWSER_HEADERS) as client:
+        for label, absolute_url, params, encoded_key in variants:
+            # absolute_url already includes path; rebuild with base+path helpers when DeOdp
+            if absolute_url.startswith(BASE_URL):
+                path = absolute_url[len(BASE_URL) :]
+                url = _build_request_url(path, params, encoded_key=encoded_key, base_url=BASE_URL)
+            else:
+                # legacy absolute endpoint without shared BASE_URL helper path
+                raw = _get_raw_service_key()
+                cleaned = _clean_service_key(raw) or _get_service_key()
+                other = {k: v for k, v in params.items() if v is not None and v != ""}
+                qs = urlencode(other, doseq=True)
+                key_part = raw if ("%" in raw and encoded_key) else quote(cleaned, safe="")
+                url = f"{absolute_url}?serviceKey={key_part}&{qs}"
+
+            safe_url = _mask_service_key_url(url)
+            try:
+                res = await client.get(url, follow_redirects=True)
+                body = res.text or ""
+                code = ""
+                msg = ""
                 try:
-                    res = await client.get(url, follow_redirects=True)
-                    body = res.text or ""
-                    code = ""
-                    msg = ""
-                    try:
-                        root = ET.fromstring(body)
-                        code = _find_result_code(root)
-                        msg = _find_result_message(root)
-                    except ET.ParseError:
-                        pass
-                    attempts.append(
-                        {
-                            "endpoint": path_label,
-                            "encodedKeyMode": encoded_key,
-                            "httpStatus": res.status_code,
-                            "resultCode": code,
-                            "resultMsg": msg,
-                            "bodyPreview": body[:240],
-                            "url": safe_url,
-                        }
-                    )
-                except Exception as exc:
-                    attempts.append(
-                        {
-                            "endpoint": path_label,
-                            "encodedKeyMode": encoded_key,
-                            "error": str(exc),
-                            "url": safe_url,
-                        }
-                    )
+                    root = ET.fromstring(body)
+                    code = _find_result_code(root)
+                    msg = _find_result_message(root)
+                except ET.ParseError:
+                    pass
+                attempts.append(
+                    {
+                        "variant": label,
+                        "httpStatus": res.status_code,
+                        "resultCode": code,
+                        "resultMsg": msg,
+                        "bodyPreview": body[:280],
+                        "url": safe_url,
+                    }
+                )
+            except Exception as exc:
+                attempts.append(
+                    {
+                        "variant": label,
+                        "error": str(exc),
+                        "url": safe_url,
+                    }
+                )
+
+    ok_codes = {"", "00", "0", "0000", "03"}
+    any_ok = any(str(a.get("resultCode") or "") in ok_codes for a in attempts)
 
     return {
         "success": True,
         "searchday": day,
         "flightNo": str(flight_no or "").strip().upper(),
         "key": service_key_debug_meta(),
+        "anyOk": any_ok,
         "attempts": attempts,
+        "hint": (
+            None
+            if any_ok
+            else (
+                "키가 같아도 Render(클라우드 IP)에서만 04가 나면 "
+                "해당 API 활용신청/트래픽 한도 또는 포털 게이트웨이 IP 제한일 수 있습니다. "
+                "브라우저 주소창 URL(키 가린 채)의 path와 쿼리 파라미터를 알려주세요."
+            )
+        ),
     }
