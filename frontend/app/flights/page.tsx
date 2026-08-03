@@ -22,6 +22,7 @@ import {
   type ScheduleSlotsState,
 } from "./lib/schedule-slots";
 import {
+  formatExcelAfocsSkdFromDateAndTime,
   formatExcelAfocsSkdValue,
   mergeRowPreservingAfocsSkd,
   prepareAfocsSkdForSave,
@@ -2135,13 +2136,26 @@ export default function FlightsPage() {
       const excelMappings: Record<string, string> = {};
       rawRows.forEach((row) => {
         const flightVal = getAircraftRegistrationCell(row, ["편명", "flight", "flightid", "flightno", "flightnumber"]);
-        const timeVal = getAircraftRegistrationCell(row, ["시간", "AFOCSSKD", "AFOCS SKD", "time", "schedule", "scheduledatetime", "etd/eta", "etd", "eta"]);
+        const timeVal = getAircraftRegistrationCell(row, [
+          "시간",
+          "AFOCSSKD",
+          "AFOCS SKD",
+          "time",
+          "schedule",
+          "scheduledatetime",
+          "etd/eta",
+          "etd",
+          "eta",
+          "r/o ld",
+          "rold",
+        ]);
+        const dateVal = getAircraftRegistrationCell(row, ["운항일자", "일자", "날짜", "date", "operationdate"]);
 
         const flightKey = normalizeFlightKey(String(flightVal || ""));
         const matchedRow = targetRows.find(
           (scheduleRow) => getFlightKeyFromRow(scheduleRow) === flightKey,
         );
-        const timeStr = formatExcelAfocsSkdValue(timeVal, matchedRow);
+        const timeStr = formatExcelAfocsSkdFromDateAndTime(dateVal, timeVal, matchedRow);
 
         if (flightKey && timeStr) {
           excelMappings[flightKey] = timeStr;
@@ -2150,7 +2164,9 @@ export default function FlightsPage() {
 
       const keys = Object.keys(excelMappings);
       if (keys.length === 0) {
-        setHlMappingStatus("업로드된 엑셀에서 AFOCS SKD 데이터를 찾지 못했습니다. 편명/시간(또는 AFOCS SKD, ETD/ETA) 컬럼을 확인해 주세요.");
+        setHlMappingStatus(
+          "업로드된 엑셀에서 AFOCS SKD 데이터를 찾지 못했습니다. 편명 + 일자 + ETD/ETA(또는 시간) 컬럼을 확인해 주세요.",
+        );
         return;
       }
 
@@ -4351,7 +4367,7 @@ export default function FlightsPage() {
                 AFOCS SKD 저장
               </button>
               <span style={hlInlineHelpStyle}>
-                AFOCS는 MM.DD / HH:mm 칸에 입력 · 예: 08.03 · 23:00 · 포커스 벗어나면 반영 · 엑셀도 가능
+                AFOCS는 MM.DD / HH:mm 칸 입력 또는 엑셀(편명·일자·ETD/ETA) 업로드 · 예: 08.03 · 23:00
               </span>
             </div>
           </>

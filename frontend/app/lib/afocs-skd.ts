@@ -250,13 +250,20 @@ export function parseAfocsSkdSortValueFromParts(
 }
 
 export function formatExcelAfocsSkdValue(val: unknown, row?: AfocsSkdFlightRow | null): string {
-  if (!val) return "";
+  if (!val && val !== 0) return "";
 
   if (val instanceof Date) {
     return formatAfocsSkdDateTime(val);
   }
 
   if (typeof val === "number") {
+    // 하루 미만이면 엑셀 시간 소수, 이상이면 날짜 시리얼로 처리
+    if (val > 0 && val < 1) {
+      const totalMinutes = Math.round(val * 24 * 60);
+      const hours = String(Math.floor(totalMinutes / 60) % 24).padStart(2, "0");
+      const minutes = String(totalMinutes % 60).padStart(2, "0");
+      return prepareAfocsSkdForSave(`${hours}:${minutes}`, row);
+    }
     const excelEpoch = new Date(Date.UTC(1899, 11, 30));
     const parsed = new Date(excelEpoch.getTime() + val * 24 * 60 * 60 * 1000);
     if (!Number.isNaN(parsed.getTime())) {
@@ -267,6 +274,97 @@ export function formatExcelAfocsSkdValue(val: unknown, row?: AfocsSkdFlightRow |
   const str = String(val).trim();
   if (!str) return "";
   return prepareAfocsSkdForSave(str, row);
+}
+
+function formatExcelDateOnly(val: unknown): string {
+  if (!val && val !== 0) return "";
+
+  if (val instanceof Date && !Number.isNaN(val.getTime())) {
+    const year = val.getFullYear();
+    const month = String(val.getMonth() + 1).padStart(2, "0");
+    const day = String(val.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  if (typeof val === "number" && val >= 1) {
+    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+    const parsed = new Date(excelEpoch.getTime() + val * 24 * 60 * 60 * 1000);
+    if (!Number.isNaN(parsed.getTime())) {
+      const year = parsed.getUTCFullYear();
+      const month = String(parsed.getUTCMonth() + 1).padStart(2, "0");
+      const day = String(parsed.getUTCDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  const raw = String(val).trim().replace(/\./g, "-").replace(/\//g, "-");
+  const match = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (!match) return "";
+  return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
+}
+
+function formatExcelTimeOnly(val: unknown): string {
+  if (!val && val !== 0) return "";
+
+  if (val instanceof Date && !Number.isNaN(val.getTime())) {
+    return `${String(val.getHours()).padStart(2, "0")}:${String(val.getMinutes()).padStart(2, "0")}`;
+  }
+
+  if (typeof val === "number") {
+    if (val > 0 && val < 1) {
+      const totalMinutes = Math.round(val * 24 * 60);
+      return `${String(Math.floor(totalMinutes / 60) % 24).padStart(2, "0")}:${String(totalMinutes % 60).padStart(2, "0")}`;
+    }
+    // 날짜 시리얼에 시간이 포함된 경우
+    if (val >= 1) {
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      const parsed = new Date(excelEpoch.getTime() + val * 24 * 60 * 60 * 1000);
+      if (!Number.isNaN(parsed.getTime())) {
+        return `${String(parsed.getUTCHours()).padStart(2, "0")}:${String(parsed.getUTCMinutes()).padStart(2, "0")}`;
+      }
+    }
+  }
+
+  const str = String(val).trim();
+  const colon = str.match(/^(\d{1,2}):(\d{2})/);
+  if (colon) {
+    return `${colon[1].padStart(2, "0")}:${colon[2]}`;
+  }
+  const compact = str.match(/^(\d{3,4})$/);
+  if (compact) {
+    const digits = compact[1].padStart(4, "0");
+    return `${digits.slice(0, 2)}:${digits.slice(2, 4)}`;
+  }
+  return "";
+}
+
+/** 엑셀 일자 + ETD/ETA(또는 시간) 컬럼을 AFOCS SKD 문자열로 합칩니다. */
+export function formatExcelAfocsSkdFromDateAndTime(
+  dateVal: unknown,
+  timeVal: unknown,
+  row?: AfocsSkdFlightRow | null,
+): string {
+  // 시간 칸에 이미 완전한 일시가 있으면 그대로 사용
+  if (timeVal instanceof Date) {
+    return formatAfocsSkdDateTime(timeVal);
+  }
+  if (typeof timeVal === "string" && /[-\/.]/.test(timeVal) && /\d:\d{2}/.test(timeVal)) {
+    return prepareAfocsSkdForSave(timeVal, row);
+  }
+
+  const datePart = formatExcelDateOnly(dateVal);
+  const timePart = formatExcelTimeOnly(timeVal);
+
+  if (datePart && timePart) {
+    return prepareAfocsSkdForSave(`${datePart} ${timePart}`, row);
+  }
+  if (timePart) {
+    return prepareAfocsSkdForSave(timePart, row);
+  }
+  if (datePart) {
+    return prepareAfocsSkdForSave(datePart, row);
+  }
+  return formatExcelAfocsSkdValue(timeVal, row);
 }
 
 export function getAfocsSkdPlaceholderFromRow(row?: AfocsSkdFlightRow | null): string {
