@@ -1826,11 +1826,6 @@ export default function HomePage() {
     const targetFlight = normalizeFlightKey(flight);
     if (!targetFlight) return;
 
-    const confirmed = window.confirm(
-      `${targetFlight} 편명을 Scheduled Flight에서 삭제할까요?\n초기화면·AFOCS SKD·편명조회 카드에 함께 반영됩니다.`,
-    );
-    if (!confirmed) return;
-
     setScheduleFlightDeleting(true);
     setScheduleApiSyncStatus(`${targetFlight} 삭제 중...`);
 

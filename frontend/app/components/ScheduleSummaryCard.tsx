@@ -71,7 +71,7 @@ export function ScheduleSummaryCard({
       {apiSyncStatus ? <div style={apiSyncStatusStyle}>{apiSyncStatus}</div> : null}
       {syncCheckedAt ? <div style={syncStatusStyle}>초기화면 반영 확인 · {syncCheckedAt}</div> : null}
       <div style={apiGuideStyle}>
-        AFOCS SKD는 월일·시간(MM.DD / HH:mm)을 각각 수정할 수 있습니다. 편 삭제는 확인 후 Schedule Flight 카드·초기화면에 함께 반영됩니다. API 즉시 확인은 Schedule Flight API를 조회한 뒤 서버 기준과 초기화면에 반영합니다.
+        AFOCS SKD는 월일·시간(MM.DD / HH:mm)을 각각 수정할 수 있습니다. 편 삭제 → 삭제 확인을 누르면 Schedule Flight 카드·초기화면에 함께 반영됩니다. API 즉시 확인은 Schedule Flight API를 조회한 뒤 서버 기준과 초기화면에 반영합니다.
       </div>
       <div style={buttonStackStyle}>
         <button
@@ -137,6 +137,7 @@ function FlightRouteRows({
   const [startY, setStartY] = useState<number>(0);
   const [showAll, setShowAll] = useState(false);
   const [expandedFlights, setExpandedFlights] = useState<Record<string, boolean>>({});
+  const [pendingDeleteFlight, setPendingDeleteFlight] = useState("");
   // SSR/CSR Date.now() 차이를 피해 hydration mismatch(React #423)를 막습니다.
   const [focusNowMs, setFocusNowMs] = useState<number | null>(null);
   const [csmTransferStatus, setCsmTransferStatus] = useState("");
@@ -151,7 +152,13 @@ function FlightRouteRows({
 
   useEffect(() => {
     setManualOrder(loadScheduleFlightOrder(orderStorageKey));
+    setPendingDeleteFlight("");
   }, [orderStorageKey]);
+
+  useEffect(() => {
+    if (flightDeleting) return;
+    setPendingDeleteFlight("");
+  }, [flightDeleting]);
 
   useEffect(() => {
     setFocusNowMs(Date.now());
@@ -542,26 +549,84 @@ function FlightRouteRows({
                 }}
               >
                 {onDeleteFlight ? (
-                  <button
-                    type="button"
-                    onClick={() => onDeleteFlight(item.flight)}
-                    disabled={flightDeleting}
-                    title={`${item.flight} 편명 삭제`}
-                    style={{
-                      padding: "6px 10px",
-                      borderRadius: 8,
-                      border: "1px solid rgba(248, 113, 113, 0.4)",
-                      background: "rgba(239, 68, 68, 0.12)",
-                      color: "#fca5a5",
-                      fontSize: 12,
-                      fontWeight: 850,
-                      cursor: flightDeleting ? "wait" : "pointer",
-                      opacity: flightDeleting ? 0.65 : 1,
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {flightDeleting ? "삭제 중..." : "편 삭제"}
-                  </button>
+                  (() => {
+                    const flightKey = normalizeSummaryFlightKey(item.flight);
+                    const isPendingDelete = pendingDeleteFlight === flightKey;
+                    const isThisDeleting = flightDeleting && isPendingDelete;
+
+                    if (isPendingDelete) {
+                      return (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 11, color: "#fca5a5", fontWeight: 750 }}>
+                            {item.flight} 삭제할까요?
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (flightDeleting) return;
+                              onDeleteFlight(item.flight);
+                            }}
+                            disabled={flightDeleting}
+                            style={{
+                              padding: "6px 10px",
+                              borderRadius: 8,
+                              border: "1px solid rgba(248, 113, 113, 0.55)",
+                              background: "rgba(239, 68, 68, 0.22)",
+                              color: "#fecaca",
+                              fontSize: 12,
+                              fontWeight: 900,
+                              cursor: flightDeleting ? "wait" : "pointer",
+                              opacity: flightDeleting ? 0.65 : 1,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {isThisDeleting || flightDeleting ? "삭제 중..." : "삭제 확인"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPendingDeleteFlight("")}
+                            disabled={flightDeleting}
+                            style={{
+                              padding: "6px 10px",
+                              borderRadius: 8,
+                              border: "1px solid rgba(148, 163, 184, 0.35)",
+                              background: "rgba(15, 23, 42, 0.55)",
+                              color: "#cbd5e1",
+                              fontSize: 12,
+                              fontWeight: 800,
+                              cursor: flightDeleting ? "not-allowed" : "pointer",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            취소
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => setPendingDeleteFlight(flightKey)}
+                        disabled={flightDeleting}
+                        title={`${item.flight} 편명 삭제`}
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: 8,
+                          border: "1px solid rgba(248, 113, 113, 0.4)",
+                          background: "rgba(239, 68, 68, 0.12)",
+                          color: "#fca5a5",
+                          fontSize: 12,
+                          fontWeight: 850,
+                          cursor: flightDeleting ? "wait" : "pointer",
+                          opacity: flightDeleting ? 0.65 : 1,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        편 삭제
+                      </button>
+                    );
+                  })()
                 ) : (
                   <span />
                 )}
