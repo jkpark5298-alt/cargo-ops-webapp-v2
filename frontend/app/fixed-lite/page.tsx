@@ -238,6 +238,26 @@ function loadAircraftRegistrationRecords(): AircraftRegistrationRecord[] {
   }
 }
 
+function saveAircraftRegistrationRecords(records: AircraftRegistrationRecord[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(AIRCRAFT_REGISTRATION_STORAGE_KEY, JSON.stringify(records));
+}
+
+async function fetchAircraftRegistrationRecordsFromServer(): Promise<AircraftRegistrationRecord[]> {
+  const res = await fetch(`${BACKEND_URL}/flights/aircraft-registrations`, {
+    cache: "no-store",
+  });
+  const json = await res.json();
+
+  if (!res.ok || json.success === false) {
+    throw new Error(json.detail || json.message || "등록기호 서버 조회 실패");
+  }
+
+  const records = Array.isArray(json.records) ? (json.records as AircraftRegistrationRecord[]) : [];
+  saveAircraftRegistrationRecords(records);
+  return records;
+}
+
 function addAircraftRegistrationRecordsToMap(map: Map<string, string>, records: AircraftRegistrationRecord[]) {
   records.forEach((record) => {
     if (!record.date || !record.flight || !record.registrationNo) return;
@@ -309,11 +329,15 @@ function applyRegistrationMapToRows(rows: FlightRow[], registrationMap: Map<stri
 function mergeScheduleRegistrationIntoRoom(
   incomingRoom: MonitorRoom | null,
   previousRoom: MonitorRoom | null,
+  registrationRecords?: AircraftRegistrationRecord[],
 ) {
   if (!incomingRoom) return incomingRoom;
 
   const registrationMap = buildScheduleRegistrationMap(previousRoom?.rows);
-  addAircraftRegistrationRecordsToMap(registrationMap, loadAircraftRegistrationRecords());
+  addAircraftRegistrationRecordsToMap(
+    registrationMap,
+    registrationRecords || loadAircraftRegistrationRecords(),
+  );
   const rowsWithManualAfocs = seedEmptyAfocsSkdFromSchedule(
     fillEmptyAfocsSkdOnRows(incomingRoom.rows || [], previousRoom?.rows),
   );
@@ -1241,14 +1265,24 @@ export default function FixedLitePage() {
     setServerSyncLoading(true);
 
     void loadLatestScheduleFromServer()
-      .then((serverRoom) => {
-        const nextRooms = mergeLatestScheduleRoom(savedRooms, serverRoom);
+      .then(async (serverRoom) => {
+        let registrationRecords = loadAircraftRegistrationRecords();
+        try {
+          registrationRecords = await fetchAircraftRegistrationRecordsFromServer();
+        } catch {
+          // 등록기호 서버 조회 실패 시 로컬 캐시로 계속합니다.
+        }
+
+        const roomWithRegs = serverRoom
+          ? mergeScheduleRegistrationIntoRoom(serverRoom, serverRoom, registrationRecords)
+          : null;
+        const nextRooms = mergeLatestScheduleRoom(savedRooms, roomWithRegs);
         setRooms(nextRooms);
         saveRooms(nextRooms);
 
-        if (serverRoom) {
-          setSelectedRoomId(serverRoom.id);
-          localStorage.setItem(LAST_FIXED_ROOM_KEY, serverRoom.id);
+        if (roomWithRegs) {
+          setSelectedRoomId(roomWithRegs.id);
+          localStorage.setItem(LAST_FIXED_ROOM_KEY, roomWithRegs.id);
           return;
         }
 
@@ -1342,7 +1376,13 @@ export default function FixedLitePage() {
       }
 
       const registrationMap = buildScheduleRegistrationMap(room.rows || []);
-      addAircraftRegistrationRecordsToMap(registrationMap, loadAircraftRegistrationRecords());
+      let registrationRecords = loadAircraftRegistrationRecords();
+      try {
+        registrationRecords = await fetchAircraftRegistrationRecordsFromServer();
+      } catch {
+        // 등록기호 서버 조회 실패 시 로컬 캐시로 계속합니다.
+      }
+      addAircraftRegistrationRecordsToMap(registrationMap, registrationRecords);
       nextRows = applyRegistrationMapToRows(nextRows, registrationMap);
 
       const latestRowMap = getLatestRowsByFlight(nextRows);

@@ -600,11 +600,15 @@ function applyRegistrationMapToRows(rows: FlightRow[], registrationMap: Map<stri
 function mergeScheduleRegistrationIntoRoom(
   incomingRoom: MonitorRoom | null,
   previousRoom: MonitorRoom | null,
+  registrationRecords?: AircraftRegistrationRecord[],
 ) {
   if (!incomingRoom) return incomingRoom;
 
   const registrationMap = buildScheduleRegistrationMap(previousRoom?.rows);
-  addAircraftRegistrationRecordsToMap(registrationMap, loadAircraftRegistrationRecords());
+  addAircraftRegistrationRecordsToMap(
+    registrationMap,
+    registrationRecords || loadAircraftRegistrationRecords(),
+  );
   // 서버/슬롯에 있는 AFOCS는 유지합니다. 로컬은 빈 칸만 채웁니다.
   // 그래도 비어 있으면 변경(스케줄) 시각으로 채웁니다.
   const rowsWithManualAfocs = seedEmptyAfocsSkdFromSchedule(
@@ -694,6 +698,26 @@ function loadAircraftRegistrationRecords(): AircraftRegistrationRecord[] {
   } catch {
     return [];
   }
+}
+
+function saveAircraftRegistrationRecords(records: AircraftRegistrationRecord[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(AIRCRAFT_REGISTRATION_STORAGE_KEY, JSON.stringify(records));
+}
+
+async function fetchAircraftRegistrationRecordsFromServer(): Promise<AircraftRegistrationRecord[]> {
+  const res = await fetch(`${BACKEND_URL}/flights/aircraft-registrations`, {
+    cache: "no-store",
+  });
+  const json = await res.json();
+
+  if (!res.ok || json.success === false) {
+    throw new Error(json.detail || json.message || "등록기호 서버 조회 실패");
+  }
+
+  const records = Array.isArray(json.records) ? (json.records as AircraftRegistrationRecord[]) : [];
+  saveAircraftRegistrationRecords(records);
+  return records;
 }
 
 function addAircraftRegistrationRecordsToMap(map: Map<string, string>, records: AircraftRegistrationRecord[]) {
@@ -1781,6 +1805,14 @@ export default function HomePage() {
         : null;
       const localLatestRoom = getLocalLatestScheduleRoom();
 
+      // 아이폰 등 다른 기기도 서버 등록기호 DB를 읽어 로컬 캐시만 의존하지 않습니다.
+      let serverRegistrationRecords = loadAircraftRegistrationRecords();
+      try {
+        serverRegistrationRecords = await fetchAircraftRegistrationRecordsFromServer();
+      } catch {
+        // 등록기호 서버 조회 실패 시 로컬 캐시로 계속합니다.
+      }
+
       let slotAfocsRows: FlightRow[] | undefined;
       try {
         const slots = await loadScheduleSlotsFromServer();
@@ -1793,11 +1825,19 @@ export default function HomePage() {
         // 슬롯 조회 실패 시 로컬 값으로만 보존합니다.
       }
 
-      const roomWithLocalAfocs = mergeScheduleRegistrationIntoRoom(rawServerRoom, localLatestRoom);
+      const roomWithLocalAfocs = mergeScheduleRegistrationIntoRoom(
+        rawServerRoom,
+        localLatestRoom,
+        serverRegistrationRecords,
+      );
       // 슬롯 AFOCS를 최우선으로 덮어 기기 간 수동 입력값을 맞춥니다.
       const rowsFromSlot = preserveAfocsSkdOnRows(roomWithLocalAfocs?.rows || [], slotAfocsRows);
+      // 슬롯에 박힌 등록번호도 빈 칸에 채웁니다.
+      const registrationMapFromSlot = buildScheduleRegistrationMap(slotAfocsRows);
+      addAircraftRegistrationRecordsToMap(registrationMapFromSlot, serverRegistrationRecords);
+      const rowsWithSlotRegistration = applyRegistrationMapToRows(rowsFromSlot, registrationMapFromSlot);
       // latest-schedule(서버) AFOCS로 남은 빈 칸을 채웁니다.
-      const rowsFromServer = fillEmptyAfocsSkdOnRows(rowsFromSlot, rawServerRoom?.rows || []);
+      const rowsFromServer = fillEmptyAfocsSkdOnRows(rowsWithSlotRegistration, rawServerRoom?.rows || []);
       // PC 로컬에만 있던 AFOCS도 빈 칸에 채웁니다.
       const rowsFromLocal = fillEmptyAfocsSkdOnRows(rowsFromServer, localLatestRoom?.rows || []);
       // 그래도 비어 있으면 변경(스케줄) 시각으로 채웁니다.

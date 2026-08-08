@@ -1684,8 +1684,10 @@ export default function FlightsPage() {
 
   /** 등록 화면에서 저장한 HL/AFOCS를 기존 Schedule Flight 카드에만 병합 (카드 기간·편명 목록 유지) */
   const syncRegistrationFieldsToScheduleSlots = async (sourceRows: FlightRow[]) => {
-    let nextSlots: ScheduleSlotsState = { ...scheduleSlots };
+    // 항상 서버 최신 카드를 읽어 PC 로컬 state 공백/지연으로 동기화가 스킵되지 않게 합니다.
+    let nextSlots: ScheduleSlotsState = await loadScheduleSlotsFromServer();
     let synced = 0;
+    let linkedPatchedRoom: MonitorRoom | null = null;
 
     for (const key of ["active", "archive"] as const) {
       const entry = nextSlots[key];
@@ -1708,9 +1710,28 @@ export default function FlightsPage() {
         linkedSlot: result.linkedSlot,
       };
       synced += 1;
+
+      if (key === result.linkedSlot || key === nextSlots.linkedSlot) {
+        linkedPatchedRoom = updatedRoom;
+      }
     }
 
     if (synced > 0) {
+      // 연동 슬롯 → latest-schedule을 명시적으로 한 번 더 맞춰 아이폰 초기화면 반영을 보장합니다.
+      const linkedKey = nextSlots.linkedSlot;
+      const linkedRoom =
+        linkedPatchedRoom ||
+        (nextSlots[linkedKey]?.room && isActiveScheduleRoom(nextSlots[linkedKey]!.room)
+          ? nextSlots[linkedKey]!.room
+          : null);
+      if (linkedRoom) {
+        try {
+          await saveLatestScheduleToServer(normalizeScheduleRoomRows(linkedRoom));
+        } catch (latestError) {
+          console.error("Failed to sync registration fields to latest-schedule:", latestError);
+        }
+      }
+
       setScheduleSlots(nextSlots);
       const nextRooms = slotsToRooms(nextSlots);
       setRooms(nextRooms);

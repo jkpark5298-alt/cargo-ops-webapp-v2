@@ -2222,7 +2222,14 @@ def _merge_latest_rows(
     updated_rows: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
     merged_by_flight = _latest_rows_by_flight(existing_rows)
-    manual_preserve_fields = ("afocsSkd",)
+    # API 갱신 시에도 수동 입력 등록번호/AFOCS는 유지합니다.
+    manual_preserve_fields = (
+        "afocsSkd",
+        "hlnbr",
+        "registrationNo",
+        "aircraftRegNo",
+        "registrationNoEdited",
+    )
 
     for row in updated_rows:
         flight = _get_flight_key(row)
@@ -2233,8 +2240,12 @@ def _merge_latest_rows(
         if existing:
             merged_row = dict(row)
             for field in manual_preserve_fields:
-                existing_value = str(existing.get(field) or "").strip()
-                if existing_value:
+                existing_value = existing.get(field)
+                if field == "registrationNoEdited":
+                    if existing_value:
+                        merged_row[field] = existing_value
+                    continue
+                if str(existing_value or "").strip():
                     merged_row[field] = existing.get(field)
             merged_by_flight[flight] = merged_row
         else:
@@ -2275,14 +2286,17 @@ def _preserve_manual_afocs_skd(
     target_rows: List[Dict[str, Any]],
     source_rows: List[Any],
 ) -> List[Dict[str, Any]]:
-    """source에 수동 입력된 afocsSkd가 있으면 target row에 덮어쓴다."""
+    """source에 수동 입력된 afocsSkd/등록번호가 있으면 target row에 덮어쓴다."""
     source_by_flight: Dict[str, Dict[str, Any]] = {}
     for row in source_rows or []:
         if not isinstance(row, dict):
             continue
         flight = _get_flight_key(row)
+        if not flight:
+            continue
         afocs = str(row.get("afocsSkd") or "").strip()
-        if flight and afocs:
+        registration_no = _row_aircraft_registration(row)
+        if afocs or registration_no:
             source_by_flight[flight] = row
 
     if not source_by_flight:
@@ -2296,11 +2310,41 @@ def _preserve_manual_afocs_skd(
         source = source_by_flight.get(flight)
         if source:
             next_row = dict(row)
-            next_row["afocsSkd"] = source.get("afocsSkd")
+            afocs = str(source.get("afocsSkd") or "").strip()
+            if afocs:
+                next_row["afocsSkd"] = source.get("afocsSkd")
+            registration_no = _row_aircraft_registration(source)
+            if registration_no:
+                next_row["hlnbr"] = registration_no
+                next_row["registrationNo"] = registration_no
+                next_row["aircraftRegNo"] = registration_no
+                if source.get("registrationNoEdited"):
+                    next_row["registrationNoEdited"] = source.get("registrationNoEdited")
             preserved.append(next_row)
         else:
             preserved.append(row)
     return preserved
+
+
+def _refresh_schedule_rooms_with_aircraft_registrations() -> None:
+    """등록기호 DB 변경 후 슬롯/latest-schedule 행에 다시 적용합니다."""
+    slots = _read_schedule_slots_without_migration()
+    for slot in SCHEDULE_SLOT_KEYS:
+        entry = _get_schedule_slot_entry(slots, slot)
+        room = entry.get("room") if entry else None
+        if not isinstance(room, dict) or not _is_active_schedule_room(room):
+            continue
+        name = str(entry.get("name") or _build_schedule_card_name(str(room.get("startDateTime") or "")))
+        saved_at = str(entry.get("savedAt") or _now_kst_iso())
+        refreshed = _apply_aircraft_registrations_to_room(room) or room
+        _write_schedule_slot_entry(
+            slot,
+            _schedule_slot_payload(slot, name, refreshed, saved_at),
+        )
+
+    latest_room = _read_latest_schedule()
+    if latest_room:
+        _write_latest_schedule(latest_room)
 
 
 def _get_linked_slot_room() -> Optional[Dict[str, Any]]:
@@ -3134,9 +3178,8 @@ async def save_aircraft_registrations(payload: AircraftRegistrationSaveRequest) 
         )
 
     saved = _write_aircraft_registrations(next_records)
-    latest_room = _read_latest_schedule()
-    if latest_room:
-        _write_latest_schedule(latest_room)
+    # 등록기호 DB뿐 아니라 Schedule Flight 카드/초기화면도 바로 맞춥니다.
+    _refresh_schedule_rooms_with_aircraft_registrations()
 
     records = saved["records"]
     return {
