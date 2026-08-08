@@ -642,6 +642,36 @@ function normalizeFlightKey(value: string) {
   return normalized;
 }
 
+function normalizeFlightsInput(rawInput: string) {
+  return rawInput
+    .split(/[\s,\n,]+/)
+    .map((value) => value.trim().toUpperCase())
+    .filter(Boolean)
+    .map((value) => {
+      if (/^\d{3,4}$/.test(value)) {
+        return `KJ${value}`;
+      }
+      return value;
+    });
+}
+
+function removeFlightFromScheduleRoom(room: MonitorRoom, targetFlight: string): MonitorRoom {
+  const targetKey = normalizeFlightKey(targetFlight);
+  const nextFlights = normalizeFlightsInput(room.flightsInput).filter(
+    (flight) => normalizeFlightKey(flight) !== targetKey,
+  );
+  const nextRows = (room.rows || []).filter(
+    (row) => normalizeFlightKey(getFlightNo(row)) !== targetKey,
+  );
+
+  return {
+    ...room,
+    flightsInput: nextFlights.join(", "),
+    rows: nextRows,
+    lastFetchedAt: new Date().toISOString(),
+  };
+}
+
 function normalizeAircraftRegistrationDate(value: unknown) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     const kstDate = new Date(value.getTime() + 9 * 60 * 60 * 1000);
@@ -1073,6 +1103,7 @@ export default function HomePage() {
   const [scheduleSyncCheckedAt, setScheduleSyncCheckedAt] = useState("");
   const [scheduleApiSyncStatus, setScheduleApiSyncStatus] = useState("");
   const [scheduleApiSyncLoading, setScheduleApiSyncLoading] = useState(false);
+  const [scheduleFlightDeleting, setScheduleFlightDeleting] = useState(false);
   const [incheonApiUsage, setIncheonApiUsage] = useState<IncheonApiUsage | null>(null);
   const [isDailySaving, setIsDailySaving] = useState(false);
   const [isIssueSaving, setIsIssueSaving] = useState(false);
@@ -1786,6 +1817,70 @@ export default function HomePage() {
       } catch (fallbackError) {
         console.error("Failed to sync AFOCS SKD via latest-schedule:", fallbackError);
       }
+    }
+  };
+
+  const handleDeleteFlightFromSchedule = async (flight: string) => {
+    if (!latestRoom || scheduleFlightDeleting) return;
+
+    const targetFlight = normalizeFlightKey(flight);
+    if (!targetFlight) return;
+
+    const confirmed = window.confirm(
+      `${targetFlight} 편명을 Scheduled Flight에서 삭제할까요?\n초기화면·AFOCS SKD·편명조회 카드에 함께 반영됩니다.`,
+    );
+    if (!confirmed) return;
+
+    setScheduleFlightDeleting(true);
+    setScheduleApiSyncStatus(`${targetFlight} 삭제 중...`);
+
+    const updatedRoom = removeFlightFromScheduleRoom(latestRoom, targetFlight);
+    const hasRemaining = isActiveScheduleRoom(updatedRoom);
+    const nextRooms = hasRemaining
+      ? mergeLatestScheduleRoom(loadRooms(), updatedRoom)
+      : removeEmptyScheduleRooms(
+          loadRooms().map((room) => (room.id === latestRoom.id ? updatedRoom : room)),
+        );
+
+    setRooms(nextRooms);
+    saveRooms(nextRooms);
+
+    // 알림 이력은 유지하고, 기준 스냅샷만 남은 편 기준으로 갱신합니다.
+    const nextSnapshot = buildFlightAlertSnapshot(updatedRoom);
+    if (nextSnapshot) {
+      setFlightAlertSnapshot(nextSnapshot);
+      saveFlightAlertSnapshot(nextSnapshot);
+    } else {
+      setFlightAlertSnapshot(null);
+      clearFlightAlertSnapshot();
+    }
+
+    try {
+      const result = await saveScheduleSlotToServer(updatedRoom, {
+        rotate: false,
+        slot: linkedScheduleSlotRef.current,
+      });
+      linkedScheduleSlotRef.current = result.linkedSlot;
+      await saveLatestScheduleToServer(updatedRoom);
+
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("cargo_ops_latest_schedule_updated_at", new Date().toISOString());
+      }
+
+      setScheduleApiSyncStatus(
+        hasRemaining
+          ? `${targetFlight} 삭제 완료 · 서버/다른 기기 반영`
+          : `${targetFlight} 삭제 완료 · 남은 편명이 없어 Schedule Flight를 비웠습니다.`,
+      );
+      setScheduleSyncCheckedAt(getCurrentSyncLabel());
+    } catch (error) {
+      setScheduleApiSyncStatus(
+        error instanceof Error
+          ? `${targetFlight} 로컬 삭제 완료 · 서버 반영 실패: ${error.message}`
+          : `${targetFlight} 로컬 삭제 완료 · 서버 반영 실패`,
+      );
+    } finally {
+      setScheduleFlightDeleting(false);
     }
   };
 
@@ -3277,11 +3372,13 @@ export default function HomePage() {
           syncCheckedAt={scheduleSyncCheckedAt}
           apiSyncStatus={scheduleApiSyncStatus}
           apiSyncLoading={scheduleApiSyncLoading}
+          flightDeleting={scheduleFlightDeleting}
           onOpenScheduleFlight={openScheduleFlight}
           onRefreshLatestSchedule={handleRefreshLatestSchedule}
           flightAlertHistory={flightAlertHistory}
           onDeleteAlertHistoryItem={handleDeleteFlightAlertHistoryItem}
           onUpdateAfocsSkd={handleUpdateAfocsSkd}
+          onDeleteFlight={handleDeleteFlightFromSchedule}
         />
 
         <ActionCard

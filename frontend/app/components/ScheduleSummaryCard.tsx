@@ -22,11 +22,13 @@ type ScheduleSummaryCardProps = {
   syncCheckedAt: string;
   apiSyncStatus: string;
   apiSyncLoading: boolean;
+  flightDeleting?: boolean;
   onOpenScheduleFlight: () => void;
   onRefreshLatestSchedule: () => void;
   flightAlertHistory?: FlightAlertHistoryItem[];
   onDeleteAlertHistoryItem?: (item: FlightAlertHistoryItem) => void;
   onUpdateAfocsSkd?: (flight: string, date: string, time: string) => void;
+  onDeleteFlight?: (flight: string) => void;
 };
 
 export function ScheduleSummaryCard({
@@ -34,11 +36,13 @@ export function ScheduleSummaryCard({
   syncCheckedAt,
   apiSyncStatus,
   apiSyncLoading,
+  flightDeleting = false,
   onOpenScheduleFlight,
   onRefreshLatestSchedule,
   flightAlertHistory = [],
   onDeleteAlertHistoryItem,
   onUpdateAfocsSkd,
+  onDeleteFlight,
 }: ScheduleSummaryCardProps) {
   return (
     <section style={cardStyle}>
@@ -58,14 +62,16 @@ export function ScheduleSummaryCard({
         <FlightRouteRows
           room={latestRoom}
           flightAlertHistory={flightAlertHistory}
+          flightDeleting={flightDeleting}
           onDeleteAlertHistoryItem={onDeleteAlertHistoryItem}
           onUpdateAfocsSkd={onUpdateAfocsSkd}
+          onDeleteFlight={onDeleteFlight}
         />
       </div>
       {apiSyncStatus ? <div style={apiSyncStatusStyle}>{apiSyncStatus}</div> : null}
       {syncCheckedAt ? <div style={syncStatusStyle}>초기화면 반영 확인 · {syncCheckedAt}</div> : null}
       <div style={apiGuideStyle}>
-        AFOCS SKD는 월일·시간(MM.DD / HH:mm)을 각각 수정할 수 있습니다. API 즉시 확인은 Schedule Flight API를 조회한 뒤 서버 기준과 초기화면에 반영합니다.
+        AFOCS SKD는 월일·시간(MM.DD / HH:mm)을 각각 수정할 수 있습니다. 편 삭제는 확인 후 Schedule Flight 카드·초기화면에 함께 반영됩니다. API 즉시 확인은 Schedule Flight API를 조회한 뒤 서버 기준과 초기화면에 반영합니다.
       </div>
       <div style={buttonStackStyle}>
         <button
@@ -75,11 +81,11 @@ export function ScheduleSummaryCard({
             opacity: apiSyncLoading ? 0.72 : 1,
             cursor: apiSyncLoading ? "wait" : "pointer",
           }}
-          disabled={apiSyncLoading}
+          disabled={apiSyncLoading || flightDeleting}
         >
           {apiSyncLoading ? "API 즉시 확인 중..." : "API 즉시 확인"}
         </button>
-        <button onClick={onOpenScheduleFlight} style={secondaryButtonStyle}>
+        <button onClick={onOpenScheduleFlight} style={secondaryButtonStyle} disabled={flightDeleting}>
           AFOCS SKD 열기
         </button>
       </div>
@@ -111,13 +117,17 @@ type FlightRouteItem = {
 function FlightRouteRows({
   room,
   flightAlertHistory = [],
+  flightDeleting = false,
   onDeleteAlertHistoryItem,
   onUpdateAfocsSkd,
+  onDeleteFlight,
 }: {
   room: MonitorRoom | null;
   flightAlertHistory?: FlightAlertHistoryItem[];
+  flightDeleting?: boolean;
   onDeleteAlertHistoryItem?: (item: FlightAlertHistoryItem) => void;
   onUpdateAfocsSkd?: (flight: string, date: string, time: string) => void;
+  onDeleteFlight?: (flight: string) => void;
 }) {
   const baseItems = useMemo(() => getFlightRouteItems(room), [room]);
   const orderStorageKey = getScheduleFlightOrderStorageKey(room);
@@ -381,7 +391,7 @@ function FlightRouteRows({
                   time={item.afocsSkdTime}
                   tone="afocs"
                   flight={item.flight}
-                  editable={Boolean(onUpdateAfocsSkd)}
+                  editable={Boolean(onUpdateAfocsSkd) && !flightDeleting}
                   onSave={onUpdateAfocsSkd}
                 />
               </div>
@@ -519,17 +529,43 @@ function FlightRouteRows({
               );
             })()}
 
-            {canDragReorder ? (
+            {canDragReorder || onDeleteFlight ? (
               <div
                 style={{
                   borderTop: "1px dashed rgba(255, 255, 255, 0.1)",
                   marginTop: 10,
                   paddingTop: 10,
                   display: "flex",
-                  justifyContent: "flex-end",
+                  justifyContent: "space-between",
                   alignItems: "center",
+                  gap: 8,
                 }}
               >
+                {onDeleteFlight ? (
+                  <button
+                    type="button"
+                    onClick={() => onDeleteFlight(item.flight)}
+                    disabled={flightDeleting}
+                    title={`${item.flight} 편명 삭제`}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 8,
+                      border: "1px solid rgba(248, 113, 113, 0.4)",
+                      background: "rgba(239, 68, 68, 0.12)",
+                      color: "#fca5a5",
+                      fontSize: 12,
+                      fontWeight: 850,
+                      cursor: flightDeleting ? "wait" : "pointer",
+                      opacity: flightDeleting ? 0.65 : 1,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {flightDeleting ? "삭제 중..." : "편 삭제"}
+                  </button>
+                ) : (
+                  <span />
+                )}
+                {canDragReorder ? (
                 <div
                   style={{
                     display: "flex",
@@ -543,6 +579,7 @@ function FlightRouteRows({
                     cursor: draggingIndex === index ? "grabbing" : "grab",
                     touchAction: "none",
                     userSelect: "none",
+                    marginLeft: "auto",
                   }}
                   onPointerDown={(e) => startDrag(e, index)}
                   onPointerMove={(e) => onDragMove(e, index)}
@@ -555,6 +592,7 @@ function FlightRouteRows({
                     <line x1="4" y1="16" x2="20" y2="16" />
                   </svg>
                 </div>
+                ) : null}
               </div>
             ) : null}
           </div>
