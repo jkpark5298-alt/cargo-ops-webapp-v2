@@ -1134,9 +1134,11 @@ function normalizeScheduleRoomRows(room: MonitorRoom): MonitorRoom {
   const sourceRows = Array.isArray(room.rows) ? room.rows : [];
   const rowsByFlight = buildRowsByFlight(sourceRows);
   const requestedFlights = normalizeFlightsInput(room.flightsInput);
-  const finalFlights = requestedFlights.length > 0
-    ? requestedFlights.filter((flight) => rowsByFlight.has(normalizeFlightKey(flight)))
-    : Array.from(rowsByFlight.keys());
+  // flightsInput이 비어 있으면 rows로 편을 되살리지 않습니다 (편 삭제 유지).
+  const finalFlights =
+    requestedFlights.length > 0
+      ? requestedFlights.filter((flight) => rowsByFlight.has(normalizeFlightKey(flight)))
+      : [];
 
   return {
     ...room,
@@ -3259,9 +3261,10 @@ export default function FlightsPage() {
     }
 
     try {
+      const targetSlot = selectedSlotKey || "active";
       const result = await saveScheduleSlotToServer(updatedRoom, {
         rotate: false,
-        slot: selectedSlotKey || "active",
+        slot: targetSlot,
       });
       applyScheduleSlotsState(
         {
@@ -3269,8 +3272,12 @@ export default function FlightsPage() {
           archive: result.archive,
           linkedSlot: result.linkedSlot,
         },
-        selectedSlotKey || "active",
+        targetSlot,
       );
+      // 연동 슬롯 삭제는 latest-schedule에도 명시 반영해 초기화면 재진입 시 되살림을 막습니다.
+      if (targetSlot === result.linkedSlot) {
+        await saveLatestScheduleToServer(normalizeScheduleRoomRows(updatedRoom));
+      }
       if (typeof window !== "undefined") {
         if (!hasRemaining) {
           window.localStorage.removeItem(LAST_FIXED_ROOM_KEY);

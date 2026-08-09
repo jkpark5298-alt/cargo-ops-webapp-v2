@@ -875,9 +875,20 @@ function CompactDateTimeFields({
 function getFlightRouteItems(room: MonitorRoom | null) {
   if (!room) return [];
 
+  const inputFlightKeys = new Set(
+    room.flightsInput
+      .split(",")
+      .map((flight) => normalizeSummaryFlightKey(flight.trim()))
+      .filter(Boolean),
+  );
   const rows = Array.isArray(room.rows) ? room.rows : [];
+  // flightsInput에 없는 orphan rows는 표시하지 않습니다 (삭제 후 재출현 방지).
+  const visibleRows =
+    inputFlightKeys.size > 0
+      ? rows.filter((row) => inputFlightKeys.has(normalizeSummaryFlightKey(getFlightNo(row))))
+      : rows;
 
-  const rowItems = rows
+  const rowItems = visibleRows
     .map((row) => {
       const flight = getFlightNo(row);
       if (!flight) return null;

@@ -1457,10 +1457,11 @@ def _sanitize_latest_schedule_room(room: Dict[str, Any]) -> Dict[str, Any]:
         rows_by_flight[flight] = row
 
     requested_flights = _normalize_flights([str(sanitized.get("flightsInput") or "")])
+    # flightsInput이 비어 있으면 rows로 편을 되살리지 않습니다 (편 삭제 유지).
     final_flights = (
         [flight for flight in requested_flights if flight in rows_by_flight]
         if requested_flights
-        else list(rows_by_flight.keys())
+        else []
     )
     final_rows = [rows_by_flight[flight] for flight in final_flights]
 
@@ -1469,6 +1470,46 @@ def _sanitize_latest_schedule_room(room: Dict[str, Any]) -> Dict[str, Any]:
     sanitized["fixed"] = True
 
     return sanitized
+
+
+def _filter_schedule_rows_to_flights_input(room: Dict[str, Any]) -> Dict[str, Any]:
+    """flightsInput 밖의 orphan rows만 제거하고, 조회 결과가 없는 편명 자체는 유지한다."""
+    next_room = dict(room or {})
+    requested_flights = _normalize_flights([str(next_room.get("flightsInput") or "")])
+    rows = next_room.get("rows") if isinstance(next_room.get("rows"), list) else []
+
+    if not requested_flights:
+        next_room["flightsInput"] = ""
+        next_room["rows"] = []
+        return next_room
+
+    allowed = set(requested_flights)
+    next_room["flightsInput"] = ", ".join(requested_flights)
+    next_room["rows"] = [
+        row
+        for row in rows
+        if isinstance(row, dict) and _get_flight_key(row) in allowed
+    ]
+    return next_room
+
+
+def _reconcile_checked_room_with_latest_deletions(checked_room: Dict[str, Any]) -> Dict[str, Any]:
+    """삭제 직후 진행 중이던 API 확인이 삭제된 편을 다시 쓰지 않도록 맞춘다."""
+    room = dict(checked_room or {})
+    latest = _read_latest_schedule()
+    if not isinstance(latest, dict):
+        return _filter_schedule_rows_to_flights_input(room)
+
+    latest_flights = _normalize_flights([str(latest.get("flightsInput") or "")])
+    checked_flights = _normalize_flights([str(room.get("flightsInput") or "")])
+    latest_set = set(latest_flights)
+    checked_set = set(checked_flights)
+
+    # latest가 더 줄어든 경우(편 삭제) → 현재 저장된 flightsInput을 기준으로 자른다.
+    if latest_set != checked_set and latest_set.issubset(checked_set):
+        room["flightsInput"] = ", ".join(latest_flights)
+
+    return _filter_schedule_rows_to_flights_input(room)
 
 
 def _read_notification_history() -> List[Dict[str, Any]]:
@@ -2375,21 +2416,22 @@ def _get_schedule_room_for_api_check() -> Optional[Dict[str, Any]]:
     room["rows"] = _preserve_manual_afocs_skd(existing_rows, linked_rows if isinstance(linked_rows, list) else [])
 
     if linked_room:
+        # flightsInput은 latest를 우선한다. 연동 슬롯 값으로 덮어쓰면 삭제된 편이 되살아난다.
         for key in ("flightsInput", "startDateTime", "endDateTime", "id", "name"):
             if linked_room.get(key) and not room.get(key):
                 room[key] = linked_room.get(key)
-        if linked_room.get("flightsInput"):
-            room["flightsInput"] = linked_room.get("flightsInput")
 
-    return room
+    return _filter_schedule_rows_to_flights_input(room)
 
 
 def _write_checked_schedule_room(room: Dict[str, Any]) -> Dict[str, Any]:
     """API 확인 결과를 latest_schedule과 연동 슬롯에 함께 저장한다."""
+    room = _reconcile_checked_room_with_latest_deletions(room)
     saved = _write_latest_schedule(room)
     saved_room = saved.get("room") if isinstance(saved, dict) else room
     if not isinstance(saved_room, dict):
         saved_room = room
+    saved_room = _filter_schedule_rows_to_flights_input(saved_room)
 
     linked_slot = _read_linked_slot()
     slots = _read_schedule_slots_without_migration()
@@ -2621,7 +2663,15 @@ async def _run_schedule_change_check(push_on_change: bool = True) -> Dict[str, A
         merged_rows,
         linked_rows if isinstance(linked_rows, list) else [],
     )
+    # flightsInput에서 빠진 편(삭제)은 merge 잔여 rows로 되살리지 않는다.
+    allowed_flights = set(requested_flights)
+    merged_rows = [
+        row
+        for row in merged_rows
+        if isinstance(row, dict) and _get_flight_key(row) in allowed_flights
+    ]
     room["rows"] = merged_rows
+    room["flightsInput"] = ", ".join(requested_flights)
     room["lastFetchedAt"] = _now_kst_iso()
     _write_checked_schedule_room(room)
 
@@ -3220,13 +3270,20 @@ async def save_latest_schedule(payload: LatestScheduleRequest) -> Dict[str, Any]
 
     saved = _write_latest_schedule(room)
     saved_at = saved.get("savedAt") or _now_kst_iso()
-    active_entry = _schedule_slot_payload(
-        "active",
-        _build_schedule_card_name(str(room.get("startDateTime") or "")),
+    # 항상 active가 아니라 현재 연동 슬롯에 맞춰 저장해 삭제/수정이 되살아나지 않게 한다.
+    linked_slot = _read_linked_slot()
+    slots = _read_schedule_slots_without_migration()
+    existing_entry = _get_schedule_slot_entry(slots, linked_slot)
+    linked_entry = _schedule_slot_payload(
+        linked_slot,
+        str(
+            (existing_entry or {}).get("name")
+            or _build_schedule_card_name(str(room.get("startDateTime") or ""))
+        ),
         saved.get("room") or room,
         saved_at,
     )
-    _write_schedule_slot_entry("active", active_entry)
+    _write_schedule_slot_entry(linked_slot, linked_entry)
     _update_auto_push_status(
         enabled=True,
         intervalMinutes=_get_auto_interval_minutes_for_room(room),

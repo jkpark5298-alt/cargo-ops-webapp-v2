@@ -1932,10 +1932,19 @@ export default function HomePage() {
       const rowsFromLocal = fillEmptyAfocsSkdOnRows(rowsFromServer, localLatestRoom?.rows || []);
       // 그래도 비어 있으면 변경(스케줄) 시각으로 채웁니다.
       const rowsMerged = seedEmptyAfocsSkdFromSchedule(rowsFromLocal);
+      const allowedFlightKeys = new Set(
+        normalizeFlightsInput(String(roomWithLocalAfocs?.flightsInput || "")).map((flight) =>
+          normalizeFlightKey(flight),
+        ),
+      );
+      const rowsBounded =
+        allowedFlightKeys.size > 0
+          ? rowsMerged.filter((row) => allowedFlightKeys.has(normalizeFlightKey(getFlightNo(row))))
+          : rowsMerged;
       const serverRoom = roomWithLocalAfocs
         ? {
             ...roomWithLocalAfocs,
-            rows: rowsMerged,
+            rows: rowsBounded,
           }
         : null;
 
@@ -1946,7 +1955,7 @@ export default function HomePage() {
       // 로컬/슬롯에서 합쳐진 AFOCS가 서버보다 많으면 서버에 올려 아이폰과 맞춥니다.
       if (
         serverRoom &&
-        hasAfocsSkdUpdates(rawServerRoom?.rows || [], rowsMerged)
+        hasAfocsSkdUpdates(rawServerRoom?.rows || [], rowsBounded)
       ) {
         try {
           const result = await saveScheduleSlotToServer(serverRoom, {
