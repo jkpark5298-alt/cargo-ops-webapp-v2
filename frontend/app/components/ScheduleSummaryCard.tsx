@@ -44,13 +44,25 @@ export function ScheduleSummaryCard({
   onUpdateAfocsSkd,
   onDeleteFlight,
 }: ScheduleSummaryCardProps) {
+  const summaryCounts = useMemo(() => {
+    const routeItems = getFlightRouteItems(latestRoom);
+    const completedCount = routeItems.filter((item) => isFinalCompletedFlightStatus(item.status)).length;
+    return {
+      total: routeItems.length || getRoomRowsCount(latestRoom),
+      completed: completedCount,
+    };
+  }, [latestRoom]);
+
   return (
     <section style={cardStyle}>
       <h2 style={cardTitleStyle}>{getScheduleSummaryTitle(latestRoom)}</h2>
 
       <div style={summaryTopInfoStyle}>
         <span>조회범위 {latestRoom ? `${formatCompactDateTime(latestRoom.startDateTime)} ~ ${formatCompactDateTime(latestRoom.endDateTime)}` : "-"}</span>
-        <span>결과 {getRoomRowsCount(latestRoom)}건</span>
+        <span>
+          결과 {summaryCounts.total}건
+          {summaryCounts.completed > 0 ? ` · 완료 ${summaryCounts.completed}편` : ""}
+        </span>
       </div>
 
       <div style={apiLookupTimeStyle}>
@@ -94,6 +106,7 @@ export function ScheduleSummaryCard({
 }
 
 type FlightSortMode = "manual" | "schedule" | "afocs";
+type FlightViewMode = "active" | "completed" | "all";
 
 type FlightRouteItem = {
   flight: string;
@@ -135,7 +148,7 @@ function FlightRouteRows({
   const [sortMode, setSortMode] = useState<FlightSortMode>("manual");
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [startY, setStartY] = useState<number>(0);
-  const [showAll, setShowAll] = useState(false);
+  const [viewMode, setViewMode] = useState<FlightViewMode>("active");
   const [expandedFlights, setExpandedFlights] = useState<Record<string, boolean>>({});
   const [pendingDeleteFlight, setPendingDeleteFlight] = useState("");
   // SSR/CSR Date.now() 차이를 피해 hydration mismatch(React #423)를 막습니다.
@@ -179,7 +192,8 @@ function FlightRouteRows({
     () => items.filter((item) => !isFinalCompletedFlightStatus(item.status)),
     [items],
   );
-  const visibleItems = showAll ? items : activeItems;
+  const visibleItems =
+    viewMode === "completed" ? completedItems : viewMode === "all" ? items : activeItems;
   const canDragReorder = sortMode === "manual";
 
   const handleSortModeChange = (mode: "schedule" | "afocs") => {
@@ -250,52 +264,60 @@ function FlightRouteRows({
           }}
         >
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <span style={{ fontSize: 12, color: "#b8c7db", fontWeight: 700 }}>예정 {items.length}편</span>
-            <span
-              style={{
-                fontSize: 12,
-                color: "#34d399",
-                fontWeight: 700,
-                background: "rgba(52,211,153,0.10)",
-                border: "1px solid rgba(52,211,153,0.25)",
-                borderRadius: 6,
-                padding: "1px 7px",
-              }}
+            <button
+              type="button"
+              onClick={() => setViewMode((prev) => (prev === "all" ? "active" : "all"))}
+              title="전체 편 보기"
+              style={getViewChipStyle(viewMode === "all", "all")}
+            >
+              예정 {items.length}편
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode((prev) => (prev === "completed" ? "active" : "completed"))}
+              title="완료 편만 보기"
+              style={getViewChipStyle(viewMode === "completed", "completed")}
             >
               완료 {completedItems.length}편
-            </span>
-            <span
-              style={{
-                fontSize: 12,
-                color: "#f87171",
-                fontWeight: 700,
-                background: "rgba(248,113,113,0.10)",
-                border: "1px solid rgba(248,113,113,0.25)",
-                borderRadius: 6,
-                padding: "1px 7px",
-              }}
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("active")}
+              title="진행중 편만 보기"
+              style={getViewChipStyle(viewMode === "active", "active")}
             >
               진행중 {activeItems.length}편
-            </span>
+            </button>
           </div>
           {completedItems.length > 0 && (
             <button
-              onClick={() => setShowAll((prev) => !prev)}
+              type="button"
+              onClick={() =>
+                setViewMode((prev) => (prev === "all" || prev === "completed" ? "active" : "all"))
+              }
               style={{
                 fontSize: 11,
                 fontWeight: 700,
                 padding: "3px 9px",
                 borderRadius: 7,
-                border: showAll
-                  ? "1px solid rgba(52,211,153,0.5)"
-                  : "1px solid rgba(147,197,253,0.35)",
-                background: showAll ? "rgba(52,211,153,0.12)" : "rgba(15,23,42,0.6)",
-                color: showAll ? "#34d399" : "#93c5fd",
+                border:
+                  viewMode === "all" || viewMode === "completed"
+                    ? "1px solid rgba(52,211,153,0.5)"
+                    : "1px solid rgba(147,197,253,0.35)",
+                background:
+                  viewMode === "all" || viewMode === "completed"
+                    ? "rgba(52,211,153,0.12)"
+                    : "rgba(15,23,42,0.6)",
+                color: viewMode === "all" || viewMode === "completed" ? "#34d399" : "#93c5fd",
                 cursor: "pointer",
                 whiteSpace: "nowrap",
               }}
             >
-              {showAll ? `총편수보기 ON` : `총편수보기 (완료 ${completedItems.length}편 숨김)`}
+              {viewMode === "all"
+                ? `총편수보기 ON (완료 ${completedItems.length}편)`
+                : viewMode === "completed"
+                  ? `완료 ${completedItems.length}편 표시 중`
+                  : `총편수보기 (완료 ${completedItems.length}편 숨김)`}
             </button>
           )}
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", flexWrap: "wrap" }}>
@@ -665,7 +687,9 @@ function FlightRouteRows({
         })
       ) : items.length > 0 ? (
         <div style={{ ...infoValueStyle, color: "#b8c7db", fontSize: 13 }}>
-          모든 편이 완료되었습니다. '총편수보기'를 눌러 전체 확인하세요.
+          {viewMode === "completed"
+            ? `표시할 완료 편이 없습니다. (완료 ${completedItems.length}편)`
+            : `모든 편이 완료되었습니다. (완료 ${completedItems.length}편) '완료' 또는 '총편수보기'를 눌러 확인하세요.`}
         </div>
       ) : (
         <div style={infoValueStyle}>저장된 Schedule Flight가 없습니다.</div>
@@ -1432,6 +1456,38 @@ function sortFlightItemsByMode(items: FlightRouteItem[], mode: FlightSortMode, m
     if (diff !== 0) return diff;
     return parseChangeSortValue(a) - parseChangeSortValue(b);
   });
+}
+
+function getViewChipStyle(selected: boolean, tone: "all" | "completed" | "active"): CSSProperties {
+  const palette =
+    tone === "completed"
+      ? {
+          text: "#34d399",
+          border: selected ? "rgba(52,211,153,0.75)" : "rgba(52,211,153,0.25)",
+          fill: selected ? "rgba(52,211,153,0.22)" : "rgba(52,211,153,0.10)",
+        }
+      : tone === "active"
+        ? {
+            text: "#f87171",
+            border: selected ? "rgba(248,113,113,0.75)" : "rgba(248,113,113,0.25)",
+            fill: selected ? "rgba(248,113,113,0.22)" : "rgba(248,113,113,0.10)",
+          }
+        : {
+            text: "#b8c7db",
+            border: selected ? "rgba(148,163,184,0.65)" : "rgba(148,163,184,0.22)",
+            fill: selected ? "rgba(148,163,184,0.18)" : "transparent",
+          };
+
+  return {
+    fontSize: 12,
+    fontWeight: 700,
+    color: palette.text,
+    background: palette.fill,
+    border: `1px solid ${palette.border}`,
+    borderRadius: 6,
+    padding: "1px 7px",
+    cursor: "pointer",
+  };
 }
 
 function getSortCircleButtonStyle(active: boolean): CSSProperties {
