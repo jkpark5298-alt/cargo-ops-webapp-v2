@@ -44,31 +44,9 @@ export function ScheduleSummaryCard({
   onUpdateAfocsSkd,
   onDeleteFlight,
 }: ScheduleSummaryCardProps) {
-  const summaryCounts = useMemo(() => {
-    const routeItems = getFlightRouteItems(latestRoom);
-    const completedCount = routeItems.filter((item) => isFinalCompletedFlightStatus(item.status)).length;
-    return {
-      total: routeItems.length || getRoomRowsCount(latestRoom),
-      completed: completedCount,
-    };
-  }, [latestRoom]);
-
   return (
     <section style={cardStyle}>
-      <h2 style={cardTitleStyle}>{getScheduleSummaryTitle(latestRoom)}</h2>
-
-      <div style={summaryTopInfoStyle}>
-        <span>조회범위 {latestRoom ? `${formatCompactDateTime(latestRoom.startDateTime)} ~ ${formatCompactDateTime(latestRoom.endDateTime)}` : "-"}</span>
-        <span>
-          결과 {summaryCounts.total}건
-          {summaryCounts.completed > 0 ? ` · 완료 ${summaryCounts.completed}편` : ""}
-        </span>
-      </div>
-
-      <div style={apiLookupTimeStyle}>
-        마지막 API 확인 {formatApiLookupTime(latestRoom?.lastFetchedAt)}
-      </div>
-
+      <div style={sectionTitleStyle}>Schedule Flight 선택</div>
 
       <div style={infoListStyle}>
         <FlightRouteRows
@@ -248,27 +226,19 @@ function FlightRouteRows({
     setDraggingIndex(null);
   };
 
+  const visibleFlightLabels = visibleItems.map((item) => item.flight).join(", ");
+
   return (
-    <div style={{ display: "grid", gap: 10, padding: "10px 0" }}>
-      {/* 스탈 통계 + 총편수보기 토글 */}
+    <div style={{ display: "grid", gap: 10, padding: "2px 0 10px" }}>
+      {/* AFOCS SKD Schedule Flight 선택 — 상태 필터 */}
       {items.length > 0 && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 8,
-            paddingBottom: 8,
-            borderBottom: "1px solid rgba(148, 163, 184, 0.12)",
-            flexWrap: "wrap",
-          }}
-        >
+        <div style={statsFilterRowStyle}>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <button
               type="button"
               onClick={() => setViewMode((prev) => (prev === "all" ? "active" : "all"))}
-              title="전체 편 보기"
-              style={getViewChipStyle(viewMode === "all", "all")}
+              title="예정(전체) 편 보기"
+              style={getScheduledCountButtonStyle(viewMode === "all")}
             >
               예정 {items.length}편
             </button>
@@ -289,38 +259,22 @@ function FlightRouteRows({
               진행중 {activeItems.length}편
             </button>
           </div>
-          {completedItems.length > 0 && (
-            <button
-              type="button"
-              onClick={() =>
-                setViewMode((prev) => (prev === "all" || prev === "completed" ? "active" : "all"))
-              }
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                padding: "3px 9px",
-                borderRadius: 7,
-                border:
-                  viewMode === "all" || viewMode === "completed"
-                    ? "1px solid rgba(52,211,153,0.5)"
-                    : "1px solid rgba(147,197,253,0.35)",
-                background:
-                  viewMode === "all" || viewMode === "completed"
-                    ? "rgba(52,211,153,0.12)"
-                    : "rgba(15,23,42,0.6)",
-                color: viewMode === "all" || viewMode === "completed" ? "#34d399" : "#93c5fd",
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {viewMode === "all"
-                ? `총편수보기 ON (완료 ${completedItems.length}편)`
-                : viewMode === "completed"
-                  ? `완료 ${completedItems.length}편 표시 중`
-                  : `총편수보기 (완료 ${completedItems.length}편 숨김)`}
-            </button>
-          )}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            {completedItems.length > 0 && (
+              <button
+                type="button"
+                onClick={() =>
+                  setViewMode((prev) => (prev === "all" || prev === "completed" ? "active" : "all"))
+                }
+                style={getTotalViewToggleStyle(viewMode === "all" || viewMode === "completed")}
+              >
+                {viewMode === "all"
+                  ? `총편수보기 ON (완료 ${completedItems.length}편)`
+                  : viewMode === "completed"
+                    ? `완료 ${completedItems.length}편 표시 중`
+                    : `총편수보기 (완료 ${completedItems.length}편 숨김)`}
+              </button>
+            )}
             <button
               type="button"
               onClick={handleSendToCsmChecklist}
@@ -350,6 +304,36 @@ function FlightRouteRows({
         </div>
       )}
       {csmTransferStatus ? <div style={csmTransferStatusStyle}>{csmTransferStatus}</div> : null}
+
+      {/* AFOCS SKD Schedule Flight 선택 — 요약 카드 */}
+      {room && items.length > 0 && (
+        <div style={scheduleSummaryCardStyle}>
+          <div style={scheduleSummaryCardHeaderStyle}>
+            <div style={{ fontSize: 15, fontWeight: 800, minWidth: 0, wordBreak: "break-word" }}>
+              {room.name || "Schedule Flight"}
+            </div>
+            <div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8 }}>
+              <span style={{ fontSize: 11, color: "#b8c7db", fontWeight: 700 }}>총 {items.length}</span>
+              <span style={{ fontSize: 11, color: "#34d399", fontWeight: 700 }}>✓{completedItems.length}</span>
+              <span style={{ fontSize: 11, color: "#f87171", fontWeight: 700 }}>▶{activeItems.length}</span>
+            </div>
+          </div>
+          <div style={scheduleSummaryFlightListStyle}>
+            {visibleFlightLabels || "-"}
+          </div>
+        </div>
+      )}
+
+      {room ? (
+        <div style={scheduleMetaRowStyle}>
+          <span>
+            조회범위 {formatCompactDateTime(room.startDateTime)} ~ {formatCompactDateTime(room.endDateTime)}
+          </span>
+          <span style={{ color: "#93c5fd" }}>
+            마지막 API 확인 {formatApiLookupTime(room.lastFetchedAt)}
+          </span>
+        </div>
+      ) : null}
 
       {visibleItems.length > 0 ? (
         visibleItems.map((item, index) => {
@@ -705,10 +689,6 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       <span style={infoValueStyle}>{value}</span>
     </div>
   );
-}
-
-function getScheduleSummaryTitle(_room: MonitorRoom | null) {
-  return "Scheduled Flight";
 }
 
 function formatApiLookupTime(value?: string) {
@@ -1180,6 +1160,54 @@ const syncStatusStyle: CSSProperties = {
   textAlign: "right",
 };
 
+const sectionTitleStyle: CSSProperties = {
+  fontSize: 15,
+  fontWeight: 800,
+  marginBottom: 12,
+  color: "#f8fafc",
+};
+
+const statsFilterRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 10,
+  marginBottom: 12,
+  flexWrap: "wrap",
+};
+
+const scheduleSummaryCardStyle: CSSProperties = {
+  border: "1px solid #24354f",
+  background: "#0a1528",
+  color: "white",
+  borderRadius: 12,
+  padding: "10px 12px",
+};
+
+const scheduleSummaryCardHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  marginBottom: 4,
+};
+
+const scheduleSummaryFlightListStyle: CSSProperties = {
+  fontSize: 12,
+  color: "#b8c7db",
+  wordBreak: "break-all",
+  lineHeight: 1.5,
+};
+
+const scheduleMetaRowStyle: CSSProperties = {
+  display: "grid",
+  gap: 4,
+  marginBottom: 8,
+  color: "#cbd5e1",
+  fontSize: 12,
+  fontWeight: 850,
+  lineHeight: 1.4,
+};
+
 const cardStyle: CSSProperties = {
   background: "#111827",
   border: "1px solid #26374f",
@@ -1194,36 +1222,6 @@ const cardLabelStyle: CSSProperties = {
   fontWeight: 900,
   letterSpacing: 2,
   textTransform: "uppercase",
-};
-
-const cardTitleStyle: CSSProperties = {
-  margin: "4px 0 8px",
-  color: "#ef4444",
-  fontSize: 22,
-  lineHeight: 1.15,
-  fontWeight: 950,
-  letterSpacing: 0,
-};
-
-const summaryTopInfoStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 10,
-  marginTop: 6,
-  marginBottom: 8,
-  color: "#cbd5e1",
-  fontSize: 12,
-  fontWeight: 850,
-  lineHeight: 1.4,
-};
-
-const apiLookupTimeStyle: CSSProperties = {
-  marginTop: -2,
-  marginBottom: 10,
-  color: "#93c5fd",
-  fontSize: 12,
-  fontWeight: 850,
-  letterSpacing: 0.2,
 };
 
 const infoListStyle: CSSProperties = {
@@ -1458,7 +1456,35 @@ function sortFlightItemsByMode(items: FlightRouteItem[], mode: FlightSortMode, m
   });
 }
 
-function getViewChipStyle(selected: boolean, tone: "all" | "completed" | "active"): CSSProperties {
+function getScheduledCountButtonStyle(selected: boolean): CSSProperties {
+  return {
+    fontSize: 13,
+    fontWeight: 700,
+    color: selected ? "#f8fafc" : "#b8c7db",
+    background: "transparent",
+    border: "none",
+    padding: 0,
+    cursor: "pointer",
+    textDecoration: selected ? "underline" : "none",
+    textUnderlineOffset: 3,
+  };
+}
+
+function getTotalViewToggleStyle(active: boolean): CSSProperties {
+  return {
+    fontSize: 12,
+    fontWeight: 700,
+    padding: "4px 10px",
+    borderRadius: 8,
+    border: active ? "1px solid rgba(52,211,153,0.5)" : "1px solid rgba(147,197,253,0.35)",
+    background: active ? "rgba(52,211,153,0.12)" : "#0f172a",
+    color: active ? "#34d399" : "#93c5fd",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  };
+}
+
+function getViewChipStyle(selected: boolean, tone: "completed" | "active"): CSSProperties {
   const palette =
     tone === "completed"
       ? {
@@ -1466,26 +1492,20 @@ function getViewChipStyle(selected: boolean, tone: "all" | "completed" | "active
           border: selected ? "rgba(52,211,153,0.75)" : "rgba(52,211,153,0.25)",
           fill: selected ? "rgba(52,211,153,0.22)" : "rgba(52,211,153,0.10)",
         }
-      : tone === "active"
-        ? {
-            text: "#f87171",
-            border: selected ? "rgba(248,113,113,0.75)" : "rgba(248,113,113,0.25)",
-            fill: selected ? "rgba(248,113,113,0.22)" : "rgba(248,113,113,0.10)",
-          }
-        : {
-            text: "#b8c7db",
-            border: selected ? "rgba(148,163,184,0.65)" : "rgba(148,163,184,0.22)",
-            fill: selected ? "rgba(148,163,184,0.18)" : "transparent",
-          };
+      : {
+          text: "#f87171",
+          border: selected ? "rgba(248,113,113,0.75)" : "rgba(248,113,113,0.25)",
+          fill: selected ? "rgba(248,113,113,0.22)" : "rgba(248,113,113,0.10)",
+        };
 
   return {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: 700,
     color: palette.text,
     background: palette.fill,
     border: `1px solid ${palette.border}`,
     borderRadius: 6,
-    padding: "1px 7px",
+    padding: "2px 8px",
     cursor: "pointer",
   };
 }
