@@ -166,18 +166,20 @@ function getRegistrationNo(row?: FlightRow) {
       }
     | undefined;
 
-  const hlnbr =
-    maybeRow?.hlnbr ||
-    maybeRow?.registrationNo ||
-    maybeRow?.aircraftRegNo ||
-    "";
+  const formatValue = (value: string) => {
+    const normalized = String(value || "")
+      .replace(/\s+/g, "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "");
+    if (/^\d{3,5}$/.test(normalized)) return `HL${normalized}`;
+    if (/^HL\d{3,5}$/.test(normalized)) return normalized;
+    return "";
+  };
 
-  if (/^HL\d{3,5}$/i.test(hlnbr)) return hlnbr.toUpperCase();
-
-  const fid = maybeRow?.fid || "";
-  if (/^HL\d{3,5}$/i.test(fid)) return fid.toUpperCase();
-
-  return "";
+  return (
+    formatValue(maybeRow?.hlnbr || maybeRow?.registrationNo || maybeRow?.aircraftRegNo || "") ||
+    formatValue(maybeRow?.fid || "")
+  );
 }
 
 function normalizeAircraftRegistrationDate(value: unknown) {
@@ -261,8 +263,9 @@ async function fetchAircraftRegistrationRecordsFromServer(): Promise<AircraftReg
 function addAircraftRegistrationRecordsToMap(map: Map<string, string>, records: AircraftRegistrationRecord[]) {
   records.forEach((record) => {
     if (!record.date || !record.flight || !record.registrationNo) return;
-    map.set(buildAircraftRegistrationKey(record.date, record.flight, record.departureCode, record.arrivalCode), record.registrationNo);
+    const exactKey = buildAircraftRegistrationKey(record.date, record.flight, record.departureCode, record.arrivalCode);
     const fallbackKey = buildAircraftRegistrationFlightDateKey(record.date, record.flight);
+    if (!map.has(exactKey)) map.set(exactKey, record.registrationNo);
     if (!map.has(fallbackKey)) map.set(fallbackKey, record.registrationNo);
   });
 }
@@ -308,12 +311,14 @@ function applyRegistrationMapToRows(rows: FlightRow[], registrationMap: Map<stri
       row.arrivalCode,
     );
     const aircraftFallbackKey = buildAircraftRegistrationFlightDateKey(dateKey, getFlightNo(row));
+    // 1순위: Schedule/매뉴얼  2순위: 행 기존값  3순위: 등록번호/AFOCS DB
     const mapped =
-      registrationMap.get(aircraftExactKey) ||
-      registrationMap.get(aircraftFallbackKey) ||
       registrationMap.get(fullKey) ||
       registrationMap.get(flightKey) ||
-      existing;
+      existing ||
+      registrationMap.get(aircraftExactKey) ||
+      registrationMap.get(aircraftFallbackKey) ||
+      "";
 
     return mapped
       ? {

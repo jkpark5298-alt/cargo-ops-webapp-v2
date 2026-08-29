@@ -206,3 +206,14 @@ td {
     font-size: 26px;
   }
 }
+
+.hl-inline-input::placeholder {
+  color: #64748b;
+  -webkit-text-fill-color: #64748b;
+  font-weight: 600;
+  opacity: 1;
+}
+
+.hl-inline-input:read-only {
+  cursor: text;
+}

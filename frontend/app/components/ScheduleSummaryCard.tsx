@@ -986,6 +986,17 @@ function getFlightNo(row: FlightRow) {
   return row.flightNo || row.flightId || "";
 }
 
+function formatAircraftRegistrationNo(value: string) {
+  const normalized = String(value || "")
+    .replace(/\s+/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+
+  if (/^\d{3,5}$/.test(normalized)) return `HL${normalized}`;
+  if (/^HL\d{3,5}$/.test(normalized)) return normalized;
+  return "";
+}
+
 function getRegistrationNo(row?: FlightRow) {
   const maybeRow = row as
     | {
@@ -996,18 +1007,11 @@ function getRegistrationNo(row?: FlightRow) {
       }
     | undefined;
 
-  const hlnbr =
-    maybeRow?.hlnbr ||
-    maybeRow?.registrationNo ||
-    maybeRow?.aircraftRegNo ||
-    "";
-
-  if (/^HL\d{3,5}$/i.test(hlnbr)) return hlnbr.toUpperCase();
-
-  const fid = maybeRow?.fid || "";
-  if (/^HL\d{3,5}$/i.test(fid)) return fid.toUpperCase();
-
-  return "";
+  return (
+    formatAircraftRegistrationNo(
+      maybeRow?.hlnbr || maybeRow?.registrationNo || maybeRow?.aircraftRegNo || "",
+    ) || formatAircraftRegistrationNo(maybeRow?.fid || "")
+  );
 }
 
 function getRouteDisplay(row?: FlightRow) {

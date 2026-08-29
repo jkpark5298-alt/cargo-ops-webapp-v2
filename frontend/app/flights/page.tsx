@@ -140,7 +140,11 @@ function mergeManualRegistrationFields(
   const previousByFlight = new Map<string, FlightRow>();
   previousRows.forEach((row) => {
     const key = getFlightKeyFromRow(row);
-    if (key && key !== "-") previousByFlight.set(key, row);
+    if (!key || key === "-") return;
+    const current = previousByFlight.get(key);
+    if (!current || (!confirmedRegistrationNoFromRow(current) && confirmedRegistrationNoFromRow(row))) {
+      previousByFlight.set(key, row);
+    }
   });
 
   return refreshedRows.map((row) => {
@@ -149,10 +153,7 @@ function mergeManualRegistrationFields(
     if (!previous) return row;
 
     const registrationNo =
-      normalizeHlNumber(
-        String(previous.registrationNo || previous.hlnbr || previous.aircraftRegNo || ""),
-      ) ||
-      normalizeHlNumber(String(row.registrationNo || row.hlnbr || row.aircraftRegNo || ""));
+      confirmedRegistrationNoFromRow(previous) || confirmedRegistrationNoFromRow(row);
 
     return {
       ...row,
@@ -187,10 +188,7 @@ function patchScheduleRowsWithRegistrationFields(
     if (!source) return row;
 
     const registrationNo =
-      normalizeHlNumber(
-        String(source.registrationNo || source.hlnbr || source.aircraftRegNo || ""),
-      ) ||
-      normalizeHlNumber(String(row.registrationNo || row.hlnbr || row.aircraftRegNo || ""));
+      confirmedRegistrationNoFromRow(row) || confirmedRegistrationNoFromRow(source);
 
     return {
       ...row,
@@ -486,13 +484,19 @@ function getRegistrationNo(row: FlightRow) {
     fid?: string;
   };
 
-  return (
-    maybeRow.hlnbr ||
-    maybeRow.registrationNo ||
-    maybeRow.aircraftRegNo ||
-    (/^HL\d{3,5}$/i.test(maybeRow.fid || "") ? maybeRow.fid : "") ||
-    "-"
-  );
+  const candidates = [
+    maybeRow.hlnbr,
+    maybeRow.registrationNo,
+    maybeRow.aircraftRegNo,
+    /^HL\d{3,5}$/i.test(maybeRow.fid || "") ? maybeRow.fid : "",
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeHlNumber(String(candidate || ""));
+    if (/^HL\d{3,5}$/i.test(normalized)) return normalized;
+  }
+
+  return "-";
 }
 
 function getFlightDisplay(row: FlightRow) {
@@ -672,6 +676,21 @@ function normalizeHlNumber(value: string) {
   return normalized;
 }
 
+function confirmedRegistrationNo(value: string) {
+  const normalized = normalizeHlNumber(String(value || ""));
+  return /^HL\d{3,5}$/i.test(normalized) ? normalized : "";
+}
+
+function confirmedRegistrationNoFromRow(row?: FlightRow) {
+  if (!row) return "";
+  const fromFields = confirmedRegistrationNo(
+    String(row.registrationNo || row.hlnbr || row.aircraftRegNo || ""),
+  );
+  if (fromFields) return fromFields;
+  const current = getRegistrationNo(row);
+  return current && current !== "-" ? current : "";
+}
+
 function formatExcelTimeValue(val: unknown): string {
   if (!val) return "";
   if (val instanceof Date) {
@@ -790,22 +809,33 @@ function buildAircraftRegistrationFlightDateKey(date: string, flight: string) {
 function buildAircraftRegistrationMap(records: AircraftRegistrationRecord[]) {
   const tempMap = new Map<string, { registrationNo: string; updatedAt: string }>();
 
+  const setIfNewer = (key: string, registrationNo: string, updatedAt: string) => {
+    if (!key) return;
+    const existing = tempMap.get(key);
+    if (!existing || updatedAt >= existing.updatedAt) {
+      tempMap.set(key, { registrationNo, updatedAt });
+    }
+  };
+
   records.forEach((record) => {
-    if (!record.date || !record.flight || !record.registrationNo) return;
+    if (!record.flight || !record.registrationNo) return;
+    const registrationNo = normalizeHlNumber(record.registrationNo);
+    if (!/^HL\d{3,5}$/i.test(registrationNo)) return;
 
-    const exactKey = buildAircraftRegistrationKey(record.date, record.flight, record.departureCode, record.arrivalCode);
-    const fallbackKey = buildAircraftRegistrationFlightDateKey(record.date, record.flight);
     const currentUpdateTime = record.updatedAt || "";
+    const flightKey = normalizeHlFlightKey(record.flight);
 
-    const existingExact = tempMap.get(exactKey);
-    if (!existingExact || currentUpdateTime >= existingExact.updatedAt) {
-      tempMap.set(exactKey, { registrationNo: record.registrationNo, updatedAt: currentUpdateTime });
+    if (record.date) {
+      setIfNewer(
+        buildAircraftRegistrationKey(record.date, record.flight, record.departureCode, record.arrivalCode),
+        registrationNo,
+        currentUpdateTime,
+      );
+      setIfNewer(buildAircraftRegistrationFlightDateKey(record.date, record.flight), registrationNo, currentUpdateTime);
     }
 
-    const existingFallback = tempMap.get(fallbackKey);
-    if (!existingFallback || currentUpdateTime >= existingFallback.updatedAt) {
-      tempMap.set(fallbackKey, { registrationNo: record.registrationNo, updatedAt: currentUpdateTime });
-    }
+    // 아이폰 등 다른 기기는 편명 단위 로컬 맵이 없어, 최신 편명 매칭도 허용합니다.
+    setIfNewer(flightKey, registrationNo, currentUpdateTime);
   });
 
   const finalMap = new Map<string, string>();
@@ -822,14 +852,16 @@ function getAircraftRegistrationForRow(row: FlightRow, records: AircraftRegistra
   const flight = getFlightDisplay(row);
   const exactKey = buildAircraftRegistrationKey(date, flight, row.departureCode, row.arrivalCode);
   const fallbackKey = buildAircraftRegistrationFlightDateKey(date, flight);
-  return map.get(exactKey) || map.get(fallbackKey) || "";
+  const flightKey = normalizeHlFlightKey(flight);
+  return map.get(exactKey) || map.get(fallbackKey) || map.get(flightKey) || "";
 }
 
 function applyAircraftRegistrationToRows(rows: FlightRow[], records: AircraftRegistrationRecord[]) {
   return rows.map((row) => {
-    const existing = getRegistrationNo(row);
+    const existing = confirmedRegistrationNoFromRow(row);
     const fromRegistrationDb = getAircraftRegistrationForRow(row, records);
-    const registrationNo = fromRegistrationDb || (existing !== "-" ? existing : "");
+    // 1순위: 매뉴얼(행·스케줄에 이미 있는 값)  2순위: 등록번호/AFOCS DB
+    const registrationNo = existing || fromRegistrationDb;
 
     return registrationNo
       ? {
@@ -1065,11 +1097,13 @@ function getEditableHlValue(
   const current = getRegistrationNo(row);
   if (current !== "-") return current;
 
-  return mapping[flight] || "";
+  const mapped = mapping[flight] || "";
+  return mapped ? normalizeHlNumber(mapped) : "";
 }
 
 function applyHlMappingToRows(rows: FlightRow[], mapping: Record<string, string>) {
   return rows.map((row) => {
+    if (confirmedRegistrationNoFromRow(row)) return row;
     const mappedHl = getMappedHlNumber(row, mapping);
     return mappedHl
       ? {
@@ -1267,6 +1301,52 @@ function combineAfocsSkdParts(date: string, time: string): string {
   return prepareAfocsSkdForSave(datePart || timePart);
 }
 
+function HlRegistrationInput({
+  flightKey,
+  rowIndex,
+  value,
+  onChange,
+}: {
+  flightKey: string;
+  rowIndex: number;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [unlocked, setUnlocked] = useState(false);
+  const inputId = `hl-reg-${flightKey}-${rowIndex}`;
+
+  return (
+    <input
+      id={inputId}
+      name={inputId}
+      value={value}
+      readOnly={!unlocked}
+      autoComplete="off"
+      autoCorrect="off"
+      autoCapitalize="characters"
+      spellCheck={false}
+      inputMode="text"
+      data-lpignore="true"
+      data-1p-ignore="true"
+      data-form-type="other"
+      placeholder="HL번호"
+      className="hl-inline-input"
+      onTouchStart={(event) => {
+        event.currentTarget.removeAttribute("readOnly");
+        setUnlocked(true);
+      }}
+      onFocus={(event) => {
+        event.currentTarget.removeAttribute("readOnly");
+        setUnlocked(true);
+      }}
+      onBlur={() => setUnlocked(false)}
+      onChange={(event) => onChange(event.target.value.toUpperCase())}
+      style={hlInlineInputStyle}
+      aria-label={`${flightKey} 등록기호`}
+    />
+  );
+}
+
 function AfocsSkdPartInputs({
   flightKey,
   storedValue,
@@ -1453,13 +1533,11 @@ function FixedResultsTable({
                     {formatFlightDisplayWithMarker(row, hlDrafts)}
                   </td>
                   <td style={tdStyle}>
-                    <input
+                    <HlRegistrationInput
+                      flightKey={flightKey}
+                      rowIndex={idx}
                       value={getEditableHlValue(row, hlNumberMap, hlDrafts)}
-                      onChange={(event) =>
-                        onHlDraftChange(flightKey, event.target.value.toUpperCase())
-                      }
-                      placeholder="7423"
-                      style={hlInlineInputStyle}
+                      onChange={(value) => onHlDraftChange(flightKey, value)}
                     />
                   </td>
                   <td style={tdStyle}>
@@ -1573,6 +1651,7 @@ export default function FlightsPage() {
   const [hlInlineDrafts, setHlInlineDrafts] = useState<Record<string, string>>({});
   const [afocsSkdInlineDrafts, setAfocsSkdInlineDrafts] = useState<Record<string, string>>({});
   const [aircraftRegistrationRecords, setAircraftRegistrationRecords] = useState<AircraftRegistrationRecord[]>([]);
+  const aircraftRegistrationRecordsRef = useRef<AircraftRegistrationRecord[]>([]);
 
   const currentRangeText = useMemo(() => {
     return `${startDateTime.replace("T", " ")} ~ ${endDateTime.replace("T", " ")}`;
@@ -1588,6 +1667,10 @@ export default function FlightsPage() {
   const hlMappingCount = useMemo(() => Object.keys(hlNumberMap).length, [hlNumberMap]);
 
   useEffect(() => {
+    aircraftRegistrationRecordsRef.current = aircraftRegistrationRecords;
+  }, [aircraftRegistrationRecords]);
+
+  useEffect(() => {
     const defaultStart = getDefaultStartDateTime();
     const defaultEnd = getDefaultEndDateTime();
     setStartDateTime(defaultStart);
@@ -1599,6 +1682,7 @@ export default function FlightsPage() {
 
     const localRecords = loadAircraftRegistrationRecords();
     setAircraftRegistrationRecords(localRecords);
+    aircraftRegistrationRecordsRef.current = localRecords;
 
     void fetchAircraftRegistrationRecordsFromServer()
       .then(async (serverRecords) => {
@@ -1614,6 +1698,7 @@ export default function FlightsPage() {
         }
 
         setAircraftRegistrationRecords(finalRecords);
+        aircraftRegistrationRecordsRef.current = finalRecords;
         setRows((prevRows) => applyAircraftRegistrationToRows(prevRows, finalRecords));
         setRooms((prevRooms) => {
           const nextRooms = prevRooms.map((room) => ({
@@ -1917,10 +2002,46 @@ export default function FlightsPage() {
     setSelectedScheduleOrder([]);
   };
 
-  const applyAllRegistrationSources = (targetRows: FlightRow[]) => {
-    const latestRecords = loadAircraftRegistrationRecords();
-    const withDrafts = applyInlineHlDraftsToRows(targetRows, hlInlineDrafts);
+  const applyAllRegistrationSources = (
+    targetRows: FlightRow[],
+    records: AircraftRegistrationRecord[] = aircraftRegistrationRecordsRef.current,
+  ) => {
+    const latestRecords = records.length > 0 ? records : loadAircraftRegistrationRecords();
+    const manualRows: FlightRow[] = [];
+    (["active", "archive"] as const).forEach((slotKey) => {
+      const slotRows = scheduleSlots[slotKey]?.room?.rows;
+      if (Array.isArray(slotRows)) manualRows.push(...slotRows);
+    });
+    rooms.forEach((room) => {
+      if (Array.isArray(room.rows)) manualRows.push(...room.rows);
+    });
+    const withManual = mergeManualRegistrationFields(manualRows, targetRows);
+    const withDrafts = applyInlineHlDraftsToRows(withManual, hlInlineDrafts);
     return applyAircraftRegistrationToRows(applyHlMappingToRows(withDrafts, hlNumberMap), latestRecords);
+  };
+
+  const ensureAircraftRegistrationRecordsFromServer = async () => {
+    const seed =
+      aircraftRegistrationRecordsRef.current.length > 0
+        ? aircraftRegistrationRecordsRef.current
+        : loadAircraftRegistrationRecords();
+
+    try {
+      const serverRecords = await fetchAircraftRegistrationRecordsFromServer();
+      let finalRecords = serverRecords;
+      if (serverRecords.length === 0 && seed.length > 0) {
+        try {
+          finalRecords = await saveAircraftRegistrationRecordsToServer(seed, "replace");
+        } catch {
+          finalRecords = seed;
+        }
+      }
+      aircraftRegistrationRecordsRef.current = finalRecords;
+      setAircraftRegistrationRecords(finalRecords);
+      return finalRecords;
+    } catch {
+      return seed;
+    }
   };
 
   const persistRegistrationDraftsForRows = async (targetRows: FlightRow[]) => {
@@ -2720,13 +2841,13 @@ export default function FlightsPage() {
         }
 
         nextRows = mergeRowsKeepFinal(room.rows || [], json.data || []);
-        if (rangeOverride) {
-          nextRows = mergeManualRegistrationFields(room.rows || [], nextRows);
-          nextRows = applyAircraftRegistrationToRows(
-            applyHlMappingToRows(nextRows, hlNumberMap),
-            aircraftRegistrationRecords,
-          );
-        }
+        nextRows = mergeManualRegistrationFields(room.rows || [], nextRows);
+        nextRows = applyAircraftRegistrationToRows(
+          applyHlMappingToRows(nextRows, hlNumberMap),
+          aircraftRegistrationRecordsRef.current.length > 0
+            ? aircraftRegistrationRecordsRef.current
+            : aircraftRegistrationRecords,
+        );
       }
 
       const fetchedAt = new Date().toLocaleString("ko-KR");
@@ -2878,6 +2999,9 @@ export default function FlightsPage() {
     setSelectedScheduleOrder([]);
     setExpandedDetailKeys({});
     setError("");
+    setHlInlineDrafts({});
+
+    const registrationPromise = ensureAircraftRegistrationRecordsFromServer();
 
     if (cachedLookup) {
       const cachedRows = applyAllRegistrationSources(cachedLookup.rows || []);
@@ -2904,17 +3028,20 @@ export default function FlightsPage() {
     setLoading(true);
 
     try {
-      const res = await fetch(`${BACKEND_URL}/flights/`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          flights,
-          start: startDateTime,
-          end: endDateTime,
+      const [res, registrationRecords] = await Promise.all([
+        fetch(`${BACKEND_URL}/flights/`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            flights,
+            start: startDateTime,
+            end: endDateTime,
+          }),
         }),
-      });
+        registrationPromise,
+      ]);
 
       const json = await res.json();
 
@@ -2922,7 +3049,7 @@ export default function FlightsPage() {
         throw new Error(json.message || json.detail || `서버 오류 (${res.status})`);
       }
 
-      const nextRows = applyAllRegistrationSources(json.data || []);
+      const nextRows = applyAllRegistrationSources(json.data || [], registrationRecords);
       const fetchedAt = new Date().toLocaleString("ko-KR");
       saveFlightLookupCache(cacheKey, nextRows, fetchedAt);
 
@@ -2995,6 +3122,9 @@ export default function FlightsPage() {
     setSelectedScheduleKeys({});
     setSelectedScheduleOrder([]);
     setError("");
+    setHlInlineDrafts({});
+
+    const registrationPromise = ensureAircraftRegistrationRecordsFromServer();
 
     if (cachedLookup) {
       const cachedRows = applyAllRegistrationSources(cachedLookup.rows || []);
@@ -3021,16 +3151,19 @@ export default function FlightsPage() {
     setLoading(true);
 
     try {
-      const res = await fetch(`${BACKEND_URL}/flights/kj-all`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          start: startDateTime,
-          end: endDateTime,
+      const [res, registrationRecords] = await Promise.all([
+        fetch(`${BACKEND_URL}/flights/kj-all`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            start: startDateTime,
+            end: endDateTime,
+          }),
         }),
-      });
+        registrationPromise,
+      ]);
 
       const json = await res.json();
 
@@ -3044,7 +3177,7 @@ export default function FlightsPage() {
         );
       }
 
-      const nextRows = applyAllRegistrationSources(json.data || []);
+      const nextRows = applyAllRegistrationSources(json.data || [], registrationRecords);
       const fetchedAt = new Date().toLocaleString("ko-KR");
       saveFlightLookupCache(cacheKey, nextRows, fetchedAt);
 
@@ -3103,24 +3236,28 @@ export default function FlightsPage() {
     setSelectedScheduleOrder([]);
     setExpandedDetailKeys({});
     setError("");
+    setHlInlineDrafts({});
     setLoading(true);
 
     try {
-      const res = await fetch(`${BACKEND_URL}/flights/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          flights,
-          start: registrationStartDateTime,
-          end: registrationEndDateTime,
+      const [res, registrationRecords] = await Promise.all([
+        fetch(`${BACKEND_URL}/flights/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            flights,
+            start: registrationStartDateTime,
+            end: registrationEndDateTime,
+          }),
         }),
-      });
+        ensureAircraftRegistrationRecordsFromServer(),
+      ]);
       const json = await res.json();
       if (!res.ok || json.success === false) {
         throw new Error(json.message || json.detail || `서버 오류 (${res.status})`);
       }
 
-      const nextRows = applyAllRegistrationSources(json.data || []);
+      const nextRows = applyAllRegistrationSources(json.data || [], registrationRecords);
       const fetchedAt = new Date().toLocaleString("ko-KR");
       saveFlightLookupCache(cacheKey, nextRows, fetchedAt);
       setRows(nextRows);
@@ -3160,23 +3297,27 @@ export default function FlightsPage() {
     setSelectedScheduleOrder([]);
     setExpandedDetailKeys({});
     setError("");
+    setHlInlineDrafts({});
     setLoading(true);
 
     try {
-      const res = await fetch(`${BACKEND_URL}/flights/kj-all`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          start: registrationStartDateTime,
-          end: registrationEndDateTime,
+      const [res, registrationRecords] = await Promise.all([
+        fetch(`${BACKEND_URL}/flights/kj-all`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            start: registrationStartDateTime,
+            end: registrationEndDateTime,
+          }),
         }),
-      });
+        ensureAircraftRegistrationRecordsFromServer(),
+      ]);
       const json = await res.json();
       if (!res.ok || json.success === false) {
         throw new Error(json.message || json.detail || `서버 오류 (${res.status})`);
       }
 
-      const nextRows = applyAllRegistrationSources(json.data || []);
+      const nextRows = applyAllRegistrationSources(json.data || [], registrationRecords);
       const fetchedAt = new Date().toLocaleString("ko-KR");
       saveFlightLookupCache(cacheKey, nextRows, fetchedAt);
       setRows(nextRows);
@@ -3784,8 +3925,10 @@ export default function FlightsPage() {
         )}
 
         {flightMode === "registration" && (
-          <div style={{ color: "#94a3b8", marginBottom: 12, fontSize: 13 }}>
+          <div style={{ color: "#94a3b8", marginBottom: 12, fontSize: 13, lineHeight: 1.55 }}>
             왼쪽 Schedule Flight 카드와 별개로 동작합니다. 카드 선택 없이 전용 기간으로 조회·등록하세요.
+            <br />
+            등록번호 확정: ① 편명조회에서 직접 등록한 값(매뉴얼) → ② 이 화면(등록번호/AFOCS) 저장값. 매뉴얼 값이 있으면 AFOCS 값으로 덮지 않습니다.
           </div>
         )}
 
@@ -3880,7 +4023,7 @@ export default function FlightsPage() {
               <div>
                 <h2 style={{ fontSize: 28, margin: 0 }}>✈️ 등록번호 / AFOCS 저장</h2>
                 <p style={{ color: "#9fb3c8", margin: "6px 0 0 0", fontSize: 14 }}>
-                  Schedule Flight 카드와 별개입니다. 전용 조회 기간으로 조회한 뒤 등록번호·AFOCS SKD를 입력·저장합니다.
+                  전용 조회 기간으로 조회한 뒤 등록번호·AFOCS SKD를 입력·저장합니다. 편명조회에서 이미 등록한 번호가 있으면 그대로 두고, 없는 편만 여기서 채웁니다.
                 </p>
               </div>
               <div style={{ display: "flex", gap: 10 }}>
@@ -4488,7 +4631,7 @@ export default function FlightsPage() {
                 AFOCS SKD 저장
               </button>
               <span style={hlInlineHelpStyle}>
-                엑셀 1회로 등록기호·AFOCS 동시 반영(편명·등록기호·일자·ETD/ETA) · 표에서 직접 수정도 가능 · 관리{" "}
+                확정 순서 ① 매뉴얼(편명조회 직접 등록) → ② 등록번호/AFOCS. 엑셀·표 입력은 빈 칸만 채웁니다 · 관리{" "}
                 {aircraftRegistrationRecords.length}건
               </span>
             </div>
@@ -4503,7 +4646,7 @@ export default function FlightsPage() {
               등록기호 저장
             </button>
             <span style={hlInlineHelpStyle}>
-              등록기호를 수동 입력한 뒤 저장하세요. 수정된 편명은 * 로 표시됩니다.
+              여기서 입력·저장한 등록번호가 1순위입니다. 비어 있으면 등록번호/AFOCS 저장값이 2순위로 채워집니다.
             </span>
           </div>
         )}
@@ -4597,13 +4740,11 @@ export default function FlightsPage() {
                         {formatFlightDisplayWithMarker(r, hlInlineDrafts)}
                       </td>
                       <td style={tdStyle}>
-                        <input
+                        <HlRegistrationInput
+                          flightKey={getFlightKeyFromRow(r)}
+                          rowIndex={i}
                           value={getEditableHlValue(r, hlNumberMap, hlInlineDrafts)}
-                          onChange={(event) =>
-                            handleHlInlineDraftChange(getFlightKeyFromRow(r), event.target.value.toUpperCase())
-                          }
-                          placeholder="7423"
-                          style={hlInlineInputStyle}
+                          onChange={(value) => handleHlInlineDraftChange(getFlightKeyFromRow(r), value)}
                         />
                       </td>
                       <td style={tdStyle}>{r.departureCode || "-"}</td>
@@ -4714,7 +4855,8 @@ const hlExcelUploadButtonStyle: CSSProperties = {
 };
 
 const hlInlineInputStyle: CSSProperties = {
-  width: 96,
+  width: 112,
+  minWidth: 108,
   minHeight: 34,
   padding: "7px 9px",
   borderRadius: 8,
@@ -4724,6 +4866,7 @@ const hlInlineInputStyle: CSSProperties = {
   fontSize: 14,
   fontWeight: 800,
   outline: "none",
+  letterSpacing: 0.3,
 };
 
 const detailThStyle: CSSProperties = {
