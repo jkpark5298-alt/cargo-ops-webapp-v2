@@ -808,6 +808,7 @@ function buildAircraftRegistrationFlightDateKey(date: string, flight: string) {
 
 function buildAircraftRegistrationMap(records: AircraftRegistrationRecord[]) {
   const tempMap = new Map<string, { registrationNo: string; updatedAt: string }>();
+  const hlByFlight = new Map<string, Set<string>>();
 
   const setIfNewer = (key: string, registrationNo: string, updatedAt: string) => {
     if (!key) return;
@@ -834,26 +835,63 @@ function buildAircraftRegistrationMap(records: AircraftRegistrationRecord[]) {
       setIfNewer(buildAircraftRegistrationFlightDateKey(record.date, record.flight), registrationNo, currentUpdateTime);
     }
 
-    // 아이폰 등 다른 기기는 편명 단위 로컬 맵이 없어, 최신 편명 매칭도 허용합니다.
-    setIfNewer(flightKey, registrationNo, currentUpdateTime);
+    if (flightKey) {
+      if (!hlByFlight.has(flightKey)) hlByFlight.set(flightKey, new Set());
+      hlByFlight.get(flightKey)?.add(registrationNo);
+    }
   });
 
   const finalMap = new Map<string, string>();
   tempMap.forEach((value, key) => {
     finalMap.set(key, value.registrationNo);
   });
+  // 같은 편명이 날짜마다 다른 HL이면 편명만으로 덮지 않습니다. (KJ283 09.04 HL7620 vs 다른 날 HL7423)
+  hlByFlight.forEach((hls, flightKey) => {
+    if (hls.size === 1) {
+      finalMap.set(flightKey, [...hls][0]);
+    }
+  });
 
   return finalMap;
 }
 
+function getFlightRowCandidateDates(row: FlightRow) {
+  const dates: string[] = [];
+  [
+    row.estimatedDateTime,
+    row.formattedEstimatedTime,
+    row.scheduleDateTime,
+    row.formattedScheduleTime,
+  ].forEach((value) => {
+    const date = normalizeAircraftRegistrationDate(value || "");
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date) && !dates.includes(date)) dates.push(date);
+  });
+
+  const primaryDate = getAircraftRegistrationDateFromRow(row);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(primaryDate) && !dates.includes(primaryDate)) {
+    dates.push(primaryDate);
+  }
+
+  return dates;
+}
+
 function getAircraftRegistrationForRow(row: FlightRow, records: AircraftRegistrationRecord[]) {
   const map = buildAircraftRegistrationMap(records);
-  const date = getAircraftRegistrationDateFromRow(row);
   const flight = getFlightDisplay(row);
-  const exactKey = buildAircraftRegistrationKey(date, flight, row.departureCode, row.arrivalCode);
-  const fallbackKey = buildAircraftRegistrationFlightDateKey(date, flight);
-  const flightKey = normalizeHlFlightKey(flight);
-  return map.get(exactKey) || map.get(fallbackKey) || map.get(flightKey) || "";
+  const dates = getFlightRowCandidateDates(row);
+
+  for (const date of dates) {
+    const exactKey = buildAircraftRegistrationKey(date, flight, row.departureCode, row.arrivalCode);
+    const hit = map.get(exactKey);
+    if (hit) return hit;
+  }
+  for (const date of dates) {
+    const fallbackKey = buildAircraftRegistrationFlightDateKey(date, flight);
+    const hit = map.get(fallbackKey);
+    if (hit) return hit;
+  }
+
+  return map.get(normalizeHlFlightKey(flight)) || "";
 }
 
 function applyAircraftRegistrationToRows(rows: FlightRow[], records: AircraftRegistrationRecord[]) {
@@ -1077,6 +1115,167 @@ function parseAircraftRegistrationRows(rawRows: Record<string, unknown>[]) {
   });
 
   return records;
+}
+
+type ParsedRegistrationAfocsExcelRow = {
+  flight: string;
+  date: string;
+  departureCode: string;
+  arrivalCode: string;
+  registrationNo: string;
+  afocsSkd: string;
+  time: string;
+};
+
+function normalizeAirportCode(value: unknown) {
+  return String(value || "")
+    .replace(/[^A-Z0-9]/gi, "")
+    .toUpperCase();
+}
+
+function extractHhMm(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const match = raw.match(/(\d{1,2}):(\d{2})/);
+  if (!match) return "";
+  return `${match[1].padStart(2, "0")}:${match[2]}`;
+}
+
+function getFlightRowCandidateTimes(row: FlightRow) {
+  const times: string[] = [];
+  [
+    row.formattedEstimatedTime,
+    row.estimatedDateTime,
+    row.formattedScheduleTime,
+    row.scheduleDateTime,
+  ].forEach((value) => {
+    const time = extractHhMm(value);
+    if (time && !times.includes(time)) times.push(time);
+  });
+  return times;
+}
+
+function parseRegistrationAfocsExcelRows(rawRows: Record<string, unknown>[]): ParsedRegistrationAfocsExcelRow[] {
+  return rawRows
+    .map((row) => {
+      const flight = normalizeFlightKey(
+        String(
+          getAircraftRegistrationCell(row, ["편명", "flight", "flightid", "flightno", "flightnumber"]) || "",
+        ),
+      );
+      const dateVal = getAircraftRegistrationCell(row, ["운항일자", "일자", "날짜", "date", "operationdate"]);
+      const date = normalizeAircraftRegistrationDate(dateVal);
+      const departureCode = normalizeAirportCode(
+        getAircraftRegistrationCell(row, ["출발지코드", "출발코드", "출발지", "출발", "departure", "dep", "depcode"]),
+      );
+      const arrivalCode = normalizeAirportCode(
+        getAircraftRegistrationCell(row, [
+          "도착지코드",
+          "도착코드",
+          "도착지",
+          "도착",
+          "arrival",
+          "arr",
+          "arrcode",
+          "apr",
+        ]),
+      );
+      const registrationNo = normalizeHlNumber(
+        String(
+          getAircraftRegistrationCell(row, [
+            "등록기호",
+            "등록",
+            "기호",
+            "hl",
+            "hlnbr",
+            "registration",
+            "registrationno",
+          ]) || "",
+        ),
+      );
+      const timeVal = getAircraftRegistrationCell(row, [
+        "시간",
+        "AFOCSSKD",
+        "AFOCS SKD",
+        "time",
+        "schedule",
+        "scheduledatetime",
+        "etd/eta",
+        "etd",
+        "eta",
+      ]);
+      const time = formatExcelTimeValue(timeVal) || extractHhMm(timeVal);
+      const afocsSkd = formatExcelAfocsSkdFromDateAndTime(dateVal, timeVal);
+
+      return {
+        flight,
+        date,
+        departureCode,
+        arrivalCode,
+        registrationNo: /^HL\d{3,5}$/i.test(registrationNo) ? registrationNo : "",
+        afocsSkd,
+        time,
+      };
+    })
+    .filter((row) => Boolean(row.flight));
+}
+
+function scoreExcelRowForScheduleRow(excel: ParsedRegistrationAfocsExcelRow, row: FlightRow) {
+  if (!excel.flight || excel.flight !== getFlightKeyFromRow(row)) return -1;
+
+  let score = 10;
+  const rowDates = getFlightRowCandidateDates(row);
+  const rowTimes = getFlightRowCandidateTimes(row);
+  const rowDep = normalizeAirportCode(row.departureCode);
+  const rowArr = normalizeAirportCode(row.arrivalCode);
+
+  if (excel.date && rowDates.includes(excel.date)) score += 50;
+  if (excel.departureCode && rowDep && excel.departureCode === rowDep) score += 20;
+  if (excel.arrivalCode && rowArr && excel.arrivalCode === rowArr) score += 20;
+  if (excel.time && rowTimes.includes(excel.time)) score += 30;
+  return score;
+}
+
+function findBestExcelRowForScheduleRow(
+  excelRows: ParsedRegistrationAfocsExcelRow[],
+  row: FlightRow,
+): ParsedRegistrationAfocsExcelRow | null {
+  const candidates = excelRows.filter((excel) => excel.flight === getFlightKeyFromRow(row));
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  let best: ParsedRegistrationAfocsExcelRow | null = null;
+  let bestScore = -1;
+  candidates.forEach((excel) => {
+    const score = scoreExcelRowForScheduleRow(excel, row);
+    if (score > bestScore) {
+      bestScore = score;
+      best = excel;
+    }
+  });
+
+  // 같은 편명이 여러 날이면 일자·노선·시각이 맞는 행만 사용합니다.
+  return bestScore >= 40 ? best : null;
+}
+
+function uniqueHlByFlightFromExcel(excelRows: ParsedRegistrationAfocsExcelRow[]) {
+  const grouped = new Map<string, Set<string>>();
+  excelRows.forEach((row) => {
+    if (!row.flight || !row.registrationNo) return;
+    if (!grouped.has(row.flight)) grouped.set(row.flight, new Set());
+    grouped.get(row.flight)?.add(row.registrationNo);
+  });
+
+  const unique: Record<string, string> = {};
+  const conflicting = new Set<string>();
+  grouped.forEach((hls, flight) => {
+    if (hls.size === 1) {
+      unique[flight] = [...hls][0];
+    } else {
+      conflicting.add(flight);
+    }
+  });
+  return { unique, conflicting };
 }
 
 function getMappedHlNumber(row: FlightRow, mapping: Record<string, string>) {
@@ -2335,67 +2534,12 @@ export default function FlightsPage() {
 
       const rawRows = sheetToRegistrationAfocsRows(firstSheet);
       const parsedRecords = parseAircraftRegistrationRows(rawRows);
+      const excelRows = parseRegistrationAfocsExcelRows(rawRows);
+      const { unique: uniqueHlByFlight, conflicting: conflictingHlFlights } =
+        uniqueHlByFlightFromExcel(excelRows);
 
-      const afocsMappings: Record<string, string> = {};
-      const hlByFlight: Record<string, string> = {};
-
-      rawRows.forEach((row) => {
-        const flightVal = getAircraftRegistrationCell(row, [
-          "편명",
-          "flight",
-          "flightid",
-          "flightno",
-          "flightnumber",
-        ]);
-        const flightKey = normalizeFlightKey(String(flightVal || ""));
-        if (!flightKey) return;
-
-        const registrationNo = normalizeHlNumber(
-          String(
-            getAircraftRegistrationCell(row, [
-              "등록기호",
-              "등록",
-              "기호",
-              "hl",
-              "hlnbr",
-              "registration",
-              "registrationno",
-            ]) || "",
-          ),
-        );
-        if (/^HL\d{3,5}$/i.test(registrationNo)) {
-          hlByFlight[flightKey] = registrationNo;
-        }
-
-        const timeVal = getAircraftRegistrationCell(row, [
-          "시간",
-          "AFOCSSKD",
-          "AFOCS SKD",
-          "time",
-          "schedule",
-          "scheduledatetime",
-          "etd/eta",
-          "etd",
-          "eta",
-          "r/o ld",
-          "rold",
-        ]);
-        const dateVal = getAircraftRegistrationCell(row, [
-          "운항일자",
-          "일자",
-          "날짜",
-          "date",
-          "operationdate",
-        ]);
-        const matchedRow = rows.find((scheduleRow) => getFlightKeyFromRow(scheduleRow) === flightKey);
-        const timeStr = formatExcelAfocsSkdFromDateAndTime(dateVal, timeVal, matchedRow);
-        if (timeStr) {
-          afocsMappings[flightKey] = timeStr;
-        }
-      });
-
-      const hlCount = Object.keys(hlByFlight).length;
-      const afocsCount = Object.keys(afocsMappings).length;
+      const hlCount = excelRows.filter((row) => row.registrationNo).length;
+      const afocsCount = excelRows.filter((row) => row.afocsSkd).length;
       if (parsedRecords.length === 0 && hlCount === 0 && afocsCount === 0) {
         setHlMappingStatus(
           "엑셀에서 등록기호/AFOCS 데이터를 찾지 못했습니다. 제목 행 아래 헤더에 편명·등록기호·일자·ETD/ETA가 있는지 확인해 주세요.",
@@ -2409,35 +2553,28 @@ export default function FlightsPage() {
           ? mergeAircraftRegistrationRecords(latestRecords, parsedRecords)
           : latestRecords;
 
+      let matchedHl = 0;
+      let matchedAfocs = 0;
       let nextRows = rows.map((row) => {
-        const flightKey = getFlightKeyFromRow(row);
-        const hl = hlByFlight[flightKey];
-        const afocs = afocsMappings[flightKey];
+        const matchedExcel = findBestExcelRowForScheduleRow(excelRows, row);
         let next = row;
-        if (hl) {
+        if (matchedExcel?.registrationNo) {
+          matchedHl += 1;
           next = {
             ...next,
-            hlnbr: hl,
-            registrationNo: hl,
-            aircraftRegNo: hl,
+            hlnbr: matchedExcel.registrationNo,
+            registrationNo: matchedExcel.registrationNo,
+            aircraftRegNo: matchedExcel.registrationNo,
             registrationNoEdited: true,
           };
         }
-        if (afocs) {
-          next = { ...next, afocsSkd: afocs };
+        if (matchedExcel?.afocsSkd) {
+          matchedAfocs += 1;
+          next = { ...next, afocsSkd: matchedExcel.afocsSkd };
         }
         return next;
       });
       nextRows = applyAircraftRegistrationToRows(nextRows, nextRecords);
-
-      const matchedHl = nextRows.filter((row) => {
-        const key = getFlightKeyFromRow(row);
-        return Boolean(hlByFlight[key]);
-      }).length;
-      const matchedAfocs = nextRows.filter((row) => {
-        const key = getFlightKeyFromRow(row);
-        return Boolean(afocsMappings[key]);
-      }).length;
 
       if (matchedHl === 0 && matchedAfocs === 0) {
         setHlMappingStatus(
@@ -2468,7 +2605,10 @@ export default function FlightsPage() {
       }
       setAircraftRegistrationRecords(nextRecords);
 
-      const nextMap = { ...hlNumberMap, ...hlByFlight };
+      const nextMap = { ...hlNumberMap, ...uniqueHlByFlight };
+      conflictingHlFlights.forEach((flight) => {
+        delete nextMap[flight];
+      });
       const normalizedText = serializeHlMapping(nextMap);
       setHlMappingText(normalizedText);
       saveHlMappingText(normalizedText);
