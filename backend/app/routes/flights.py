@@ -2026,24 +2026,18 @@ def _row_matches_time_range(
     if start_dt is None and end_dt is None:
         return True
 
-    # 지연 편은 예정시각(운항표 기준)이 기간 안이면 변경시각이 기간 밖이어도 포함한다.
-    candidates = [
-        _parse_row_datetime(row.get("formattedScheduleTime") or row.get("scheduleDateTime")),
-        _parse_row_datetime(row.get("formattedEstimatedTime") or row.get("estimatedDateTime")),
-    ]
-    candidates = [dt for dt in candidates if dt is not None]
+    row_dt = _get_row_datetime(row)
 
-    if not candidates:
+    if row_dt is None:
         return True
 
-    for row_dt in candidates:
-        if start_dt is not None and row_dt < start_dt:
-            continue
-        if end_dt is not None and row_dt > end_dt:
-            continue
-        return True
+    if start_dt is not None and row_dt < start_dt:
+        return False
 
-    return False
+    if end_dt is not None and row_dt > end_dt:
+        return False
+
+    return True
 
 
 def _get_row_sort_key(row: Dict[str, Any]):
