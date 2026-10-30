@@ -33,13 +33,13 @@ import {
   clearIssueDraft,
   clearIssueNotionRecord,
   loadDailyDraft,
-  loadDailyNotionRecord,
+  loadDailyNotionRecordForDate,
   loadImages,
   loadIssueDraft,
   loadIssueNotionRecord,
   loadNote,
   saveDailyDraft,
-  saveDailyNotionRecord,
+  saveDailyNotionRecordForDate,
   saveImages,
   saveIssueDraft,
   saveIssueNotionRecord,
@@ -54,6 +54,7 @@ import {
 import {
   deleteDailyRecord,
   deleteIssueRecord,
+  findDailyRecordByDate,
   getNotionLinks,
   saveDailyRecord,
   saveIssueRecord,
@@ -82,6 +83,7 @@ type DailyNotionRecord = {
   pageId: string;
   url?: string;
   savedAt: string;
+  workDate?: string;
 };
 
 type IssueNotionRecord = DailyNotionRecord;
@@ -1153,6 +1155,8 @@ export default function HomePage() {
   const [issueText, setIssueText] = useState("");
   const [dailyNotionRecord, setDailyNotionRecord] =
     useState<DailyNotionRecord | null>(null);
+  const [dailyNotionCheck, setDailyNotionCheck] =
+    useState<"checking" | "verified" | "unverified">("unverified");
   const [issueNotionRecord, setIssueNotionRecord] =
     useState<IssueNotionRecord | null>(null);
   const todayText = useMemo(() => formatDateForTitle(new Date()), []);
@@ -1180,6 +1184,49 @@ export default function HomePage() {
     saveDailyWorkDate(dailyWorkDate);
   }, [dailyWorkDate]);
 
+  useEffect(() => {
+    if (!draftHydrated) return;
+
+    // 먼저 이 기기의 기록을 보여주고, Notion에 실제로 있는지 조회해 기기 간 차이를 바로잡는다.
+    const workDate = dailyWorkDate;
+    let cancelled = false;
+    setDailyNotionRecord(loadDailyNotionRecordForDate(workDate));
+    setDailyNotionCheck("checking");
+
+    void (async () => {
+      try {
+        const lookup = await findDailyRecordByDate(workDate);
+        if (cancelled) return;
+
+        if (lookup.found && lookup.pageId) {
+          const local = loadDailyNotionRecordForDate(workDate);
+          const record: DailyNotionRecord =
+            local?.pageId === lookup.pageId
+              ? { ...local, url: lookup.url || local.url, workDate }
+              : {
+                  pageId: lookup.pageId,
+                  url: lookup.url || undefined,
+                  savedAt: "Notion 확인",
+                  workDate,
+                };
+          saveDailyNotionRecordForDate(workDate, record);
+          setDailyNotionRecord(record);
+        } else {
+          // Notion에서 삭제된 기록이 이 기기에 남아 있으면 정리한다.
+          clearDailyNotionRecord(workDate);
+          setDailyNotionRecord(null);
+        }
+        setDailyNotionCheck("verified");
+      } catch {
+        if (!cancelled) setDailyNotionCheck("unverified");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dailyWorkDate, draftHydrated]);
+
   const markDailyLocalEdit = () => {
     dailyLocalEditAtRef.current = Date.now();
   };
@@ -1206,7 +1253,6 @@ export default function HomePage() {
 
     setImages(loadImages());
     setNote(savedDailyDraft?.note ?? loadNote());
-    setDailyNotionRecord(loadDailyNotionRecord());
     setIssueNotionRecord(loadIssueNotionRecord());
 
     if (savedDailyDraft?.status) {
@@ -1220,6 +1266,10 @@ export default function HomePage() {
     if (savedDailyDraft?.workDate) {
       setDailyWorkDate(savedDailyDraft.workDate);
     }
+
+    const initialWorkDate =
+      savedDailyDraft?.workDate || dailyWorkDateRef.current || getTodayDateInputValue();
+    setDailyNotionRecord(loadDailyNotionRecordForDate(initialWorkDate));
 
     if (savedIssueDraft) {
       setIssueFlight(savedIssueDraft.flight);
@@ -3069,20 +3119,45 @@ export default function HomePage() {
     setIsDailySaving(true);
 
     try {
+      // 다른 기기에서 이미 저장했다면 새로 만들지 않고 그 기록에 연결한다.
+      const existingWorkDate = dailyWorkDate || getTodayDateInputValue();
+      try {
+        const existing = await findDailyRecordByDate(existingWorkDate);
+        if (existing.found && existing.pageId) {
+          const linked: DailyNotionRecord = {
+            pageId: existing.pageId,
+            url: existing.url || undefined,
+            savedAt: "Notion 확인",
+            workDate: existingWorkDate,
+          };
+          setDailyNotionRecord(linked);
+          saveDailyNotionRecordForDate(existingWorkDate, linked);
+          setDailyNotionCheck("verified");
+          setNotice(
+            `${payload.workDateText} 기록이 이미 Notion에 있어 새로 만들지 않았습니다. 내용을 바꾸려면 'Notion 일일 기록 수정'을 사용하세요.`,
+          );
+          return;
+        }
+      } catch {
+        // 조회 실패 시에는 기존 동작대로 저장을 진행한다.
+      }
+
       const result = await saveDailyRecord(payload);
 
       if (!result?.success || !result?.pageId) {
         throw new Error(result?.detail || result?.message || "Notion 저장 완료를 확인하지 못했습니다.");
       }
 
+      const workDate = dailyWorkDate || getTodayDateInputValue();
       const record = {
         pageId: result.pageId,
         url: result.url,
         savedAt: new Date().toLocaleString("ko-KR"),
+        workDate,
       };
 
       setDailyNotionRecord(record);
-      saveDailyNotionRecord(record);
+      saveDailyNotionRecordForDate(workDate, record);
       saveLastDailySaveSignature({ signature, savedAt: Date.now() });
       setNotice(`Notion 일일 기록 저장 완료 · ${payload.workDateText} · ${statusLabel}`);
     } catch (error) {
@@ -3104,6 +3179,13 @@ export default function HomePage() {
     const payload = buildDailyPayload(dailyWorkDate || getTodayDateInputValue());
     const statusLabel = formatDailyStatusLabel(dailyStatus);
 
+    if (payload.workDate !== getTodayDateInputValue()) {
+      const confirmed = window.confirm(
+        `${payload.workDateText} Notion 기록을 지금 화면의 메모·사진 내용으로 덮어씁니다.\n\n다른 날짜의 내용이 아닌지 확인하세요. 계속할까요?`,
+      );
+      if (!confirmed) return;
+    }
+
     try {
       const result = await updateDailyRecord(dailyNotionRecord.pageId, payload);
 
@@ -3111,14 +3193,16 @@ export default function HomePage() {
         throw new Error(result?.detail || result?.message || "Notion 수정 완료를 확인하지 못했습니다.");
       }
 
+      const workDate = dailyWorkDate || getTodayDateInputValue();
       const nextRecord = {
         ...dailyNotionRecord,
         url: result.url || dailyNotionRecord.url,
         savedAt: new Date().toLocaleString("ko-KR"),
+        workDate,
       };
 
       setDailyNotionRecord(nextRecord);
-      saveDailyNotionRecord(nextRecord);
+      saveDailyNotionRecordForDate(workDate, nextRecord);
       setNotice(`Notion 일일 기록 수정 완료 · ${payload.workDateText} · ${statusLabel}`);
     } catch (error) {
       setNotice(
@@ -3139,7 +3223,8 @@ export default function HomePage() {
     try {
       await deleteDailyRecord(dailyNotionRecord.pageId);
 
-      clearDailyNotionRecord();
+      const workDate = dailyNotionRecord.workDate || dailyWorkDate || getTodayDateInputValue();
+      clearDailyNotionRecord(workDate);
       setDailyNotionRecord(null);
       setNotice("Notion 일일 업무 기록을 삭제했습니다.");
     } catch (error) {
@@ -3447,6 +3532,7 @@ export default function HomePage() {
             setNote(value);
           }}
           dailyNotionRecord={dailyNotionRecord}
+          dailyNotionCheck={dailyNotionCheck}
           isDailySaving={isDailySaving}
           isDailyTextSyncing={isDailyTextSyncing}
           dailyTextSyncStatus={dailyTextSyncStatus}

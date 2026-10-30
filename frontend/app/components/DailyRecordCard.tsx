@@ -51,6 +51,8 @@ type DailyRecordCardProps = {
   note: string;
   setNote: (value: string) => void;
   dailyNotionRecord: DailyNotionRecord | null;
+  /** Notion 조회 상태: checking=확인 중, verified=Notion에서 확인, unverified=조회 실패(이 기기 기록 기준) */
+  dailyNotionCheck?: "checking" | "verified" | "unverified";
   isDailySaving: boolean;
   isDailyTextSyncing: boolean;
   dailyTextSyncStatus: string;
@@ -90,6 +92,7 @@ export function DailyRecordCard({
   note,
   setNote,
   dailyNotionRecord,
+  dailyNotionCheck = "unverified",
   isDailySaving,
   isDailyTextSyncing,
   dailyTextSyncStatus,
@@ -201,6 +204,23 @@ export function DailyRecordCard({
           </button>
         </div>
       ) : null}
+
+      <div
+        style={dailyNotionRecord ? notionStatusSavedBoxStyle : notionStatusPendingBoxStyle}
+        role="status"
+        aria-live="polite"
+      >
+        <div style={notionStatusLabelStyle}>Notion 입력 여부</div>
+        <div style={notionStatusValueStyle}>
+          {dailyNotionCheck === "checking"
+            ? `Notion에서 ${dailyWorkDateTitle} 기록을 확인하는 중입니다…`
+            : dailyNotionRecord
+              ? `입력 완료 · ${dailyWorkDateTitle} · ${dailyNotionRecord.savedAt}`
+              : dailyNotionCheck === "verified"
+                ? `미입력 · ${dailyWorkDateTitle} 기록이 Notion에 없습니다`
+                : `이 기기에는 ${dailyWorkDateTitle} 저장 기록이 없습니다 (Notion 확인 실패 — 이미 저장했다면 중복될 수 있습니다)`}
+        </div>
+      </div>
 
       <div style={statusToggleStyle}>
         <button
@@ -317,7 +337,10 @@ export function DailyRecordCard({
             Notion 저장 완료 · {dailyNotionRecord.savedAt}
           </div>
           <div style={buttonStackStyle}>
-            <button onClick={handleUpdateDailyToNotion} style={greenButtonStyle}>
+            <button onClick={handleSaveDailyDraft} style={greenButtonStyle}>
+              일일 업무 임시 저장
+            </button>
+            <button onClick={handleUpdateDailyToNotion} style={darkButtonStyle}>
               Notion 일일 기록 수정
             </button>
             <button onClick={handleDeleteDailyFromNotion} style={dangerButtonStyle}>
@@ -1025,6 +1048,37 @@ const notionSavedTextStyle: CSSProperties = {
   fontSize: 13,
   fontWeight: 900,
   marginBottom: 10,
+};
+
+const notionStatusSavedBoxStyle: CSSProperties = {
+  marginTop: 12,
+  border: "1px solid rgba(34, 197, 94, 0.55)",
+  background: "rgba(5, 46, 22, 0.55)",
+  borderRadius: 14,
+  padding: "12px 14px",
+};
+
+const notionStatusPendingBoxStyle: CSSProperties = {
+  marginTop: 12,
+  border: "1px solid rgba(245, 158, 11, 0.55)",
+  background: "rgba(120, 53, 15, 0.35)",
+  borderRadius: 14,
+  padding: "12px 14px",
+};
+
+const notionStatusLabelStyle: CSSProperties = {
+  color: "#e2e8f0",
+  fontSize: 12,
+  fontWeight: 950,
+  letterSpacing: "0.02em",
+  marginBottom: 4,
+};
+
+const notionStatusValueStyle: CSSProperties = {
+  color: "#f8fafc",
+  fontSize: 14,
+  fontWeight: 850,
+  lineHeight: 1.45,
 };
 
 const dangerButtonStyle: CSSProperties = {

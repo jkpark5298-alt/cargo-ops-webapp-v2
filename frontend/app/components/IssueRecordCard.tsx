@@ -216,6 +216,19 @@ export function IssueRecordCard({
         style={noteStyle}
       />
 
+      <div
+        style={issueNotionRecord ? notionIssueStatusSavedBoxStyle : notionIssueStatusPendingBoxStyle}
+        role="status"
+        aria-live="polite"
+      >
+        <div style={notionIssueStatusLabelStyle}>Notion 입력 여부</div>
+        <div style={notionIssueStatusValueStyle}>
+          {issueNotionRecord
+            ? `입력 완료 · ${issueNotionRecord.savedAt}`
+            : "미입력 · 특이사항을 아직 Notion에 저장하지 않았습니다"}
+        </div>
+      </div>
+
       {issueNotionRecord ? (
         <div style={notionIssueSavedBoxStyle}>
           <div style={notionIssueSavedTextStyle}>
@@ -695,6 +708,37 @@ const notionIssueSavedTextStyle: CSSProperties = {
   fontSize: 13,
   fontWeight: 900,
   marginBottom: 10,
+};
+
+const notionIssueStatusSavedBoxStyle: CSSProperties = {
+  marginTop: 12,
+  border: "1px solid rgba(249, 115, 22, 0.55)",
+  background: "rgba(67, 20, 7, 0.55)",
+  borderRadius: 14,
+  padding: "12px 14px",
+};
+
+const notionIssueStatusPendingBoxStyle: CSSProperties = {
+  marginTop: 12,
+  border: "1px solid rgba(245, 158, 11, 0.55)",
+  background: "rgba(120, 53, 15, 0.35)",
+  borderRadius: 14,
+  padding: "12px 14px",
+};
+
+const notionIssueStatusLabelStyle: CSSProperties = {
+  color: "#e2e8f0",
+  fontSize: 12,
+  fontWeight: 950,
+  letterSpacing: "0.02em",
+  marginBottom: 4,
+};
+
+const notionIssueStatusValueStyle: CSSProperties = {
+  color: "#f8fafc",
+  fontSize: 14,
+  fontWeight: 850,
+  lineHeight: 1.45,
 };
 
 const dangerButtonStyle: CSSProperties = {

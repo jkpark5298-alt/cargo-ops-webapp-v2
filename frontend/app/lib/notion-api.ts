@@ -36,6 +36,22 @@ export async function updateDailyRecord(
   });
 }
 
+export type NotionDailyLookupResult = {
+  success?: boolean;
+  found: boolean;
+  count?: number;
+  pageId?: string | null;
+  url?: string | null;
+};
+
+/** 업무일자의 일일 기록이 Notion에 실제로 있는지 조회합니다. */
+export async function findDailyRecordByDate(workDate: string): Promise<NotionDailyLookupResult> {
+  return requestNotion<NotionDailyLookupResult>(
+    `/notion/daily-records?date=${encodeURIComponent(workDate)}`,
+    { method: "GET", cache: "no-store" },
+  );
+}
+
 export async function deleteDailyRecord(pageId: string) {
   return requestNotion<NotionMutationResult>(`/notion/daily-records/${encodeURIComponent(pageId)}`, {
     method: "DELETE",

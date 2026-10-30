@@ -6,11 +6,13 @@ type NotionRecord = {
   pageId: string;
   url?: string;
   savedAt: string;
+  workDate?: string;
 };
 
 const IMAGE_STORAGE_KEY = "cargo_ops_home_images_v1";
 const NOTE_STORAGE_KEY = "cargo_ops_home_note_v1";
 const DAILY_NOTION_RECORD_KEY = "cargo_ops_daily_notion_record_v1";
+const DAILY_NOTION_RECORDS_BY_DATE_KEY = "cargo_ops_daily_notion_records_by_date_v1";
 const ISSUE_NOTION_RECORD_KEY = "cargo_ops_issue_notion_record_v1";
 const DAILY_SAVE_SIGNATURE_KEY = "cargo_ops_daily_save_signature_v1";
 const ISSUE_SAVE_SIGNATURE_KEY = "cargo_ops_issue_save_signature_v1";
@@ -147,15 +149,87 @@ export function saveNote(note: string) {
   localStorage.setItem(NOTE_STORAGE_KEY, note);
 }
 
-export function loadDailyNotionRecord(): NotionRecord | null {
+export function loadDailyNotionRecord(workDate?: string): NotionRecord | null {
+  if (workDate) {
+    return loadDailyNotionRecordForDate(workDate);
+  }
+
   return loadNotionRecord(DAILY_NOTION_RECORD_KEY);
 }
 
-export function saveDailyNotionRecord(record: NotionRecord) {
+export function loadDailyNotionRecordForDate(workDate: string): NotionRecord | null {
+  if (!workDate) return null;
+  const map = loadDailyNotionRecordMap();
+  if (map[workDate]) return map[workDate];
+
+  // 날짜별 저장 이전에 만든 기록(단일 키)은 workDate가 없으므로 저장 시각의 날짜로 연결한다.
+  const legacy = loadNotionRecord(DAILY_NOTION_RECORD_KEY);
+  if (!legacy) return null;
+  const legacyDate = legacy.workDate || dateFromSavedAt(legacy.savedAt);
+  return legacyDate === workDate ? legacy : null;
+}
+
+/** "2026. 10. 30. 오후 3:12:00" 같은 ko-KR 저장 시각에서 YYYY-MM-DD를 뽑는다. */
+function dateFromSavedAt(savedAt?: string): string {
+  const match = String(savedAt || "").match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+  if (!match) return "";
+  return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
+}
+
+export function saveDailyNotionRecord(record: NotionRecord, workDate?: string) {
+  const targetDate = workDate || record.workDate;
+  if (targetDate) {
+    saveDailyNotionRecordForDate(targetDate, record);
+    return;
+  }
+
   saveNotionRecord(DAILY_NOTION_RECORD_KEY, record);
 }
 
-export function clearDailyNotionRecord() {
+export function saveDailyNotionRecordForDate(workDate: string, record: NotionRecord) {
+  if (typeof window === "undefined" || !workDate) return;
+
+  const map = loadDailyNotionRecordMap();
+  map[workDate] = { ...record, workDate };
+  localStorage.setItem(DAILY_NOTION_RECORDS_BY_DATE_KEY, JSON.stringify(map));
+  // 구버전 단일 키와 동기화해 이전 화면 로직도 깨지지 않게 유지
+  saveNotionRecord(DAILY_NOTION_RECORD_KEY, { ...record, workDate });
+}
+
+export function clearDailyNotionRecord(workDate?: string) {
+  if (workDate) {
+    clearDailyNotionRecordForDate(workDate);
+    return;
+  }
+
+  clearAllDailyNotionRecords();
+}
+
+export function clearDailyNotionRecordForDate(workDate: string) {
+  if (typeof window === "undefined" || !workDate) return;
+
+  const map = loadDailyNotionRecordMap();
+  const removed = map[workDate];
+  if (workDate in map) {
+    delete map[workDate];
+    localStorage.setItem(DAILY_NOTION_RECORDS_BY_DATE_KEY, JSON.stringify(map));
+  }
+
+  const legacy = loadNotionRecord(DAILY_NOTION_RECORD_KEY);
+  if (
+    legacy &&
+    (legacy.workDate === workDate ||
+      (!legacy.workDate && dateFromSavedAt(legacy.savedAt) === workDate) ||
+      (removed?.pageId && legacy.pageId === removed.pageId) ||
+      (!legacy.workDate && Object.keys(map).length === 0))
+  ) {
+    clearNotionRecord(DAILY_NOTION_RECORD_KEY);
+  }
+}
+
+export function clearAllDailyNotionRecords() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(DAILY_NOTION_RECORDS_BY_DATE_KEY);
   clearNotionRecord(DAILY_NOTION_RECORD_KEY);
 }
 
@@ -169,6 +243,29 @@ export function saveIssueNotionRecord(record: NotionRecord) {
 
 export function clearIssueNotionRecord() {
   clearNotionRecord(ISSUE_NOTION_RECORD_KEY);
+}
+
+function loadDailyNotionRecordMap(): Record<string, NotionRecord> {
+  if (typeof window === "undefined") return {};
+
+  try {
+    const raw = localStorage.getItem(DAILY_NOTION_RECORDS_BY_DATE_KEY);
+    if (!raw) return {};
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+
+    const map: Record<string, NotionRecord> = {};
+    for (const [date, value] of Object.entries(parsed as Record<string, unknown>)) {
+      const record = value as NotionRecord;
+      if (record?.pageId) {
+        map[date] = record;
+      }
+    }
+    return map;
+  } catch {
+    return {};
+  }
 }
 
 function loadNotionRecord(key: string): NotionRecord | null {

@@ -335,6 +335,53 @@ async def update_daily_record(page_id: str, payload: dict[str, Any]) -> dict[str
     }
 
 
+async def _query_daily_pages_by_date(client: httpx.AsyncClient, work_date: str) -> list[dict[str, Any]]:
+    """업무일자(날짜 속성)와 같은 일일 기록 페이지를 Notion에서 직접 조회한다."""
+    database_id = _daily_database_id()
+    body = {
+        "filter": {"property": "날짜", "date": {"equals": work_date}},
+        "page_size": 10,
+    }
+
+    # 최신 Notion API는 data source 단위로 조회한다. 구조를 알 수 없으면 database 조회로 대체한다.
+    query_url = f"{NOTION_API_BASE}/databases/{database_id}/query"
+    db_response = await client.get(f"{NOTION_API_BASE}/databases/{database_id}", headers=_headers())
+    if db_response.status_code < 400:
+        data_sources = db_response.json().get("data_sources") or []
+        if data_sources and data_sources[0].get("id"):
+            query_url = f"{NOTION_API_BASE}/data_sources/{data_sources[0]['id']}/query"
+
+    response = await client.post(query_url, headers=_headers(), json=body)
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Notion daily record query failed: {response.text}",
+        )
+
+    return [
+        page
+        for page in response.json().get("results", [])
+        if not page.get("in_trash") and not page.get("archived")
+    ]
+
+
+async def find_daily_record_by_date(work_date: str) -> dict[str, Any]:
+    date_text = _date(work_date)["date"]["start"]
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        pages = await _query_daily_pages_by_date(client, date_text)
+
+    first = pages[0] if pages else None
+    return {
+        "success": True,
+        "date": date_text,
+        "found": first is not None,
+        "count": len(pages),
+        "pageId": first.get("id") if first else None,
+        "url": first.get("url") if first else None,
+    }
+
+
 async def delete_daily_record(page_id: str) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.patch(

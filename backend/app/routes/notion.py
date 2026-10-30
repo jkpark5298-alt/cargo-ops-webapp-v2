@@ -2,7 +2,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from app.services.notion import get_notion_links, create_daily_record, create_issue_record, delete_daily_record, delete_issue_record, update_daily_record, update_issue_record
+from app.services.notion import find_daily_record_by_date, get_notion_links, create_daily_record, create_issue_record, delete_daily_record, delete_issue_record, update_daily_record, update_issue_record
 
 router = APIRouter()
 
@@ -10,6 +10,11 @@ router = APIRouter()
 @router.get("/links")
 async def read_notion_links():
     return get_notion_links()
+
+
+@router.get("/daily-records")
+async def read_daily_record_by_date(date: str):
+    return await find_daily_record_by_date(date)
 
 
 @router.post("/daily-records")
