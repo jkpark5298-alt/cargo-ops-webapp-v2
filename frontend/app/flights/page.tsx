@@ -187,8 +187,10 @@ function patchScheduleRowsWithRegistrationFields(
     const source = key ? sourceByFlight.get(key) : undefined;
     if (!source) return row;
 
-    const registrationNo =
-      confirmedRegistrationNoFromRow(row) || confirmedRegistrationNoFromRow(source);
+    // 등록번호 화면에서 수동 수정한 값(source)은 카드의 기존 값보다 우선
+    const registrationNo = source.registrationNoEdited
+      ? confirmedRegistrationNoFromRow(source) || confirmedRegistrationNoFromRow(row)
+      : confirmedRegistrationNoFromRow(row) || confirmedRegistrationNoFromRow(source);
 
     return {
       ...row,
@@ -2710,18 +2712,38 @@ export default function FlightsPage() {
 
     setAircraftRegistrationRecords(nextAircraftRegistrationRecords);
 
-    const nextRows = applyAircraftRegistrationToRows(applyHlMappingToRows(rows, nextMap), nextAircraftRegistrationRecords).map(
-      (row) => {
-        const flight = getFlightKeyFromRow(row);
-        const wasEdited = incomingRecords.some(
-          (record) => normalizeFlightKey(record.flight) === normalizeFlightKey(flight),
-        );
-        return wasEdited ? { ...row, registrationNoEdited: true } : row;
-      },
+    // 이번에 실제로 값이 바뀐 편명만 수동 수정으로 취급 (기존 값이 있어도 새 값으로 덮어씀)
+    const changedByFlight = new Map<string, string>();
+    rows.forEach((row) => {
+      const flight = getFlightKeyFromRow(row);
+      if (!flight || flight === "-") return;
+      if (!Object.prototype.hasOwnProperty.call(hlInlineDrafts, flight)) return;
+      const draftNo = normalizeHlNumber(hlInlineDrafts[flight] || "");
+      if (!/^HL\d{3,5}$/i.test(draftNo)) return;
+      if (draftNo !== normalizeHlNumber(getRegistrationNo(row))) changedByFlight.set(flight, draftNo);
+    });
+    const applyChangedOverrides = (targetRows: FlightRow[]) =>
+      targetRows.map((row) => {
+        const registrationNo = changedByFlight.get(getFlightKeyFromRow(row));
+        return registrationNo
+          ? {
+              ...row,
+              hlnbr: registrationNo,
+              registrationNo,
+              aircraftRegNo: registrationNo,
+              registrationNoEdited: true,
+            }
+          : row;
+      });
+
+    const nextRows = applyChangedOverrides(
+      applyAircraftRegistrationToRows(applyHlMappingToRows(rows, nextMap), nextAircraftRegistrationRecords),
     );
     const nextRooms = rooms.map((room) => ({
       ...room,
-      rows: applyAircraftRegistrationToRows(applyHlMappingToRows(room.rows || [], nextMap), nextAircraftRegistrationRecords),
+      rows: applyChangedOverrides(
+        applyAircraftRegistrationToRows(applyHlMappingToRows(room.rows || [], nextMap), nextAircraftRegistrationRecords),
+      ),
     }));
 
     setRows(nextRows);
