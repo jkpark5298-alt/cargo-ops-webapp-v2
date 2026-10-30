@@ -725,6 +725,16 @@ def _merge_aircraft_registrations(
 
 def _build_aircraft_registration_lookup(records: Optional[List[Dict[str, Any]]] = None) -> Dict[str, str]:
     lookup: Dict[str, str] = {}
+    stamps: Dict[str, str] = {}
+
+    def set_if_newer(key: str, value: str, stamp: str) -> None:
+        # 엑셀 업로드 후 매뉴얼로 수정한 값처럼 가장 최근에 저장한 값이 우선한다.
+        if not key:
+            return
+        if key not in lookup or stamp >= stamps.get(key, ""):
+            lookup[key] = value
+            stamps[key] = stamp
+
     for record in records if records is not None else _read_aircraft_registrations():
         parsed = _normalize_aircraft_registration_record(record)
         if not parsed:
@@ -737,13 +747,12 @@ def _build_aircraft_registration_lookup(records: Optional[List[Dict[str, Any]]] 
             parsed.get("arrivalCode"),
         )
         fallback_key = _aircraft_registration_flight_date_key(parsed.get("date"), parsed.get("flight"))
+        registration_no = str(parsed.get("registrationNo") or "")
+        stamp = str(parsed.get("updatedAt") or "")
 
-        lookup[exact_key] = str(parsed.get("registrationNo") or "")
-        if fallback_key not in lookup:
-            lookup[fallback_key] = str(parsed.get("registrationNo") or "")
-        flight_key = str(parsed.get("flight") or "")
-        if flight_key and flight_key not in lookup:
-            lookup[flight_key] = str(parsed.get("registrationNo") or "")
+        set_if_newer(exact_key, registration_no, stamp)
+        set_if_newer(fallback_key, registration_no, stamp)
+        set_if_newer(str(parsed.get("flight") or ""), registration_no, stamp)
 
     return lookup
 

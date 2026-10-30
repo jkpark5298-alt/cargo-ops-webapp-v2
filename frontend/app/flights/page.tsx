@@ -843,14 +843,11 @@ function buildAircraftRegistrationMap(records: AircraftRegistrationRecord[]) {
     }
   });
 
-  const finalMap = new Map<string, string>();
-  tempMap.forEach((value, key) => {
-    finalMap.set(key, value.registrationNo);
-  });
+  const finalMap = new Map<string, { registrationNo: string; updatedAt: string }>(tempMap);
   // 같은 편명이 날짜마다 다른 HL이면 편명만으로 덮지 않습니다. (KJ283 09.04 HL7620 vs 다른 날 HL7423)
   hlByFlight.forEach((hls, flightKey) => {
     if (hls.size === 1) {
-      finalMap.set(flightKey, [...hls][0]);
+      finalMap.set(flightKey, { registrationNo: [...hls][0], updatedAt: "" });
     }
   });
 
@@ -882,18 +879,19 @@ function getAircraftRegistrationForRow(row: FlightRow, records: AircraftRegistra
   const flight = getFlightDisplay(row);
   const dates = getFlightRowCandidateDates(row);
 
+  // 엑셀 업로드와 매뉴얼 저장이 날짜·노선 키만 달라도 가장 최근에 저장한 값을 사용합니다.
+  let best: { registrationNo: string; updatedAt: string } | null = null;
+  const consider = (key: string) => {
+    const hit = map.get(key);
+    if (hit && (!best || hit.updatedAt > best.updatedAt)) best = hit;
+  };
   for (const date of dates) {
-    const exactKey = buildAircraftRegistrationKey(date, flight, row.departureCode, row.arrivalCode);
-    const hit = map.get(exactKey);
-    if (hit) return hit;
+    consider(buildAircraftRegistrationKey(date, flight, row.departureCode, row.arrivalCode));
+    consider(buildAircraftRegistrationFlightDateKey(date, flight));
   }
-  for (const date of dates) {
-    const fallbackKey = buildAircraftRegistrationFlightDateKey(date, flight);
-    const hit = map.get(fallbackKey);
-    if (hit) return hit;
-  }
+  if (best) return (best as { registrationNo: string }).registrationNo;
 
-  return map.get(normalizeHlFlightKey(flight)) || "";
+  return map.get(normalizeHlFlightKey(flight))?.registrationNo || "";
 }
 
 function applyAircraftRegistrationToRows(rows: FlightRow[], records: AircraftRegistrationRecord[]) {
@@ -1244,7 +1242,17 @@ function findBestExcelRowForScheduleRow(
 ): ParsedRegistrationAfocsExcelRow | null {
   const candidates = excelRows.filter((excel) => excel.flight === getFlightKeyFromRow(row));
   if (candidates.length === 0) return null;
-  if (candidates.length === 1) return candidates[0];
+  if (candidates.length === 1) {
+    // 한 줄뿐이어도 일자·노선이 다르면 다른 운항분이므로 적용하지 않습니다.
+    const only = candidates[0];
+    const rowDates = getFlightRowCandidateDates(row);
+    const rowDep = normalizeAirportCode(row.departureCode);
+    const rowArr = normalizeAirportCode(row.arrivalCode);
+    if (only.date && rowDates.length > 0 && !rowDates.includes(only.date)) return null;
+    if (only.departureCode && rowDep && only.departureCode !== rowDep) return null;
+    if (only.arrivalCode && rowArr && only.arrivalCode !== rowArr) return null;
+    return only;
+  }
 
   let best: ParsedRegistrationAfocsExcelRow | null = null;
   let bestScore = -1;
@@ -2314,104 +2322,6 @@ export default function FlightsPage() {
     });
   };
 
-  const handleAircraftRegistrationExcelUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-
-    if (!file) return;
-
-    try {
-      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
-      const firstSheetName = workbook.SheetNames[0];
-      const firstSheet = firstSheetName ? workbook.Sheets[firstSheetName] : null;
-
-      if (!firstSheet) {
-        setHlMappingStatus("엑셀 시트를 찾지 못했습니다.");
-        return;
-      }
-
-      const rawRows = sheetToRegistrationAfocsRows(firstSheet);
-      const parsedRecords = parseAircraftRegistrationRows(rawRows);
-
-      if (parsedRecords.length === 0) {
-        setHlMappingStatus("업로드된 엑셀에서 등록기호 데이터를 찾지 못했습니다. 운항일자/편명/출발코드/도착코드/등록기호 컬럼을 확인해 주세요.");
-        return;
-      }
-
-      // --- 1. Optimistic Update (Immediate) ---
-      setAircraftRegistrationRecords(parsedRecords);
-      saveAircraftRegistrationRecords(parsedRecords);
-
-      let nextRows = applyAircraftRegistrationToRows(rows, parsedRecords);
-      let nextRooms = rooms.map((room) => ({
-        ...room,
-        rows: applyAircraftRegistrationToRows(room.rows || [], parsedRecords),
-      }));
-
-      setRows(nextRows);
-      setRooms(nextRooms);
-      saveRooms(nextRooms);
-
-      setHlMappingStatus(`등록기호 엑셀 ${parsedRecords.length}건 읽기 완료 · 로컬 반영 완료 · 서버 저장 중...`);
-
-      // --- 2. Background Sync ---
-      // We run the server sync asynchronously to keep the UI instant
-      void (async () => {
-        let serverSyncMessage = "";
-        let finalRecords = parsedRecords;
-
-        try {
-          finalRecords = await saveAircraftRegistrationRecordsToServer(parsedRecords, "replace");
-          saveAircraftRegistrationRecords(finalRecords);
-          serverSyncMessage = " · 서버 저장 완료";
-        } catch (serverError) {
-          serverSyncMessage =
-            serverError instanceof Error
-              ? ` · 서버 저장 실패: ${serverError.message}`
-              : " · 서버 저장 실패";
-        }
-
-        setAircraftRegistrationRecords(finalRecords);
-
-        nextRows = applyAircraftRegistrationToRows(rows, finalRecords);
-        nextRooms = rooms.map((room) => ({
-          ...room,
-          rows: applyAircraftRegistrationToRows(room.rows || [], finalRecords),
-        }));
-
-        setRows(nextRows);
-        setRooms(nextRooms);
-        saveRooms(nextRooms);
-
-        const nextSelectedRoom = selectedRoom
-          ? nextRooms.find((room) => room.id === selectedRoom.id) || null
-          : null;
-
-        if (nextSelectedRoom?.fixed) {
-          try {
-            await saveLatestScheduleToServer(normalizeScheduleRoomRows(nextSelectedRoom));
-            setHlMappingStatus(`등록기호 엑셀 ${parsedRecords.length}건 업로드 · 총 ${finalRecords.length}건 관리${serverSyncMessage} · AFOCS SKD/초기화면 반영`);
-          } catch (error) {
-            setHlMappingStatus(
-              error instanceof Error
-                ? `등록기호 엑셀 ${parsedRecords.length}건 로컬 반영 · 서버 반영 실패: ${error.message}`
-                : `등록기호 엑셀 ${parsedRecords.length}건 로컬 반영 · 서버 반영 실패`,
-            );
-          }
-          return;
-        }
-
-        setHlMappingStatus(`등록기호 엑셀 ${parsedRecords.length}건 업로드 · 총 ${finalRecords.length}건 관리${serverSyncMessage}`);
-      })();
-    } catch (error) {
-      setHlMappingStatus(
-        error instanceof Error
-          ? `등록기호 엑셀 업로드 실패: ${error.message}`
-          : "등록기호 엑셀 업로드 중 오류가 발생했습니다.",
-      );
-    }
-  };
-
   const handleHlInlineDraftChange = (flight: string, value: string) => {
     const key = normalizeHlFlightKey(flight);
     if (!key) return;
@@ -2549,12 +2459,9 @@ export default function FlightsPage() {
         return;
       }
 
-      const latestRecords = loadAircraftRegistrationRecords();
-      let nextRecords =
-        parsedRecords.length > 0
-          ? mergeAircraftRegistrationRecords(latestRecords, parsedRecords)
-          : latestRecords;
-
+      // 엑셀 업로드는 기존(매뉴얼 포함) 값을 덮어씁니다. 이후 표에서 직접 수정·저장한 값이 다시 우선합니다.
+      const uploadedAt = new Date().toISOString();
+      const rowRecords: AircraftRegistrationRecord[] = [];
       let matchedHl = 0;
       let matchedAfocs = 0;
       let nextRows = rows.map((row) => {
@@ -2562,13 +2469,23 @@ export default function FlightsPage() {
         let next = row;
         if (matchedExcel?.registrationNo) {
           matchedHl += 1;
+          const changed = matchedExcel.registrationNo !== normalizeHlNumber(getRegistrationNo(row));
           next = {
             ...next,
             hlnbr: matchedExcel.registrationNo,
             registrationNo: matchedExcel.registrationNo,
             aircraftRegNo: matchedExcel.registrationNo,
-            registrationNoEdited: true,
+            registrationNoEdited: Boolean(row.registrationNoEdited || changed),
           };
+          // 일자 열이 없거나 노선 표기가 달라도 서버에 저장되도록 행 기준 키로도 기록합니다.
+          rowRecords.push({
+            date: getAircraftRegistrationDateFromRow(row),
+            flight: getFlightKeyFromRow(row),
+            departureCode: row.departureCode || "",
+            arrivalCode: row.arrivalCode || "",
+            registrationNo: matchedExcel.registrationNo,
+            updatedAt: uploadedAt,
+          });
         }
         if (matchedExcel?.afocsSkd) {
           matchedAfocs += 1;
@@ -2576,6 +2493,13 @@ export default function FlightsPage() {
         }
         return next;
       });
+
+      const uploadRecords = [...parsedRecords, ...rowRecords];
+      const latestRecords = loadAircraftRegistrationRecords();
+      let nextRecords =
+        uploadRecords.length > 0
+          ? mergeAircraftRegistrationRecords(latestRecords, uploadRecords)
+          : latestRecords;
       nextRows = applyAircraftRegistrationToRows(nextRows, nextRecords);
 
       if (matchedHl === 0 && matchedAfocs === 0) {
@@ -2590,9 +2514,9 @@ export default function FlightsPage() {
       setAfocsSkdInlineDrafts({});
 
       let serverMessage = "";
-      if (parsedRecords.length > 0) {
+      if (uploadRecords.length > 0) {
         try {
-          nextRecords = await saveAircraftRegistrationRecordsToServer(parsedRecords, "merge");
+          nextRecords = await saveAircraftRegistrationRecordsToServer(uploadRecords, "merge");
           saveAircraftRegistrationRecords(nextRecords);
           serverMessage = " · 등록기호 서버 저장";
         } catch (serverError) {
@@ -4793,7 +4717,7 @@ export default function FlightsPage() {
                 AFOCS SKD 저장
               </button>
               <span style={hlInlineHelpStyle}>
-                확정 순서 ① 매뉴얼(편명조회 직접 등록) → ② 등록번호/AFOCS. 엑셀·표 입력은 빈 칸만 채웁니다 · 관리{" "}
+                확정 순서 ① 매뉴얼(편명조회 직접 등록) → ② 등록번호/AFOCS. 엑셀 업로드는 기존 값을 덮어쓰고, 이후 표에서 직접 수정·저장한 값이 우선합니다 · 관리{" "}
                 {aircraftRegistrationRecords.length}건
               </span>
             </div>
