@@ -132,6 +132,7 @@ function FlightRouteRows({
   // SSR/CSR Date.now() 차이를 피해 hydration mismatch(React #423)를 막습니다.
   const [focusNowMs, setFocusNowMs] = useState<number | null>(null);
   const [csmTransferStatus, setCsmTransferStatus] = useState("");
+  const [csmTransferOk, setCsmTransferOk] = useState(true);
 
   const toggleExpandFlight = (flight: string) => {
     const key = normalizeSummaryFlightKey(flight);
@@ -181,6 +182,7 @@ function FlightRouteRows({
 
   const handleSendToCsmChecklist = () => {
     const result = openCsmChecklistWithFlights(visibleItems);
+    setCsmTransferOk(result.opened);
     setCsmTransferStatus(result.message);
   };
 
@@ -303,7 +305,11 @@ function FlightRouteRows({
           </div>
         </div>
       )}
-      {csmTransferStatus ? <div style={csmTransferStatusStyle}>{csmTransferStatus}</div> : null}
+      {csmTransferStatus ? (
+        <div style={csmTransferOk ? csmTransferStatusStyle : csmTransferErrorStyle}>
+          {csmTransferStatus}
+        </div>
+      ) : null}
 
       {/* AFOCS SKD Schedule Flight 선택 — 요약 카드 */}
       {room && items.length > 0 && (
@@ -1555,6 +1561,13 @@ const csmTransferStatusStyle: CSSProperties = {
   fontSize: 12,
   fontWeight: 700,
   lineHeight: 1.45,
+};
+
+const csmTransferErrorStyle: CSSProperties = {
+  ...csmTransferStatusStyle,
+  border: "1px solid rgba(251, 113, 133, 0.45)",
+  background: "rgba(136, 19, 55, 0.28)",
+  color: "#fecdd3",
 };
 
 const focusBadgeStyle: CSSProperties = {
