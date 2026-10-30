@@ -1,9 +1,13 @@
-const DEFAULT_CSM_CHECKLIST_URL = "https://csm-checklist-shift.vercel.app";
+const DEFAULT_CSM_CHECKLIST_URL = "https://csm-checklist.vercel.app";
 const CSM_MAX_FLIGHTS = 8;
+
+export type CsmChecklistType = "A" | "B";
 
 export type CsmFlightTransferItem = {
   flight: string;
   spot: string;
+  /** 빨간색(인천 출발)=A, 파란색(인천 도착)=B */
+  type: CsmChecklistType;
 };
 
 export function getCsmChecklistBaseUrl(): string {
@@ -21,8 +25,22 @@ export function stripAirlinePrefix(flight: string): string {
   return digits || compact.replace(/\D/g, "");
 }
 
+/** 화면 편명 색과 동일: 인천 출발은 빨간색(TYPE A), 인천 도착은 파란색(TYPE B) */
+export function csmTypeFromRoute(dep?: string, arr?: string): CsmChecklistType {
+  const d = String(dep || "").trim().toUpperCase();
+  const a = String(arr || "").trim().toUpperCase();
+  if (d === "ICN" || d === "RKSI") return "A";
+  if (a === "ICN" || a === "RKSI") return "B";
+  return "A";
+}
+
 export function toCsmFlightTransferItems(
-  items: Array<{ flight?: string; gate?: string }>,
+  items: Array<{
+    flight?: string;
+    gate?: string;
+    departureCode?: string;
+    arrivalCode?: string;
+  }>,
 ): CsmFlightTransferItem[] {
   const seen = new Set<string>();
   const result: CsmFlightTransferItem[] = [];
@@ -38,7 +56,11 @@ export function toCsmFlightTransferItems(
     const key = `${flight}|${spot}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    result.push({ flight, spot });
+    result.push({
+      flight,
+      spot,
+      type: csmTypeFromRoute(item.departureCode, item.arrivalCode),
+    });
   }
 
   return result;
@@ -73,7 +95,12 @@ export function buildCsmChecklistImportUrl(
 }
 
 export function openCsmChecklistWithFlights(
-  items: Array<{ flight?: string; gate?: string }>,
+  items: Array<{
+    flight?: string;
+    gate?: string;
+    departureCode?: string;
+    arrivalCode?: string;
+  }>,
 ): { opened: boolean; count: number; message: string } {
   const mapped = toCsmFlightTransferItems(items);
   if (mapped.length === 0) {
@@ -85,7 +112,16 @@ export function openCsmChecklistWithFlights(
   }
 
   const { url, count, truncated } = buildCsmChecklistImportUrl(mapped);
-  window.open(url, "_blank", "noopener,noreferrer");
+  const openedWindow = window.open(url, "_blank");
+  if (!openedWindow) {
+    return {
+      opened: false,
+      count: 0,
+      message:
+        "CSM CHECK LIST 창이 차단되었습니다. 팝업을 허용한 뒤 다시 전달해 주세요.",
+    };
+  }
+  openedWindow.opener = null;
 
   return {
     opened: true,
