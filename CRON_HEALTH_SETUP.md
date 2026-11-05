@@ -37,4 +37,4 @@ https://cargo-ops-backend.onrender.com/flights/health
 
 `/flights/health`는 서버를 깨우는 용도 외에, 호출될 때 **자동 푸시 시각이 되었으면 변경 확인·푸시를 함께 실행**합니다
 (`routes/flights/monitoring.py`의 `health_check` → `schedule_monitor._run_auto_push_tick_if_due`).
-따라서 cron 호출 간격이 곧 자동 확인의 최소 주기이며, 단순 상태 확인만 필요하면 `GET /health/health`를 사용하세요.
+따라서 cron 호출 간격이 곧 자동 확인의 최소 주기입니다. 변경 확인·푸시 없이 상태만 보고 싶으면 `GET /flights/health?tick=false`(또는 `GET /health/health`)를 사용하세요.

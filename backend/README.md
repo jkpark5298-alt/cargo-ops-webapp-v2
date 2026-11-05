@@ -78,7 +78,7 @@ INCHEON_API_SERVICE_KEY=키 uvicorn app.main:app --reload
 | `GET /flights/push-public-key`, `POST /flights/push-subscriptions`, `GET …/count`, `POST /flights/push-test` | 웹푸시 |
 | `GET·DELETE /flights/notification-history`, `POST …/clear`, `POST …/delete-item` | 알림 기록 |
 | `GET /flights/incheon-api-usage`, `GET …/incheon-api-probe` | 인천 API 호출량·진단 |
-| `GET /flights/health` | 서버 깨우기용. 호출될 때 자동 푸시 시각이 되었으면 함께 실행([CRON_HEALTH_SETUP.md](../CRON_HEALTH_SETUP.md)) |
+| `GET /flights/health` | 서버 깨우기용. 호출될 때 자동 푸시 시각이 되었으면 함께 실행([CRON_HEALTH_SETUP.md](../CRON_HEALTH_SETUP.md)). `?tick=false`면 실행하지 않고 상태만 반환 |
 | `GET /health/health` | 단순 상태 확인 |
 | `GET /notion/links`, `GET·POST /notion/daily-records`, `PATCH·DELETE …/{page_id}`, `POST /notion/issue-records`, `PATCH·DELETE …/{page_id}` | Notion 기록. `GET /notion/daily-records?date=YYYY-MM-DD`는 그 날짜 기록이 Notion에 있는지 조회 |
 | `GET /weather/current`, `GET /widget/fixed/{room_id}` | 날씨 / 위젯 요약 |

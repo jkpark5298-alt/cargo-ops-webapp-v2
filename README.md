@@ -15,7 +15,7 @@
 |---|---|---|
 | `/` | 초기화면 | 오늘 업무: Schedule Flight 요약, 알림 이력, PWA 푸시, 일일 업무 기록(사진·메모→Notion), 특이사항 |
 | `/flights` | 편명조회 | ① 편명 조회 및 저장 · ② 편명 수정 · ③ 등록번호 / AFOCS (엑셀 일괄 등록 포함) |
-| `/fixed-lite` | AFOCS SKD | 고정된 Schedule Flight의 편 목록, AFOCS SKD 시간 입력·정렬, 자동 조회 |
+| `/afocs-skd` | AFOCS SKD | 고정된 Schedule Flight의 편 목록, AFOCS SKD 시간 입력·정렬, 자동 조회 (예전 주소 `/fixed-lite`는 자동으로 연결) |
 
 ## 폴더 구조
 
@@ -25,7 +25,7 @@ backend/                 FastAPI 서버 (자세한 내용: backend/README.md)
   app/services/          비즈니스 로직 (스케줄 저장, 등록기호, 알림, 인천 API …)
 frontend/                Next.js 앱 (자세한 내용: frontend/README.md)
   app/page.tsx           초기화면          app/home/       초기화면의 훅·헬퍼·스타일
-  app/flights/           편명조회          app/fixed-lite/ AFOCS SKD 화면
+  app/flights/           편명조회          app/afocs-skd/ AFOCS SKD 화면
   app/lib/               세 화면이 공유하는 규칙(편명 정규화, 등록번호 우선순위, 스케줄 저장 …)
 supabase/                테이블 생성 SQL
 docs/architecture.md     구조·데이터 흐름·핵심 규칙

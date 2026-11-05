@@ -8,7 +8,7 @@
 │ Next.js (Vercel)      │ ─────────▶ │ /flights  /notion       │ ──▶ 인천공항 화물기 API (공공데이터)
 │  /          초기화면   │            │ /weather  /widget       │ ──▶ Notion API
 │  /flights   편명조회   │ ◀───────── │ 자동 푸시 루프           │ ──▶ 날씨 API
-│  /fixed-lite AFOCS SKD│   푸시     └───────────┬────────────┘ ──▶ Web Push
+│  /afocs-skd AFOCS SKD│   푸시     └───────────┬────────────┘ ──▶ Web Push
 │  localStorage        │                         │
 └──────────────────────┘                  Supabase + /tmp 파일
 ```
@@ -19,7 +19,7 @@
 |---|---|
 | `app/page.tsx`, `app/home/` | 초기화면. 화면 조립은 `page.tsx`, 기능별 상태·핸들러는 `home/hooks/*`(알림 이력, PWA 푸시, 사진, 일일 Notion, 특이사항 Notion, 텍스트 공유) |
 | `app/flights/` | 편명조회. `hooks/*`(슬롯, 등록번호 편집, 조회, 선택·저장)와 `components/*`(탭별 패널·표) |
-| `app/fixed-lite/` | AFOCS SKD 화면. `hooks/*`(날씨, 일일 보고 동기화, 정렬)와 `components/*` |
+| `app/afocs-skd/` | AFOCS SKD 화면. `hooks/*`(날씨, 일일 보고 동기화, 정렬)와 `components/*` |
 | `app/components/` | 초기화면 카드(요약·일일 기록·특이사항·날씨·알림 이력 등) |
 | `app/lib/` | **세 화면이 공유하는 규칙** (아래) |
 

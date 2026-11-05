@@ -488,7 +488,7 @@ export default function FlightsPage() {
       return;
     }
 
-    router.push("/fixed-lite");
+    router.push("/afocs-skd");
   };
 
   const handleFlightModeChange = (mode: FlightMode) => {

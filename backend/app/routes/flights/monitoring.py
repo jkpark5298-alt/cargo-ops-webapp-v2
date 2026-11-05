@@ -85,8 +85,10 @@ async def incheon_api_probe(
 
 
 @router.get("/health")
-async def health_check() -> Dict[str, Any]:
-    tick = await _run_auto_push_tick_if_due("health")
+async def health_check(tick: bool = True) -> Dict[str, Any]:
+    """서버 깨우기/상태 확인. 기본은 자동 푸시 시각이 되었으면 함께 실행(cron 용).
+    상태만 보려면 `?tick=false` 로 호출하면 변경 확인·푸시를 실행하지 않는다."""
+    tick_result = await _run_auto_push_tick_if_due("health") if tick else {"skipped": True}
     room = _read_latest_schedule()
     status = _read_auto_push_status()
     interval = _get_current_auto_interval_minutes()
@@ -109,7 +111,7 @@ async def health_check() -> Dict[str, Any]:
         "lastMessage": status.get("lastMessage") or "",
         "scheduleFlightCount": len(requested_flights),
         "rowCount": len(rows),
-        "tick": tick,
+        "tick": tick_result,
     }
 
 

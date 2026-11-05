@@ -439,7 +439,7 @@ export default function HomePage() {
 
   const openScheduleFlight = () => {
     if (latestRoom) {
-      router.push("/fixed-lite");
+      router.push("/afocs-skd");
       return;
     }
     router.push("/flights");

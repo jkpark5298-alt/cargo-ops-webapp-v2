@@ -175,7 +175,7 @@ async function renderPage(name, file, setup, steps) {
   const FIXED = [["click", "A"], ["click", "S"], ["click", "🔴 특이사항 있음"], ["type", "textarea", { value: "메모 입력" }], ["click", "💾 Supabase에 저장 및 동기화"], ["click", "다시 조회"], ["click", "🔄 갱신"], ["click", "편명조회로"]];
   results.home = await renderPage("home", "app/page.js", seedRooms, HOME);
   results.flights = await renderPage("flights", "app/flights/page.js", seedRooms, FLIGHTS);
-  results.fixedLite = await renderPage("fixed-lite", "app/fixed-lite/page.js", seedRooms, FIXED);
+  results.afocsSkd = await renderPage("afocs-skd", "app/afocs-skd/page.js", seedRooms, FIXED);
   // 편명조회 모드 전환 동작 (탭 클릭) 도 확인
   fs.writeFileSync(outFile, JSON.stringify(results, null, 1));
   const summary = Object.fromEntries(Object.entries(results).map(([k, v]) => [k, { 글자수: v.textLength, 버튼: v.buttons.length, 입력: v.inputs.length, fetch: v.fetchCalls.length, 오류: v.errors.length }]));

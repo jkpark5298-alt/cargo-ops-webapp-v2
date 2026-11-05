@@ -103,6 +103,7 @@ with TestClient(app) as client:
     call("root", client.get("/"))
     call("health", client.get("/health/health"))
     call("flights_health", client.get("/flights/health"))
+    call("flights_health_no_tick", client.get("/flights/health", params={"tick": "false"}))
     call("push_public_key", client.get("/flights/push-public-key"))
     call("push_count", client.get("/flights/push-subscriptions/count"))
     call("incheon_usage_empty", client.get("/flights/incheon-api-usage"))
