@@ -426,3 +426,18 @@ export function getUint32Safe(view: DataView, offset: number, littleEndian: bool
   if (offset < 0 || offset + 4 > view.byteLength) return 0;
   return view.getUint32(offset, littleEndian);
 }
+
+/** 같은 내용을 연속 저장했는지 비교하기 위한 서명 */
+export function makeSaveSignature(payload: unknown) {
+  return JSON.stringify(payload);
+}
+
+/** 직전에 같은 내용을 10분 안에 저장했으면 true (중복 저장 방지) */
+export function isRecentSameSave(
+  previous: { signature: string; savedAt: number } | null,
+  signature: string,
+) {
+  if (!previous) return false;
+  const elapsedMs = Date.now() - previous.savedAt;
+  return previous.signature === signature && elapsedMs < 10 * 60 * 1000;
+}
