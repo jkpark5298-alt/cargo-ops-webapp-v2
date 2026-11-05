@@ -54,6 +54,7 @@ INCHEON_API_SERVICE_KEY=키 uvicorn app.main:app --reload
 | `INCHEON_API_SERVICE_KEY` | — | 공공데이터포털 인천공항 화물기 API 서비스키(Decoding 키) |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | — | Supabase 저장소(없으면 `/tmp` 파일만 사용 → 서버 재시작 시 사라짐) |
 | `WEB_PUSH_PUBLIC_KEY`, `WEB_PUSH_PRIVATE_KEY`, `WEB_PUSH_SUBJECT` | — | 웹푸시 VAPID 키 (`scripts/generate_vapid_keys.py`) |
+| `API_ACCESS_TOKEN` | — | 설정하면 알림·자동 확인 변경 API(`push-test`, `push-subscriptions`, `check-schedule-and-push`, `check-schedule`, `auto-push/config`, `latest-schedule/check-push-and-save`)가 `X-API-Token` 헤더를 요구합니다. 비워 두면 검사하지 않습니다. 프론트의 `NEXT_PUBLIC_API_TOKEN`과 같은 값으로 설정하세요. |
 | `AUTO_PUSH_ENABLED`, `AUTO_PUSH_INTERVAL_MINUTES` | `true`, `30` | 자동 변경 확인·푸시 |
 | `NOTION_TOKEN`, `NOTION_DAILY_DATABASE_ID`, `NOTION_ISSUE_DATABASE_ID` | — | Notion 기록 |
 | `NOTION_VERSION`, `NOTION_MAX_IMAGE_BYTES` | `2026-03-11`, 20MB | Notion API 버전, 이미지 최대 크기 |

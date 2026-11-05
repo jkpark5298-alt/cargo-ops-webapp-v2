@@ -5,14 +5,14 @@ from __future__ import annotations
 from typing import Any, Dict, List
 import os
 
-from fastapi import APIRouter, HTTPException
-from pywebpush import WebPushException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.routes.flights.models import PushSubscriptionRequest, TestPushRequest
 from app.services.flight_common import _now_kst_iso
+from app.services.api_auth import require_api_token
 from app.services.notification_store import (
+    _broadcast_web_push,
     _read_push_subscriptions,
-    _send_web_push,
     _write_push_subscriptions,
 )
 router = APIRouter()
@@ -28,7 +28,7 @@ async def get_push_public_key() -> Dict[str, Any]:
     }
 
 
-@router.post("/push-subscriptions")
+@router.post("/push-subscriptions", dependencies=[Depends(require_api_token)])
 async def save_push_subscription(payload: PushSubscriptionRequest) -> Dict[str, Any]:
     subscription = dict(payload.subscription or {})
     endpoint = str(subscription.get("endpoint") or "")
@@ -67,7 +67,7 @@ async def get_push_subscription_count() -> Dict[str, Any]:
     }
 
 
-@router.post("/push-test")
+@router.post("/push-test", dependencies=[Depends(require_api_token)])
 async def send_test_push(payload: TestPushRequest) -> Dict[str, Any]:
     items = _read_push_subscriptions()
 
@@ -80,26 +80,12 @@ async def send_test_push(payload: TestPushRequest) -> Dict[str, Any]:
         "url": payload.url,
     }
 
-    sent = 0
-    failed = 0
-    errors: List[str] = []
-
-    for item in items:
-        subscription = item.get("subscription") or {}
-
-        try:
-            _send_web_push(subscription, message)
-            sent += 1
-        except WebPushException as exc:
-            failed += 1
-            errors.append(str(exc))
-        except Exception as exc:
-            failed += 1
-            errors.append(str(exc))
+    result = _broadcast_web_push(message)
 
     return {
-        "success": sent > 0,
-        "sent": sent,
-        "failed": failed,
-        "errors": errors[:3],
+        "success": result["sent"] > 0,
+        "sent": result["sent"],
+        "failed": result["failed"],
+        "removed": result["removed"],
+        "errors": result["errors"],
     }

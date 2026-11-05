@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Optional
 import asyncio
 
 from fastapi import HTTPException
-from pywebpush import WebPushException
 from app.services.incheon_api import (
     IncheonApiAuthError,
     IncheonApiQuotaExceededError,
@@ -45,9 +44,8 @@ from app.services.flight_rows import (
 from app.services.incheon_usage import _record_incheon_api_usage_for_rows
 from app.services.notification_store import (
     _append_notification_history,
+    _broadcast_web_push,
     _read_auto_push_status,
-    _read_push_subscriptions,
-    _send_web_push,
     _update_auto_push_status,
     _write_auto_push_status,
 )
@@ -342,7 +340,24 @@ def _write_checked_schedule_room(room: Dict[str, Any]) -> Dict[str, Any]:
     return saved
 
 
+_CHECK_LOCKS: Dict[int, asyncio.Lock] = {}
+
+
+def _get_check_lock() -> asyncio.Lock:
+    loop_id = id(asyncio.get_running_loop())
+    lock = _CHECK_LOCKS.get(loop_id)
+    if lock is None:
+        lock = _CHECK_LOCKS[loop_id] = asyncio.Lock()
+    return lock
+
+
 async def _run_schedule_change_check(push_on_change: bool = True) -> Dict[str, Any]:
+    """변경 확인(+푸시). 자동 반복문·cron health·즉시 확인 버튼이 겹쳐도 한 번에 하나만 실행해 알림 중복을 막는다."""
+    async with _get_check_lock():
+        return await _run_schedule_change_check_unlocked(push_on_change)
+
+
+async def _run_schedule_change_check_unlocked(push_on_change: bool = True) -> Dict[str, Any]:
     room = _get_schedule_room_for_api_check()
 
     if not room:
@@ -465,20 +480,10 @@ async def _run_schedule_change_check(push_on_change: bool = True) -> Dict[str, A
         )
 
     if changed_items and push_on_change:
-        payload = _build_compact_schedule_push(changed_items)
-
-        for item in _read_push_subscriptions():
-            subscription = item.get("subscription") or {}
-
-            try:
-                _send_web_push(subscription, payload)
-                sent += 1
-            except WebPushException as exc:
-                failed += 1
-                errors.append(str(exc))
-            except Exception as exc:
-                failed += 1
-                errors.append(str(exc))
+        push_result = _broadcast_web_push(_build_compact_schedule_push(changed_items))
+        sent = push_result["sent"]
+        failed = push_result["failed"]
+        errors = push_result["errors"]
 
     if prealert_keys_to_save:
         _append_arrival_prealert_keys(prealert_keys_to_save)
@@ -541,38 +546,17 @@ def _get_current_auto_interval_minutes() -> int:
 
 
 async def _auto_push_loop() -> None:
+    """1분마다 '확인할 때가 되었는지'만 검사한다. 실제 확인은 평상시 30분, 집중 시간대 5분 간격(_run_auto_push_tick_if_due)."""
     while True:
-        status = _read_auto_push_status()
-        interval_minutes = _get_current_auto_interval_minutes()
-        enabled = bool(status.get("enabled", True))
-
-        if enabled:
+        try:
+            await _run_auto_push_tick_if_due("loop")
+        except Exception as exc:  # 반복문이 죽지 않게 한다
             try:
-                result = await _run_schedule_change_check(push_on_change=True)
-                changed = result.get("changed", 0)
-                sent = result.get("sent", 0)
-                mode = "집중 5분" if interval_minutes == 5 else "일반 30분"
-                message = (
-                    f"자동 확인 완료({mode}): 변경 {changed}건, 푸시 {sent}건"
-                    if changed
-                    else f"자동 확인 완료({mode}): 변경 없음, 재조회 {result.get('checked', 0)}건"
-                )
-                _update_auto_push_status(
-                    enabled=True,
-                    intervalMinutes=interval_minutes,
-                    lastRunAt=_now_kst_iso(),
-                    lastMessage=message,
-                    lastResult=result,
-                )
-            except Exception as exc:
-                _update_auto_push_status(
-                    enabled=True,
-                    intervalMinutes=interval_minutes,
-                    lastRunAt=_now_kst_iso(),
-                    lastMessage=f"자동 확인 오류: {exc}",
-                )
+                _update_auto_push_status(lastMessage=f"자동 확인 반복 오류: {exc}")
+            except Exception:
+                pass
 
-        await asyncio.sleep(min(interval_minutes, 5) * 60)
+        await asyncio.sleep(60)
 
 
 async def _run_auto_push_tick_if_due(source: str = "health") -> Dict[str, Any]:

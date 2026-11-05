@@ -18,7 +18,7 @@ const compile = (rel) => {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.writeFileSync(dest, js);
 };
-["lib/flight-types", "lib/flight-keys", "lib/flight-status", "lib/aircraft-registration", "lib/schedule-store", "lib/api-config", "lib/afocs-skd", "lib/csm-checklist",
+["lib/flight-types", "lib/flight-keys", "lib/flight-status", "lib/aircraft-registration", "lib/schedule-store", "lib/api-config", "lib/afocs-skd", "lib/csm-checklist", "lib/flight-alerts", "home/helpers", "home/constants", "home/types",
   "flights/lib/helpers", "flights/lib/types", "flights/lib/constants"].forEach(compile);
 
 // 브라우저 환경 흉내
@@ -377,6 +377,31 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
     assert.strictEqual(built.reportTruncated, true);
     assert.strictEqual(decodeImport(built.url).reportText.length, 1500);
     assert.ok(built.url.length < 8000, "URL 길이 " + built.url.length);
+  });
+
+  // 자동 푸시 상태 요약(기기 수·마지막 확인·멈춤 경고)
+  const homeHelpers = require(path.join(outDir, "app/home/helpers.js"));
+  test("자동 확인 상태: 모드 문구가 중복되지 않고 기기 수·마지막 확인 표시", () => {
+    const sum = homeHelpers.buildAutoPushSummary({ enabled: true, mode: "normal", intervalMinutes: 30, lastMessage: "자동 확인 완료(일반 30분): 변경 없음, 재조회 6건", lastRunAt: "2026-11-06T09:00:00", nowKst: "2026-11-06T09:12:00", subscriptionCount: 2 });
+    assert.strictEqual(sum.message, "자동 확인 완료(일반 30분): 변경 없음, 재조회 6건");
+    assert.strictEqual(sum.deviceCount, 2);
+    assert.strictEqual(sum.lastRunText, "마지막 자동 확인 09:00 (12분 전)");
+    assert.strictEqual(sum.staleWarning, "");
+  });
+  test("자동 확인 상태: 오래 멈췄으면 경고(일반 30분 → 65분 초과, 집중 5분 → 15분 초과)", () => {
+    const stale = homeHelpers.buildAutoPushSummary({ enabled: true, mode: "normal", intervalMinutes: 30, lastMessage: "x", lastRunAt: "2026-11-06T09:00:00", nowKst: "2026-11-06T10:10:00" });
+    assert.ok(stale.staleWarning.includes("70분"), stale.staleWarning);
+    const ok = homeHelpers.buildAutoPushSummary({ enabled: true, mode: "normal", intervalMinutes: 30, lastMessage: "x", lastRunAt: "2026-11-06T09:00:00", nowKst: "2026-11-06T10:00:00" });
+    assert.strictEqual(ok.staleWarning, "");
+    const focus = homeHelpers.buildAutoPushSummary({ enabled: true, mode: "focus", intervalMinutes: 5, lastMessage: "x", lastRunAt: "2026-11-06T09:00:00", nowKst: "2026-11-06T09:20:00" });
+    assert.ok(focus.staleWarning.length > 0);
+    const paused = homeHelpers.buildAutoPushSummary({ enabled: false, mode: "normal", intervalMinutes: 30, lastMessage: "x", lastRunAt: "2026-11-06T01:00:00", nowKst: "2026-11-06T10:00:00" });
+    assert.strictEqual(paused.staleWarning, "");
+  });
+  test("자동 확인 상태: 모드 표시가 없는 문구에는 모드를 붙이고, 기록이 없으면 안내", () => {
+    const a = homeHelpers.buildAutoPushSummary({ enabled: true, mode: "focus", lastMessage: "Schedule Flight 기준 자동 변경 확인 대기 중" });
+    assert.strictEqual(a.message, "집중 5분 확인 · Schedule Flight 기준 자동 변경 확인 대기 중");
+    assert.strictEqual(a.lastRunText, "아직 자동 확인 기록이 없습니다.");
   });
 
   console.log(`\n${passed}개 통과${process.exitCode ? " · 실패 있음" : ""}`);

@@ -440,3 +440,59 @@ function dateFromKoSavedAt(savedAt?: string): string {
   const match = String(savedAt || "").match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
   return match ? `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}` : "";
 }
+
+export type AutoPushSummary = {
+  /** 상태 한 줄(모드 문구가 중복되지 않게 정리) */
+  message: string;
+  deviceCount: number;
+  /** 마지막 자동 확인 안내 문구(없으면 빈 문자열) */
+  lastRunText: string;
+  /** 자동 확인 기록이 너무 오래되어 서버가 멈췄을 수 있는 경우 경고 문구 */
+  staleWarning: string;
+};
+
+function parseKstNaive(value: unknown): number | null {
+  const parsed = Date.parse(String(value || ""));
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+/** /flights/auto-push/status 응답을 화면에 보여줄 요약으로 바꾼다. */
+export function buildAutoPushSummary(json: {
+  enabled?: boolean;
+  mode?: string;
+  intervalMinutes?: number;
+  lastMessage?: string;
+  lastRunAt?: string;
+  nowKst?: string;
+  subscriptionCount?: number;
+}): AutoPushSummary {
+  const modeText = json.mode === "focus" ? "집중 5분 확인" : "일반 30분 확인";
+  const last = String(json.lastMessage || "");
+  // 서버 문구에 이미 "(일반 30분)" 같은 모드 표시가 있으면 앞에 또 붙이지 않는다.
+  const message = /\d+분/.test(last) ? last : `${modeText} · ${last}`.replace(/ · $/, "");
+
+  const deviceCount = Number(json.subscriptionCount ?? 0) || 0;
+
+  const lastRunMs = parseKstNaive(json.lastRunAt);
+  const nowMs = parseKstNaive(json.nowKst);
+  let lastRunText = "";
+  let staleWarning = "";
+
+  if (lastRunMs !== null) {
+    const hhmm = String(json.lastRunAt).slice(11, 16);
+    if (nowMs !== null) {
+      const minutes = Math.max(0, Math.round((nowMs - lastRunMs) / 60000));
+      lastRunText = `마지막 자동 확인 ${hhmm} (${minutes}분 전)`;
+      const interval = Number(json.intervalMinutes) || 30;
+      if (json.enabled !== false && minutes > interval * 2 + 5) {
+        staleWarning = `${minutes}분 넘게 자동 확인 기록이 없습니다. 서버가 잠들어 있을 수 있으니 '변경 즉시 확인'을 눌러 깨워 주세요.`;
+      }
+    } else {
+      lastRunText = `마지막 자동 확인 ${hhmm}`;
+    }
+  } else if (json.enabled !== false) {
+    lastRunText = "아직 자동 확인 기록이 없습니다.";
+  }
+
+  return { message, deviceCount, lastRunText, staleWarning };
+}

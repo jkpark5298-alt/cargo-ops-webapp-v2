@@ -5,8 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 import asyncio
 
-from fastapi import APIRouter, HTTPException
-from pywebpush import WebPushException
+from fastapi import APIRouter, Depends, HTTPException
 from app.services.incheon_api import probe_incheon_api
 
 from app.routes.flights.models import AutoPushConfigRequest, LatestScheduleRequest
@@ -14,11 +13,12 @@ from app.services.flight_alerts import _build_changed_item, _build_compact_sched
 from app.services.flight_common import AUTO_PUSH_DEFAULT_INTERVAL_MINUTES, _now_kst, _now_kst_iso
 from app.services.flight_rows import _latest_rows_by_flight, _normalize_flights
 from app.services.incheon_usage import _get_today_incheon_api_usage
+from app.services.api_auth import require_api_token
 from app.services.notification_store import (
     _append_notification_history,
+    _broadcast_web_push,
     _read_auto_push_status,
     _read_push_subscriptions,
-    _send_web_push,
     _update_auto_push_status,
 )
 from app.services.schedule_monitor import (
@@ -53,12 +53,12 @@ async def start_auto_push_worker() -> None:
     asyncio.create_task(_auto_push_loop())
 
 
-@router.post("/check-schedule")
+@router.post("/check-schedule", dependencies=[Depends(require_api_token)])
 async def check_schedule() -> Dict[str, Any]:
     return await _run_schedule_change_check(push_on_change=False)
 
 
-@router.post("/check-schedule-and-push")
+@router.post("/check-schedule-and-push", dependencies=[Depends(require_api_token)])
 async def check_schedule_and_push() -> Dict[str, Any]:
     return await _run_schedule_change_check(push_on_change=True)
 
@@ -125,10 +125,12 @@ async def get_auto_push_status() -> Dict[str, Any]:
         "enabled": bool(status.get("enabled", True)),
         "intervalMinutes": interval,
         "mode": "focus" if interval == 5 else "normal",
+        "subscriptionCount": len(_read_push_subscriptions()),
+        "nowKst": _now_kst_iso(),
     }
 
 
-@router.post("/auto-push/config")
+@router.post("/auto-push/config", dependencies=[Depends(require_api_token)])
 async def update_auto_push_config(payload: AutoPushConfigRequest) -> Dict[str, Any]:
     interval = max(5, int(payload.intervalMinutes or AUTO_PUSH_DEFAULT_INTERVAL_MINUTES))
     status = _update_auto_push_status(
@@ -143,7 +145,7 @@ async def update_auto_push_config(payload: AutoPushConfigRequest) -> Dict[str, A
     }
 
 
-@router.post("/latest-schedule/check-push-and-save")
+@router.post("/latest-schedule/check-push-and-save", dependencies=[Depends(require_api_token)])
 async def check_push_and_save_latest_schedule(payload: LatestScheduleRequest) -> Dict[str, Any]:
     current_room = dict(payload.room or {})
 
@@ -196,20 +198,10 @@ async def check_push_and_save_latest_schedule(payload: LatestScheduleRequest) ->
     errors: List[str] = []
 
     if changed_items:
-        message = _build_compact_schedule_push(changed_items)
-
-        for item in _read_push_subscriptions():
-            subscription = item.get("subscription") or {}
-
-            try:
-                _send_web_push(subscription, message)
-                sent += 1
-            except WebPushException as exc:
-                failed += 1
-                errors.append(str(exc))
-            except Exception as exc:
-                failed += 1
-                errors.append(str(exc))
+        push_result = _broadcast_web_push(_build_compact_schedule_push(changed_items))
+        sent = push_result["sent"]
+        failed = push_result["failed"]
+        errors = push_result["errors"]
 
     if changed_items:
         _append_notification_history(changed_items, current_room, "AFOCS SKD 저장 알림")

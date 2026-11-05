@@ -11,6 +11,10 @@ type PwaNotificationCardProps = {
   autoEnabled: boolean;
   autoLoading: boolean;
   autoStatusMessage: string;
+  /** 서버에 등록된 푸시 수신 기기 수 */
+  deviceCount?: number;
+  lastRunText?: string;
+  staleWarning?: string;
   onEnable: () => void;
   onSendTest: () => void;
   onCheckSchedule: () => void;
@@ -26,6 +30,9 @@ export function PwaNotificationCard({
   autoEnabled,
   autoLoading,
   autoStatusMessage,
+  deviceCount,
+  lastRunText,
+  staleWarning,
   onEnable,
   onSendTest,
   onCheckSchedule,
@@ -47,11 +54,24 @@ export function PwaNotificationCard({
         <div style={infoHintStyle}>
           {statusMessage || "알림 권한/구독을 확인합니다."}
         </div>
+        {deviceCount !== undefined ? (
+          <div style={deviceCount > 0 ? infoHintStyle : { ...infoHintStyle, color: "#fca5a5" }}>
+            {deviceCount > 0
+              ? `서버에 등록된 알림 기기 ${deviceCount}대`
+              : permissionLabel === "허용됨"
+                ? "권한은 허용됐지만 서버에 등록된 기기가 없습니다. '알림 다시 연결'을 눌러 등록하세요."
+                : "서버에 등록된 알림 기기가 없습니다."}
+          </div>
+        ) : null}
       </div>
 
       <div style={buttonStackStyle}>
-        <button onClick={onEnable} disabled={loading} style={loading ? disabledButtonStyle : primaryButtonStyle}>
-          {loading ? "준비 중..." : "알림 허용"}
+        <button
+          onClick={onEnable}
+          disabled={loading}
+          style={loading ? disabledButtonStyle : permissionLabel === "허용됨" ? secondaryButtonStyle : primaryButtonStyle}
+        >
+          {loading ? "준비 중..." : permissionLabel === "허용됨" ? "알림 다시 연결(기기 등록 갱신)" : "알림 허용"}
         </button>
         <button
           onClick={onSendTest}
@@ -80,6 +100,15 @@ export function PwaNotificationCard({
         자동 확인 상태: {autoEnabled ? "자동 적용 중" : "일시 중지"}
         <br />
         {autoStatusMessage || "평상시 30분, 집중 시간대 5분 간격으로 확인합니다."}
+        {lastRunText ? (
+          <>
+            <br />
+            {lastRunText}
+          </>
+        ) : null}
+        {staleWarning ? (
+          <div style={{ color: "#fbbf24", marginTop: 6, fontWeight: 700 }}>⚠ {staleWarning}</div>
+        ) : null}
       </div>
 
       <div style={helpTextStyle}>

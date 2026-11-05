@@ -240,6 +240,51 @@ def _get_vapid_settings() -> tuple[str, str, str]:
     return public_key, private_key, subject
 
 
+def _is_gone_push_error(exc: Exception) -> bool:
+    """푸시 서버가 '이 구독은 더 이상 없다(404/410)'고 답한 오류인지 확인한다."""
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    if status in (404, 410):
+        return True
+    text = str(exc).lower()
+    return "410" in text and "gone" in text or "unsubscribed" in text or "expired" in text
+
+
+def _broadcast_web_push(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """저장된 모든 구독에 푸시를 보내고, 만료된 구독(404/410)은 목록에서 지운다."""
+    sent = 0
+    failed = 0
+    errors: List[str] = []
+    gone: set[str] = set()
+
+    for item in _read_push_subscriptions():
+        subscription = item.get("subscription") or {}
+        try:
+            _send_web_push(subscription, payload)
+            sent += 1
+        except Exception as exc:  # WebPushException 포함
+            failed += 1
+            errors.append(str(exc))
+            if _is_gone_push_error(exc):
+                endpoint = str(subscription.get("endpoint") or "")
+                if endpoint:
+                    gone.add(endpoint)
+
+    removed = 0
+    if gone:
+        current = _read_push_subscriptions()
+        kept = [
+            item
+            for item in current
+            if str((item.get("subscription") or {}).get("endpoint") or "") not in gone
+        ]
+        removed = len(current) - len(kept)
+        if removed:
+            _write_push_subscriptions(kept)
+
+    return {"sent": sent, "failed": failed, "errors": errors[:3], "removed": removed}
+
+
 def _send_web_push(subscription: Dict[str, Any], payload: Dict[str, Any]) -> None:
     _, private_key, subject = _get_vapid_settings()
 

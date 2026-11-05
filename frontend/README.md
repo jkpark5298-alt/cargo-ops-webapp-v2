@@ -13,6 +13,7 @@ npm run build      # 타입 체크 + 프로덕션 빌드
 | 이름 | 설명 |
 |---|---|
 | `NEXT_PUBLIC_API_BASE_URL` / `NEXT_PUBLIC_API_URL` / `NEXT_PUBLIC_BACKEND_URL` | 백엔드 주소. `app/lib/api-config.ts`가 위 순서로 읽음(같은 값으로 설정). 없으면 `https://cargo-ops-backend.onrender.com` |
+| `NEXT_PUBLIC_API_TOKEN` | 백엔드 `API_ACCESS_TOKEN`과 같은 값. 알림·자동 확인 요청에 `X-API-Token`으로 붙습니다(브라우저에 포함되므로 비밀 보관용이 아니라 우연한 호출·남용 방지용). 백엔드에 토큰을 설정하지 않았다면 비워 둡니다. |
 | `NEXT_PUBLIC_CSM_CHECKLIST_URL` | CSM CHECK LIST 주소(기본 `https://csm-checklist.vercel.app`) |
 
 ## 구조

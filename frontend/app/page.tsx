@@ -61,7 +61,7 @@ import {
 } from "./lib/schedule-store";
 import { type FlightRow, type MonitorRoom } from "./lib/flight-types";
 import { getFlightNo, normalizeFlightKey, normalizeFlightsInput } from "./lib/flight-keys";
-import { BACKEND_URL } from "./lib/api-config";
+import { BACKEND_URL, apiAuthHeaders } from "./lib/api-config";
 import {
   applyRegistrationToRows,
   fetchAircraftRegistrationRecordsFromServer,
@@ -819,6 +819,7 @@ export default function HomePage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...apiAuthHeaders(),
         },
         cache: "no-store",
       });
@@ -905,6 +906,7 @@ export default function HomePage() {
     autoPushEnabled,
     autoPushLoading,
     autoPushStatusMessage,
+    autoPushSummary,
     fetchAutoPushStatus,
     handleCheckScheduleAndPush,
     handleEnablePwaPush,
@@ -1191,6 +1193,9 @@ export default function HomePage() {
           autoEnabled={autoPushEnabled}
           autoLoading={autoPushLoading}
           autoStatusMessage={autoPushStatusMessage}
+          deviceCount={autoPushSummary?.deviceCount}
+          lastRunText={autoPushSummary?.lastRunText}
+          staleWarning={autoPushSummary?.staleWarning}
           onEnable={handleEnablePwaPush}
           onSendTest={handleSendTestPush}
           onCheckSchedule={handleCheckScheduleAndPush}

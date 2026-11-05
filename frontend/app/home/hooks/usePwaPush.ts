@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { BACKEND_URL } from "../../lib/api-config";
+import { BACKEND_URL, apiAuthHeaders } from "../../lib/api-config";
 import { BackendScheduleCheckResult } from "../types";
-import { urlBase64ToUint8Array } from "../helpers";
+import { buildAutoPushSummary, urlBase64ToUint8Array, type AutoPushSummary } from "../helpers";
 
 export type UsePwaPushParams = {
   fetchIncheonApiUsage: () => Promise<void>;
@@ -25,6 +25,7 @@ export function usePwaPush({
   const [autoPushEnabled, setAutoPushEnabled] = useState(false);
   const [autoPushLoading, setAutoPushLoading] = useState(false);
   const [autoPushStatusMessage, setAutoPushStatusMessage] = useState("");
+  const [autoPushSummary, setAutoPushSummary] = useState<AutoPushSummary | null>(null);
 
   const fetchAutoPushStatus = async () => {
     try {
@@ -36,8 +37,9 @@ export function usePwaPush({
       if (!res.ok || json.success === false) return;
 
       setAutoPushEnabled(Boolean(json.enabled));
-      const modeText = json.mode === "focus" ? "집중 5분 확인" : "일반 30분 확인";
-      setAutoPushStatusMessage(`${modeText} · ${json.lastMessage || ""}`);
+      const summary = buildAutoPushSummary(json);
+      setAutoPushSummary(summary);
+      setAutoPushStatusMessage(summary.message);
     } catch {
       // 자동 확인 상태 조회 실패 시 화면만 조용히 유지합니다.
     }
@@ -48,6 +50,7 @@ export function usePwaPush({
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...apiAuthHeaders(),
       },
       body: JSON.stringify({
         subscription,
@@ -127,6 +130,7 @@ export function usePwaPush({
 
       await savePushSubscription(subscription);
       setPwaPermissionLabel("허용됨");
+      void fetchAutoPushStatus();
 
       if (showMessage) {
         setPwaStatusMessage("알림 권한과 구독 정보가 정상 연결되어 있습니다.");
@@ -177,6 +181,7 @@ export function usePwaPush({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...apiAuthHeaders(),
         },
         body: JSON.stringify({
           title: "KJ Cargo Ops 테스트 알림",
@@ -191,7 +196,9 @@ export function usePwaPush({
       }
 
       setPwaPermissionLabel("허용됨");
-      setPwaStatusMessage(`테스트 알림을 발송했습니다. 성공 ${json.sent ?? 0}건 / 실패 ${json.failed ?? 0}건`);
+      const removedText = json.removed ? ` · 만료된 기기 ${json.removed}대 정리` : "";
+      setPwaStatusMessage(`테스트 알림을 발송했습니다. 성공 ${json.sent ?? 0}건 / 실패 ${json.failed ?? 0}건${removedText}`);
+      await fetchAutoPushStatus();
     } catch (error) {
       setPwaStatusMessage(error instanceof Error ? error.message : "테스트 알림 발송 중 오류가 발생했습니다.");
     } finally {
@@ -207,6 +214,7 @@ export function usePwaPush({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...apiAuthHeaders(),
         },
       });
       const json = await res.json();
@@ -259,6 +267,7 @@ export function usePwaPush({
     autoPushEnabled,
     autoPushLoading,
     autoPushStatusMessage,
+    autoPushSummary,
     fetchAutoPushStatus,
     handleCheckScheduleAndPush,
     handleEnablePwaPush,
