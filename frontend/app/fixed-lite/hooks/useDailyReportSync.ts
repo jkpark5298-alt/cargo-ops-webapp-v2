@@ -3,6 +3,7 @@ import { DEFAULT_DAILY_AUTHOR, normalizeDailyAuthor } from "../../lib/local-stor
 import { BACKEND_URL } from "../../lib/api-config";
 import { SavedImage } from "../types";
 import { DAILY_IMAGES_CACHE_KEY } from "../constants";
+import { resizeImageDataUrl } from "../../lib/image-utils";
 
 /** 일일 업무보고(메모·사진) Supabase 동기화와 편별 사진 촬영 */
 export function useDailyReportSync() {
@@ -182,31 +183,6 @@ export function useDailyReportSync() {
 
     return () => clearTimeout(timer);
   }, [dailyStatus, author, note, images, dailyWorkDate]);
-
-  function resizeImageDataUrl(dataUrl: string, maxSize = 1280, quality = 0.72): Promise<string> {
-    if (!dataUrl.startsWith("data:image/")) return Promise.resolve(dataUrl);
-    return new Promise((resolve) => {
-      const image = new Image();
-      image.onload = () => {
-        try {
-          const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
-          const width = Math.max(1, Math.round(image.width * scale));
-          const height = Math.max(1, Math.round(image.height * scale));
-          const canvas = document.createElement("canvas");
-          canvas.width = width;
-          canvas.height = height;
-          const context = canvas.getContext("2d");
-          if (!context) { resolve(dataUrl); return; }
-          context.drawImage(image, 0, 0, width, height);
-          resolve(canvas.toDataURL("image/jpeg", quality));
-        } catch {
-          resolve(dataUrl);
-        }
-      };
-      image.onerror = () => resolve(dataUrl);
-      image.src = dataUrl;
-    });
-  }
 
   const handleCameraUpload = async (flightNo: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

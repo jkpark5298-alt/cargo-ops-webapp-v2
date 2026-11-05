@@ -94,8 +94,8 @@ const RealDate = Date;
 const base = new RealDate("2026-10-31T00:10:00+09:00").getTime();
 const start = RealDate.now();
 class FakeDate extends RealDate {
-  constructor(...a) { if (a.length) super(...a); else super(base + (RealDate.now() - start)); }
-  static now() { return base + (RealDate.now() - start); }
+  constructor(...a) { if (a.length) super(...a); else super(base); }
+  static now() { return base; }
 }
 global.Date = FakeDate;
 

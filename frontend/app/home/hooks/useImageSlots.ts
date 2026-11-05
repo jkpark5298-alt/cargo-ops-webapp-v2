@@ -13,9 +13,9 @@ import {
   getImagesBySlot,
   readImageFileMetadata,
   removeImageBySlot,
-  resizeImageDataUrl,
   upsertImageBySlot,
 } from "../helpers";
+import { resizeImageDataUrl } from "../../lib/image-utils";
 
 export type UseImageSlotsParams = {
   author: string;

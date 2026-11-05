@@ -1,43 +1,48 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent, type TouchEvent, type WheelEvent } from "react";
-
-export type ImageViewerSlotKey =
-  | "daily-schedule"
-  | "aircraft-check"
-  | "inspection-result"
-  | "issue";
-
-export type ImageViewerImage = {
-  id: string;
-  type: ImageViewerSlotKey;
-  label: string;
-  savedAt: string;
-  dataUrl: string;
-  capturedAt?: string;
-  locationText?: string;
-  memo?: string;
-};
-
-type CropRect = { x: number; y: number; width: number; height: number };
-type CropDragMode = "move" | "resize";
-type ZoomTouchState =
-  | { mode: "pan"; startX: number; startY: number; startPanX: number; startPanY: number }
-  | { mode: "pinch"; startDistance: number; startScale: number; startPanX: number; startPanY: number; centerX: number; centerY: number };
-
-type ImageViewerModalProps = {
-  image: ImageViewerImage | null;
-  title?: string;
-  description?: string;
-  onClose: () => void;
-  onCameraChange: () => void;
-  onLibraryChange: () => void;
-  onDelete: () => void;
-  onSaveAnnotatedImage: (dataUrl: string, memo: string) => void;
-  onSaveImageMemo: (memo: string) => void;
-};
-
-const defaultCropRect: CropRect = { x: 12, y: 12, width: 76, height: 60 };
+import { useEffect, useRef, useState } from "react";
+import { CropDragMode, CropRect, ImageViewerModalProps } from "./image-viewer/types";
+import {
+  cropBoxStyle,
+  cropImageByRect,
+  drawMemoOnImage,
+  getZoomStageStyle,
+} from "./image-viewer/helpers";
+import {
+  actionGridStyle,
+  annotateButtonStyle,
+  closeButtonStyle,
+  cropBoxLabelStyle,
+  cropButtonGridStyle,
+  cropOverlayStyle,
+  dangerButtonStyle,
+  descStyle,
+  editBoxStyle,
+  editLabelStyle,
+  headerStyle,
+  hintStyle,
+  imageStyle,
+  imageWrapStyle,
+  labelStyle,
+  memoInputStyle,
+  memoSaveButtonStyle,
+  metaStyle,
+  modalStyle,
+  optionButtonStyle,
+  overlayStyle,
+  photoInfoStyle,
+  photoMemoBoxStyle,
+  primaryButtonStyle,
+  resizeHandleStyle,
+  secondaryButtonStyle,
+  selectedOptionButtonStyle,
+  titleStyle,
+  toolGridStyle,
+  zoomButtonStyle,
+  zoomControlRowStyle,
+  zoomGuideStyle,
+} from "./image-viewer/styles";
+import { useImageTransform } from "./image-viewer/hooks/useImageTransform";
 
 export function ImageViewerModal({
   image,
@@ -60,15 +65,33 @@ export function ImageViewerModal({
     imageWidth: number;
     imageHeight: number;
   } | null>(null);
-  const zoomTouchRef = useRef<ZoomTouchState | null>(null);
-  const lastTapRef = useRef(0);
+  const {
+    cropRect,
+    endCropDrag,
+    handleImageDoubleClick,
+    handleImageTouchEnd,
+    handleImageTouchMove,
+    handleImageTouchStart,
+    handleImageWheel,
+    isCropMode,
+    lastTapRef,
+    moveCropDrag,
+    resetCropRect,
+    resetZoom,
+    setIsCropMode,
+    setZoomPan,
+    setZoomScale,
+    startCropDrag,
+    toggleCropMode,
+    zoomIn,
+    zoomOut,
+    zoomPan,
+    zoomScale,
+    zoomTouchRef,
+  } = useImageTransform({ cropDragRef, imageElementRef });
 
   const [memo, setMemo] = useState("");
   const [photoMemo, setPhotoMemo] = useState("");
-  const [isCropMode, setIsCropMode] = useState(false);
-  const [cropRect, setCropRect] = useState<CropRect>(defaultCropRect);
-  const [zoomScale, setZoomScale] = useState(1);
-  const [zoomPan, setZoomPan] = useState({ x: 0, y: 0 });
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -78,170 +101,6 @@ export function ImageViewerModal({
     zoomTouchRef.current = null;
     lastTapRef.current = 0;
   }, [image?.id, image?.memo]);
-
-  const resetZoom = () => {
-    setZoomScale(1);
-    setZoomPan({ x: 0, y: 0 });
-    zoomTouchRef.current = null;
-  };
-
-  const zoomIn = () => {
-    setZoomScale((current) => clamp(Number((current + 0.5).toFixed(2)), 1, 5));
-  };
-
-  const zoomOut = () => {
-    setZoomScale((current) => {
-      const nextScale = clamp(Number((current - 0.5).toFixed(2)), 1, 5);
-
-      if (nextScale === 1) {
-        setZoomPan({ x: 0, y: 0 });
-      }
-
-      return nextScale;
-    });
-  };
-
-  const getTouchDistance = (touches: React.TouchList) => {
-    if (touches.length < 2) return 0;
-
-    const dx = touches[0].clientX - touches[1].clientX;
-    const dy = touches[0].clientY - touches[1].clientY;
-
-    return Math.hypot(dx, dy);
-  };
-
-  const getTouchCenter = (touches: React.TouchList) => {
-    if (touches.length < 2) {
-      return { x: touches[0]?.clientX || 0, y: touches[0]?.clientY || 0 };
-    }
-
-    return {
-      x: (touches[0].clientX + touches[1].clientX) / 2,
-      y: (touches[0].clientY + touches[1].clientY) / 2,
-    };
-  };
-
-  const handleImageTouchStart = (event: TouchEvent<HTMLDivElement>) => {
-    if (isCropMode) return;
-
-    if (event.touches.length === 2) {
-      event.preventDefault();
-      const center = getTouchCenter(event.touches);
-      zoomTouchRef.current = {
-        mode: "pinch",
-        startDistance: getTouchDistance(event.touches),
-        startScale: zoomScale,
-        startPanX: zoomPan.x,
-        startPanY: zoomPan.y,
-        centerX: center.x,
-        centerY: center.y,
-      };
-      return;
-    }
-
-    if (event.touches.length === 1) {
-      const now = Date.now();
-
-      if (now - lastTapRef.current < 280) {
-        event.preventDefault();
-
-        if (zoomScale > 1) {
-          resetZoom();
-        } else {
-          setZoomScale(2);
-          setZoomPan({ x: 0, y: 0 });
-        }
-
-        lastTapRef.current = 0;
-        return;
-      }
-
-      lastTapRef.current = now;
-
-      zoomTouchRef.current = {
-        mode: "pan",
-        startX: event.touches[0].clientX,
-        startY: event.touches[0].clientY,
-        startPanX: zoomPan.x,
-        startPanY: zoomPan.y,
-      };
-    }
-  };
-
-  const handleImageTouchMove = (event: TouchEvent<HTMLDivElement>) => {
-    if (isCropMode) return;
-
-    const touchState = zoomTouchRef.current;
-
-    if (!touchState) return;
-
-    if (touchState.mode === "pinch" && event.touches.length >= 2) {
-      event.preventDefault();
-      const nextDistance = getTouchDistance(event.touches);
-      if (touchState.startDistance <= 0 || nextDistance <= 0) return;
-
-      const nextScale = clamp(Number((touchState.startScale * (nextDistance / touchState.startDistance)).toFixed(2)), 1, 5);
-
-      setZoomScale(nextScale);
-
-      if (nextScale === 1) {
-        setZoomPan({ x: 0, y: 0 });
-      } else {
-        const center = getTouchCenter(event.touches);
-        setZoomPan({
-          x: touchState.startPanX + (center.x - touchState.centerX),
-          y: touchState.startPanY + (center.y - touchState.centerY),
-        });
-      }
-
-      return;
-    }
-
-    if (touchState.mode === "pan" && event.touches.length === 1 && zoomScale > 1) {
-      event.preventDefault();
-      setZoomPan({
-        x: touchState.startPanX + event.touches[0].clientX - touchState.startX,
-        y: touchState.startPanY + event.touches[0].clientY - touchState.startY,
-      });
-    }
-  };
-
-  const handleImageTouchEnd = () => {
-    zoomTouchRef.current = null;
-
-    if (zoomScale <= 1) {
-      setZoomScale(1);
-      setZoomPan({ x: 0, y: 0 });
-    }
-  };
-
-  const handleImageDoubleClick = () => {
-    if (isCropMode) return;
-
-    if (zoomScale > 1) {
-      resetZoom();
-      return;
-    }
-
-    setZoomScale(2);
-    setZoomPan({ x: 0, y: 0 });
-  };
-
-  const handleImageWheel = (event: WheelEvent<HTMLDivElement>) => {
-    if (isCropMode) return;
-
-    event.preventDefault();
-
-    setZoomScale((current) => {
-      const nextScale = clamp(Number((current + (event.deltaY < 0 ? 0.2 : -0.2)).toFixed(2)), 1, 5);
-
-      if (nextScale === 1) {
-        setZoomPan({ x: 0, y: 0 });
-      }
-
-      return nextScale;
-    });
-  };
 
   if (!image) return null;
 
@@ -280,76 +139,6 @@ export function ImageViewerModal({
     } finally {
       setIsSaving(false);
     }
-  };
-
-  const toggleCropMode = () => {
-    setIsCropMode((current) => {
-      const nextValue = !current;
-
-      if (nextValue) {
-        resetZoom();
-      }
-
-      return nextValue;
-    });
-  };
-
-  const resetCropRect = () => {
-    setCropRect(defaultCropRect);
-  };
-
-  const startCropDrag = (event: PointerEvent<HTMLDivElement>, mode: CropDragMode) => {
-    if (!imageElementRef.current) return;
-
-    const bounds = imageElementRef.current.getBoundingClientRect();
-    if (bounds.width <= 0 || bounds.height <= 0) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.setPointerCapture(event.pointerId);
-
-    cropDragRef.current = {
-      mode,
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      startRect: cropRect,
-      imageWidth: bounds.width,
-      imageHeight: bounds.height,
-    };
-  };
-
-  const moveCropDrag = (event: PointerEvent<HTMLDivElement>) => {
-    const drag = cropDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    const dx = ((event.clientX - drag.startX) / drag.imageWidth) * 100;
-    const dy = ((event.clientY - drag.startY) / drag.imageHeight) * 100;
-
-    if (drag.mode === "move") {
-      setCropRect({
-        ...drag.startRect,
-        x: clamp(drag.startRect.x + dx, 0, 100 - drag.startRect.width),
-        y: clamp(drag.startRect.y + dy, 0, 100 - drag.startRect.height),
-      });
-      return;
-    }
-
-    const nextWidth = clamp(drag.startRect.width + dx, 16, 100 - drag.startRect.x);
-    const nextHeight = clamp(drag.startRect.height + dy, 16, 100 - drag.startRect.y);
-    setCropRect({ ...drag.startRect, width: nextWidth, height: nextHeight });
-  };
-
-  const endCropDrag = (event: PointerEvent<HTMLDivElement>) => {
-    const drag = cropDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-    cropDragRef.current = null;
   };
 
   return (
@@ -505,476 +294,3 @@ export function ImageViewerModal({
     </div>
   );
 }
-
-function drawMemoOnImage(dataUrl: string, memo: string): Promise<string> {
-  return withImageCanvas(dataUrl, ({ image, canvas, ctx, canvasWidth, canvasHeight }) => {
-    ctx.drawImage(image, 0, 0, canvasWidth, canvasHeight);
-
-    const padding = Math.max(18, Math.round(canvasWidth * 0.035));
-    const fontSize = Math.max(26, Math.round(canvasWidth * 0.045));
-    const lineHeight = Math.round(fontSize * 1.35);
-    const maxTextWidth = canvasWidth - padding * 2;
-
-    ctx.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-    const lines = wrapText(ctx, memo, maxTextWidth).slice(0, 4);
-    const boxHeight = padding * 2 + lines.length * lineHeight;
-    const boxTop = Math.max(0, canvasHeight - boxHeight);
-
-    ctx.fillStyle = "rgba(2, 6, 23, 0.78)";
-    ctx.fillRect(0, boxTop, canvasWidth, boxHeight);
-    ctx.fillStyle = "#ffffff";
-    ctx.textBaseline = "top";
-
-    lines.forEach((line, index) => {
-      ctx.fillText(line, padding, boxTop + padding + index * lineHeight, maxTextWidth);
-    });
-
-    return canvas.toDataURL("image/jpeg", 0.86);
-  });
-}
-
-function cropImageByRect(dataUrl: string, rect: CropRect): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-
-    image.onload = () => {
-      const sourceWidth = image.naturalWidth || image.width;
-      const sourceHeight = image.naturalHeight || image.height;
-      const sx = clamp(Math.round((rect.x / 100) * sourceWidth), 0, sourceWidth - 1);
-      const sy = clamp(Math.round((rect.y / 100) * sourceHeight), 0, sourceHeight - 1);
-      const sw = Math.max(1, Math.min(sourceWidth - sx, Math.round((rect.width / 100) * sourceWidth)));
-      const sh = Math.max(1, Math.min(sourceHeight - sy, Math.round((rect.height / 100) * sourceHeight)));
-      const maxOutput = 1600;
-      const scale = Math.min(1, maxOutput / Math.max(sw, sh));
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-
-      if (!ctx) {
-        reject(new Error("Canvas context is not available."));
-        return;
-      }
-
-      canvas.width = Math.max(1, Math.round(sw * scale));
-      canvas.height = Math.max(1, Math.round(sh * scale));
-      ctx.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL("image/jpeg", 0.86));
-    };
-
-    image.onerror = () => reject(new Error("Image load failed."));
-    image.src = dataUrl;
-  });
-}
-
-function withImageCanvas(
-  dataUrl: string,
-  draw: (params: {
-    image: HTMLImageElement;
-    canvas: HTMLCanvasElement;
-    ctx: CanvasRenderingContext2D;
-    canvasWidth: number;
-    canvasHeight: number;
-  }) => string,
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-
-    image.onload = () => {
-      const width = image.naturalWidth || image.width;
-      const height = image.naturalHeight || image.height;
-      const scale = Math.min(1, 1600 / Math.max(width, height));
-      const canvasWidth = Math.max(1, Math.round(width * scale));
-      const canvasHeight = Math.max(1, Math.round(height * scale));
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-
-      if (!ctx) {
-        reject(new Error("Canvas context is not available."));
-        return;
-      }
-
-      canvas.width = canvasWidth;
-      canvas.height = canvasHeight;
-      resolve(draw({ image, canvas, ctx, canvasWidth, canvasHeight }));
-    };
-
-    image.onerror = () => reject(new Error("Image load failed."));
-    image.src = dataUrl;
-  });
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
-  const words = text.replace(/\s+/g, " ").trim().split(" ");
-  const lines: string[] = [];
-  let currentLine = "";
-
-  words.forEach((word) => {
-    const nextLine = currentLine ? `${currentLine} ${word}` : word;
-    if (ctx.measureText(nextLine).width <= maxWidth) {
-      currentLine = nextLine;
-      return;
-    }
-
-    if (currentLine) lines.push(currentLine);
-
-    if (ctx.measureText(word).width <= maxWidth) {
-      currentLine = word;
-      return;
-    }
-
-    let partial = "";
-    for (const char of word) {
-      const nextPartial = `${partial}${char}`;
-      if (ctx.measureText(nextPartial).width > maxWidth && partial) {
-        lines.push(partial);
-        partial = char;
-      } else {
-        partial = nextPartial;
-      }
-    }
-    currentLine = partial;
-  });
-
-  if (currentLine) lines.push(currentLine);
-  return lines.length > 0 ? lines : [text];
-}
-
-const overlayStyle: CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  zIndex: 9999,
-  background: "rgba(2, 6, 23, 0.82)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 14,
-};
-
-const modalStyle: CSSProperties = {
-  width: "min(680px, 100%)",
-  maxHeight: "92vh",
-  overflowY: "auto",
-  borderRadius: 22,
-  border: "1px solid rgba(96, 165, 250, 0.38)",
-  background: "#071426",
-  color: "#e5edf7",
-  boxShadow: "0 24px 80px rgba(0, 0, 0, 0.42)",
-  padding: 16,
-};
-
-const headerStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  alignItems: "flex-start",
-  marginBottom: 14,
-};
-
-const labelStyle: CSSProperties = {
-  color: "#93c5fd",
-  fontSize: 13,
-  fontWeight: 900,
-  marginBottom: 4,
-};
-
-const titleStyle: CSSProperties = {
-  margin: 0,
-  color: "#f8fafc",
-  fontSize: 22,
-  fontWeight: 950,
-};
-
-const descStyle: CSSProperties = {
-  margin: "6px 0 0",
-  color: "#94a3b8",
-  lineHeight: 1.5,
-  fontSize: 13,
-};
-
-const closeButtonStyle: CSSProperties = {
-  width: 38,
-  height: 38,
-  borderRadius: 999,
-  border: "1px solid rgba(148, 163, 184, 0.28)",
-  background: "rgba(15, 23, 42, 0.82)",
-  color: "#f8fafc",
-  fontSize: 24,
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const imageWrapStyle: CSSProperties = {
-  borderRadius: 18,
-  border: "1px solid rgba(148, 163, 184, 0.18)",
-  background: "#020617",
-  overflow: "hidden",
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-  minHeight: 220,
-  maxHeight: "64vh",
-  touchAction: "none",
-};
-
-function getZoomStageStyle(
-  zoomScale: number,
-  zoomPan: { x: number; y: number },
-  isCropMode: boolean,
-): CSSProperties {
-  return {
-    position: "relative",
-    display: "inline-block",
-    maxWidth: "100%",
-    margin: "0 auto",
-    touchAction: isCropMode ? "none" : "pan-y",
-    transform: isCropMode
-      ? "none"
-      : `translate3d(${zoomPan.x}px, ${zoomPan.y}px, 0) scale(${zoomScale})`,
-    transformOrigin: "center center",
-    transition: isCropMode ? undefined : "transform 120ms ease-out",
-    cursor: isCropMode ? "default" : zoomScale > 1 ? "grab" : "zoom-in",
-  };
-}
-
-const imageStyle: CSSProperties = {
-  width: "auto",
-  maxWidth: "100%",
-  maxHeight: "58vh",
-  objectFit: "contain",
-  display: "block",
-  userSelect: "none",
-};
-
-const cropOverlayStyle: CSSProperties = {
-  position: "absolute",
-  inset: 0,
-  background: "rgba(2, 6, 23, 0.3)",
-  pointerEvents: "none",
-};
-
-function cropBoxStyle(rect: CropRect): CSSProperties {
-  return {
-    position: "absolute",
-    left: `${rect.x}%`,
-    top: `${rect.y}%`,
-    width: `${rect.width}%`,
-    height: `${rect.height}%`,
-    border: "2px solid #22c55e",
-    background: "rgba(34, 197, 94, 0.1)",
-    boxShadow: "0 0 0 9999px rgba(2, 6, 23, 0.38)",
-    cursor: "move",
-    pointerEvents: "auto",
-    touchAction: "none",
-    boxSizing: "border-box",
-  };
-}
-
-const cropBoxLabelStyle: CSSProperties = {
-  position: "absolute",
-  left: 8,
-  top: 8,
-  borderRadius: 999,
-  background: "rgba(2, 6, 23, 0.78)",
-  color: "#bbf7d0",
-  fontSize: 12,
-  fontWeight: 950,
-  padding: "4px 8px",
-  pointerEvents: "none",
-};
-
-const resizeHandleStyle: CSSProperties = {
-  position: "absolute",
-  right: -10,
-  bottom: -10,
-  width: 28,
-  height: 28,
-  borderRadius: 999,
-  border: "2px solid #bbf7d0",
-  background: "#16a34a",
-  boxShadow: "0 8px 18px rgba(0, 0, 0, 0.35)",
-  cursor: "nwse-resize",
-  touchAction: "none",
-  pointerEvents: "auto",
-};
-
-const zoomControlRowStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  flexWrap: "wrap",
-  marginTop: 10,
-};
-
-const zoomButtonStyle: CSSProperties = {
-  border: "1px solid rgba(96, 165, 250, 0.38)",
-  borderRadius: 999,
-  background: "rgba(30, 64, 175, 0.72)",
-  color: "#eff6ff",
-  padding: "8px 12px",
-  fontSize: 13,
-  fontWeight: 950,
-  cursor: "pointer",
-};
-
-const zoomGuideStyle: CSSProperties = {
-  color: "#bfdbfe",
-  fontSize: 12,
-  fontWeight: 800,
-  opacity: 0.86,
-  lineHeight: 1.4,
-};
-
-const metaStyle: CSSProperties = {
-  marginTop: 12,
-  padding: 12,
-  borderRadius: 14,
-  border: "1px solid rgba(148, 163, 184, 0.2)",
-  background: "rgba(15, 23, 42, 0.74)",
-  color: "#dbeafe",
-  fontSize: 14,
-  fontWeight: 850,
-  display: "flex",
-  flexDirection: "column",
-  gap: 4,
-  lineHeight: 1.5,
-};
-
-const photoInfoStyle: CSSProperties = {
-  marginTop: 8,
-  padding: 10,
-  borderRadius: 12,
-  border: "1px solid rgba(96, 165, 250, 0.2)",
-  background: "rgba(2, 6, 23, 0.42)",
-  color: "#bfdbfe",
-  display: "flex",
-  flexDirection: "column",
-  gap: 3,
-  fontSize: 12,
-  fontWeight: 750,
-};
-
-const photoMemoBoxStyle: CSSProperties = {
-  marginTop: 12,
-  padding: 12,
-  borderRadius: 16,
-  border: "1px solid rgba(34, 197, 94, 0.22)",
-  background: "rgba(5, 46, 22, 0.34)",
-};
-
-const toolGridStyle: CSSProperties = {
-  display: "grid",
-  gap: 12,
-  marginTop: 12,
-};
-
-const editBoxStyle: CSSProperties = {
-  padding: 12,
-  borderRadius: 16,
-  border: "1px solid rgba(96, 165, 250, 0.22)",
-  background: "rgba(15, 23, 42, 0.7)",
-};
-
-const editLabelStyle: CSSProperties = {
-  display: "block",
-  color: "#bfdbfe",
-  fontSize: 13,
-  fontWeight: 950,
-  marginBottom: 8,
-};
-
-const memoInputStyle: CSSProperties = {
-  width: "100%",
-  minHeight: 74,
-  boxSizing: "border-box",
-  border: "1px solid rgba(148, 163, 184, 0.32)",
-  borderRadius: 14,
-  background: "#020617",
-  color: "#f8fafc",
-  padding: 12,
-  fontSize: 15,
-  fontWeight: 750,
-  lineHeight: 1.45,
-  resize: "vertical",
-};
-
-const hintStyle: CSSProperties = {
-  color: "#94a3b8",
-  fontSize: 12,
-  fontWeight: 750,
-  lineHeight: 1.45,
-  marginTop: 8,
-};
-
-const cropButtonGridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 8,
-};
-
-const actionGridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 10,
-  marginTop: 14,
-};
-
-const baseButtonStyle: CSSProperties = {
-  border: 0,
-  borderRadius: 14,
-  color: "#fff",
-  padding: "13px 12px",
-  fontSize: 15,
-  fontWeight: 950,
-  cursor: "pointer",
-};
-
-const primaryButtonStyle: CSSProperties = {
-  ...baseButtonStyle,
-  background: "#1d4ed8",
-};
-
-const annotateButtonStyle: CSSProperties = {
-  ...baseButtonStyle,
-  width: "100%",
-  marginTop: 10,
-  border: "1px solid rgba(34, 197, 94, 0.45)",
-  background: "#047857",
-};
-
-const memoSaveButtonStyle: CSSProperties = {
-  ...baseButtonStyle,
-  width: "100%",
-  marginTop: 10,
-  border: "1px solid rgba(96, 165, 250, 0.45)",
-  background: "#1d4ed8",
-};
-
-const optionButtonStyle: CSSProperties = {
-  ...baseButtonStyle,
-  color: "#dbeafe",
-  padding: "10px 8px",
-  background: "rgba(30, 41, 59, 0.95)",
-  border: "1px solid rgba(148, 163, 184, 0.26)",
-};
-
-const selectedOptionButtonStyle: CSSProperties = {
-  ...optionButtonStyle,
-  color: "#ffffff",
-  background: "#2563eb",
-  border: "1px solid rgba(191, 219, 254, 0.6)",
-};
-
-const secondaryButtonStyle: CSSProperties = {
-  ...baseButtonStyle,
-  border: "1px solid rgba(148, 163, 184, 0.34)",
-  background: "#334155",
-};
-
-const dangerButtonStyle: CSSProperties = {
-  ...baseButtonStyle,
-  border: "1px solid rgba(248, 113, 113, 0.42)",
-  background: "#7f1d1d",
-};
