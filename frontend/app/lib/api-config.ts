@@ -9,3 +9,6 @@ export function getApiBaseUrl(): string {
 
   return rawBaseUrl.replace(/\/+$/, "");
 }
+
+/** 모든 화면이 공통으로 쓰는 백엔드 주소 (환경변수 3종 중 먼저 설정된 값) */
+export const BACKEND_URL = getApiBaseUrl();

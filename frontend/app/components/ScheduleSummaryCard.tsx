@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import type { FlightRow, MonitorRoom } from "../page";
+import type { FlightRow, MonitorRoom } from "../lib/flight-types";
 import type { FlightAlertHistoryItem } from "../lib/flight-alerts";
-import { formatAlertTitle, renderAlertDescription, formatHistoryTime } from "./FlightAlertHistoryCard";
+import {
+  formatAlertTitle,
+  renderAlertDescription,
+  formatHistoryTime,
+} from "./FlightAlertHistoryCard";
 import {
   parseAfocsDateTime,
   parseAfocsSkdSortValueFromParts,
@@ -17,6 +21,16 @@ import {
   isFinalCompletedFlightStatus,
 } from "../lib/flight-status";
 
+import { getFlightNo, getRegistrationNo } from "../lib/flight-keys";
+import {
+  applyScheduleFlightOrder,
+  getScheduleFlightOrderStorageKey,
+  loadScheduleFlightOrder,
+  normalizeSummaryFlightKey,
+  saveScheduleFlightOrder,
+} from "../lib/schedule-order";
+import { getFlightNoColor } from "../lib/flight-status";
+import { getRouteDisplay } from "../lib/flight-alerts";
 type ScheduleSummaryCardProps = {
   latestRoom: MonitorRoom | null;
   syncCheckedAt: string;
@@ -720,54 +734,6 @@ function formatApiLookupTime(value?: string) {
   return `${yy}-${mm}-${dd} ${hh}:${min}:${sec} KST`;
 }
 
-function normalizeSummaryFlightKey(value: string) {
-  return value.replace(/\s+/g, "").toUpperCase();
-}
-
-function getScheduleFlightOrderStorageKey(room: MonitorRoom | null) {
-  return `cargo_ops_schedule_flight_order_${room?.id || "latest"}`;
-}
-
-function loadScheduleFlightOrder(storageKey: string) {
-  if (typeof window === "undefined") return [];
-
-  try {
-    const raw = window.localStorage.getItem(storageKey);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed)
-      ? parsed.map((value) => normalizeSummaryFlightKey(String(value))).filter(Boolean)
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveScheduleFlightOrder(storageKey: string, order: string[]) {
-  if (typeof window === "undefined") return;
-
-  try {
-    window.localStorage.setItem(storageKey, JSON.stringify(order));
-  } catch {
-    // 순서 저장 실패는 화면 동작을 막지 않습니다.
-  }
-}
-
-function applyScheduleFlightOrder<T extends { flight: string }>(items: T[], manualOrder: string[]) {
-  if (manualOrder.length === 0) return items;
-
-  const orderMap = new Map(manualOrder.map((key, index) => [key, index]));
-
-  return [...items].sort((a, b) => {
-    const aKey = normalizeSummaryFlightKey(a.flight);
-    const bKey = normalizeSummaryFlightKey(b.flight);
-    const aIndex = orderMap.has(aKey) ? orderMap.get(aKey)! : Number.MAX_SAFE_INTEGER;
-    const bIndex = orderMap.has(bKey) ? orderMap.get(bKey)! : Number.MAX_SAFE_INTEGER;
-
-    if (aIndex !== bIndex) return aIndex - bIndex;
-    return items.indexOf(a) - items.indexOf(b);
-  });
-}
-
 function getSummaryFlightOrderIndex(room: MonitorRoom, flight: string) {
   const order = room.flightsInput
     .split(",")
@@ -979,49 +945,6 @@ function getFlightRouteItems(room: MonitorRoom | null) {
     }));
 }
 
-function getFlightNo(row: FlightRow) {
-  return row.flightNo || row.flightId || "";
-}
-
-function formatAircraftRegistrationNo(value: string) {
-  const normalized = String(value || "")
-    .replace(/\s+/g, "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "");
-
-  if (/^\d{3,5}$/.test(normalized)) return `HL${normalized}`;
-  if (/^HL\d{3,5}$/.test(normalized)) return normalized;
-  return "";
-}
-
-function getRegistrationNo(row?: FlightRow) {
-  const maybeRow = row as
-    | {
-        hlnbr?: string;
-        registrationNo?: string;
-        aircraftRegNo?: string;
-        fid?: string;
-      }
-    | undefined;
-
-  return (
-    formatAircraftRegistrationNo(
-      maybeRow?.hlnbr || maybeRow?.registrationNo || maybeRow?.aircraftRegNo || "",
-    ) || formatAircraftRegistrationNo(maybeRow?.fid || "")
-  );
-}
-
-function getRouteDisplay(row?: FlightRow) {
-  if (!row) return "";
-  const departure = row.departureCode || "";
-  const arrival = row.arrivalCode || "";
-
-  if (!departure && !arrival) return "";
-  if (departure && arrival) return `${departure}→${arrival}`;
-  if (departure) return `${departure}→-`;
-  return `-→${arrival}`;
-}
-
 function getFlightTimeDisplay(row?: FlightRow) {
   if (!row) return "-";
   const value = row.formattedEstimatedTime || row.estimatedDateTime || row.formattedScheduleTime || row.scheduleDateTime || "";
@@ -1186,18 +1109,6 @@ const secondaryButtonStyle: CSSProperties = {
   fontWeight: 950,
   cursor: "pointer",
 };
-
-function getFlightNoColor(dep?: string, arr?: string): string {
-  const d = String(dep || "").trim().toUpperCase();
-  const a = String(arr || "").trim().toUpperCase();
-  if (d === "ICN" || d === "RKSI") {
-    return "#ef4444"; // 빨간색 (인천출발)
-  }
-  if (a === "ICN" || a === "RKSI") {
-    return "#3b82f6"; // 파란색 (인천도착)
-  }
-  return "#e2e8f0"; // 기본 색상 (회백색)
-}
 
 function parseDateTime(value?: string | null): Date | null {
   return parseAfocsDateTime(value);

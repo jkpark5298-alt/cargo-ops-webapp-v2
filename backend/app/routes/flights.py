@@ -752,8 +752,11 @@ def _apply_aircraft_registrations_to_rows(rows: List[Any]) -> List[Any]:
         )
         fallback_key = _aircraft_registration_flight_date_key(date, flight)
         existing = _row_aircraft_registration(row)
-        # 1순위: 매뉴얼(행에 이미 있는 값)  2순위: 등록번호/AFOCS DB
-        registration_no = existing or lookup.get(exact_key) or lookup.get(fallback_key) or lookup.get(flight)
+        # 프론트(aircraft-registration.ts)와 같은 순서:
+        # 1) 일자(+노선)가 맞는 가장 최근 등록 기록  2) 행에 이미 있는 값  3) 편명 단독 기록
+        registration_no = (
+            lookup.get(exact_key) or lookup.get(fallback_key) or existing or lookup.get(flight)
+        )
 
         if registration_no:
             next_row = dict(row)

@@ -61,7 +61,6 @@ import {
   updateDailyRecord,
   updateIssueRecord,
 } from "./lib/notion-api";
-import { getApiBaseUrl } from "./lib/api-config";
 import {
   loadScheduleSlotsFromServer,
   saveScheduleSlotToServer,
@@ -74,11 +73,25 @@ import {
   preserveAfocsSkdOnRows,
   seedEmptyAfocsSkdFromSchedule,
 } from "./lib/afocs-skd";
-
-const STORAGE_KEY = "cargo_ops_monitor_rooms_v6";
-const AIRCRAFT_REGISTRATION_STORAGE_KEY = "cargo_ops_aircraft_registration_records_v1";
-
-
+import {
+  isActiveScheduleRoom,
+  loadRooms,
+  mergeLatestScheduleRoom,
+  mergeScheduleRegistrationIntoRoom,
+  removeEmptyScheduleRooms,
+  removeFlightFromScheduleRoom,
+  saveLatestScheduleToServer,
+  saveRooms,
+} from "./lib/schedule-store";
+import { type FlightRow, type MonitorRoom } from "./lib/flight-types";
+import { getFlightNo, normalizeFlightKey, normalizeFlightsInput } from "./lib/flight-keys";
+import { BACKEND_URL } from "./lib/api-config";
+import {
+  fetchAircraftRegistrationRecordsFromServer,
+  loadAircraftRegistrationRecords,
+} from "./lib/aircraft-registration";
+import { applyRegistrationToRows } from "./lib/aircraft-registration";
+import { getCurrentTimeLabel, getRouteDisplay } from "./lib/flight-alerts";
 type DailyNotionRecord = {
   pageId: string;
   url?: string;
@@ -179,8 +192,6 @@ const IMAGE_SLOT_PROPERTY_NAME: Record<ImageSlotKey, string> = {
   issue: "이미지",
 };
 
-const BACKEND_URL = getApiBaseUrl();
-
 const APP_VERSION = "v1.0.2";
 const APP_VERSION_DATE = "2026.05.19";
 
@@ -230,50 +241,6 @@ const DEFAULT_WEATHER: WeatherInfo = {
   message: "실시간 날씨 정보를 불러오면 자동으로 갱신됩니다.",
 };
 
-export type FlightRow = {
-  flightId?: string;
-  flightNo?: string;
-  departureCode?: string;
-  arrivalCode?: string;
-  formattedScheduleTime?: string;
-  formattedEstimatedTime?: string;
-  scheduleDateTime?: string;
-  estimatedDateTime?: string;
-  gatenumber?: string;
-  terminalid?: string;
-  remark?: string;
-  status?: string;
-  delay?: boolean;
-  canceled?: boolean;
-  gateChanged?: boolean;
-  sourceType?: string;
-  fid?: string;
-  aircraftRegNo?: string;
-  registrationNo?: string;
-  hlnbr?: string;
-  afocsSkd?: string;
-};
-
-export type MonitorRoom = {
-  id: string;
-  name: string;
-  flightsInput: string;
-  startDateTime: string;
-  endDateTime: string;
-  fixed: boolean;
-  lastFetchedAt: string;
-  rows: FlightRow[];
-};
-
-type AircraftRegistrationRecord = {
-  date: string;
-  flight: string;
-  departureCode: string;
-  arrivalCode: string;
-  registrationNo: string;
-  updatedAt: string;
-};
-
 
 
 
@@ -289,40 +256,6 @@ type SavedImage = {
   memo?: string;
 };
 
-function loadRooms(): MonitorRoom[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? removeEmptyScheduleRooms(parsed) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveRooms(rooms: MonitorRoom[]) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(rooms));
-}
-
-function isActiveScheduleRoom(room?: MonitorRoom | null) {
-  if (!room) return false;
-  const flightsInput = String(room.flightsInput || "").trim();
-  const rows = Array.isArray(room.rows) ? room.rows : [];
-  return Boolean(flightsInput || rows.length > 0);
-}
-
-function removeEmptyScheduleRooms(rooms: MonitorRoom[]) {
-  return rooms.filter((room) => !room.fixed || isActiveScheduleRoom(room));
-}
-
-function mergeLatestScheduleRoom(rooms: MonitorRoom[], latestRoom: MonitorRoom | null) {
-  const localRooms = removeEmptyScheduleRooms(rooms).filter((room) => !room.fixed);
-  if (!isActiveScheduleRoom(latestRoom)) return localRooms;
-  return [latestRoom as MonitorRoom, ...localRooms];
-}
-
 function getLocalLatestScheduleRoom() {
   return loadRooms().find((room) => room.fixed && isActiveScheduleRoom(room)) || null;
 }
@@ -336,23 +269,6 @@ function getCurrentSyncLabel() {
     minute: "2-digit",
     hour12: false,
   }).format(new Date());
-}
-
-async function saveLatestScheduleToServer(room: MonitorRoom) {
-  const res = await fetch(`${BACKEND_URL}/flights/latest-schedule`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ room }),
-  });
-  const json = await res.json();
-
-  if (!res.ok || json.success === false) {
-    throw new Error(json.detail || json.message || "Schedule Flight 서버 저장 실패");
-  }
-
-  return mergeScheduleRegistrationIntoRoom((json.room || room) as MonitorRoom, room) as MonitorRoom;
 }
 
 function getImageBySlot(images: SavedImage[], slotKey: ImageSlotKey) {
@@ -477,275 +393,6 @@ function getLatestScheduleRoom(rooms: MonitorRoom[]) {
   return scheduleRooms[0] || null;
 }
 
-function getFlightNo(row?: FlightRow) {
-  if (!row) return "";
-  return row.flightId || row.flightNo || "";
-}
-
-
-function formatAircraftRegistrationNo(value: string) {
-  const normalized = String(value || "")
-    .replace(/\s+/g, "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "");
-
-  if (/^\d{3,5}$/.test(normalized)) return `HL${normalized}`;
-  if (/^HL\d{3,5}$/.test(normalized)) return normalized;
-  return "";
-}
-
-function getRegistrationNo(row?: FlightRow) {
-  const maybeRow = row as
-    | {
-        hlnbr?: string;
-        registrationNo?: string;
-        aircraftRegNo?: string;
-        fid?: string;
-      }
-    | undefined;
-
-  return (
-    formatAircraftRegistrationNo(
-      maybeRow?.hlnbr || maybeRow?.registrationNo || maybeRow?.aircraftRegNo || "",
-    ) || formatAircraftRegistrationNo(maybeRow?.fid || "")
-  );
-}
-
-function getScheduleRegistrationKey(row?: FlightRow) {
-  if (!row) return "";
-  return [
-    getFlightNo(row).replace(/\s+/g, "").toUpperCase(),
-    row.scheduleDateTime || row.formattedScheduleTime || "",
-    row.departureCode || "",
-    row.arrivalCode || "",
-  ].join("|");
-}
-
-function buildScheduleRegistrationMap(rows?: FlightRow[]) {
-  const map = new Map<string, string>();
-  if (!Array.isArray(rows)) return map;
-
-  rows.forEach((row) => {
-    const registrationNo = getRegistrationNo(row);
-    if (!registrationNo) return;
-
-    const fullKey = getScheduleRegistrationKey(row);
-    if (fullKey) map.set(fullKey, registrationNo);
-
-    const flightKey = getFlightNo(row).replace(/\s+/g, "").toUpperCase();
-    if (flightKey && !map.has(flightKey)) map.set(flightKey, registrationNo);
-  });
-
-  return map;
-}
-
-function applyRegistrationMapToRows(rows: FlightRow[], registrationMap: Map<string, string>) {
-  return rows.map((row) => {
-    const existing = getRegistrationNo(row);
-    const fullKey = getScheduleRegistrationKey(row);
-    const flightKey = getFlightNo(row).replace(/\s+/g, "").toUpperCase();
-    const dateKey = getAircraftRegistrationDateFromRow(row);
-    const aircraftExactKey = buildAircraftRegistrationKey(
-      dateKey,
-      getFlightNo(row),
-      row.departureCode,
-      row.arrivalCode,
-    );
-    const aircraftFallbackKey = buildAircraftRegistrationFlightDateKey(dateKey, getFlightNo(row));
-    // 1순위: Schedule/매뉴얼  2순위: 행 기존값  3순위: 등록번호/AFOCS DB
-    const mapped =
-      registrationMap.get(fullKey) ||
-      registrationMap.get(flightKey) ||
-      existing ||
-      registrationMap.get(aircraftExactKey) ||
-      registrationMap.get(aircraftFallbackKey) ||
-      "";
-
-    return mapped
-      ? {
-          ...row,
-          hlnbr: mapped,
-          registrationNo: mapped,
-          aircraftRegNo: mapped,
-        }
-      : row;
-  });
-}
-
-function mergeScheduleRegistrationIntoRoom(
-  incomingRoom: MonitorRoom | null,
-  previousRoom: MonitorRoom | null,
-  registrationRecords?: AircraftRegistrationRecord[],
-) {
-  if (!incomingRoom) return incomingRoom;
-
-  const registrationMap = buildScheduleRegistrationMap(previousRoom?.rows);
-  addAircraftRegistrationRecordsToMap(
-    registrationMap,
-    registrationRecords || loadAircraftRegistrationRecords(),
-  );
-  // 서버/슬롯에 있는 AFOCS는 유지합니다. 로컬은 빈 칸만 채웁니다.
-  // 그래도 비어 있으면 변경(스케줄) 시각으로 채웁니다.
-  const rowsWithManualAfocs = seedEmptyAfocsSkdFromSchedule(
-    fillEmptyAfocsSkdOnRows(incomingRoom.rows || [], previousRoom?.rows),
-  );
-  const nextRows = applyRegistrationMapToRows(rowsWithManualAfocs, registrationMap);
-
-  return {
-    ...incomingRoom,
-    rows: nextRows,
-  };
-}
-
-function normalizeFlightKey(value: string) {
-  let normalized = value.replace(/\s+/g, "").toUpperCase();
-  normalized = normalized.replace(/[^A-Z0-9]/g, "");
-
-  const match = normalized.match(/^([A-Z]{2,3})?0*([1-9]\d*)$/);
-  if (match) {
-    const prefix = match[1] || "KJ";
-    const num = match[2];
-    return `${prefix}${num}`;
-  }
-
-  const allZerosMatch = normalized.match(/^([A-Z]{2,3})?0+$/);
-  if (allZerosMatch) {
-    const prefix = allZerosMatch[1] || "KJ";
-    return `${prefix}0`;
-  }
-
-  return normalized;
-}
-
-function normalizeFlightsInput(rawInput: string) {
-  return rawInput
-    .split(/[\s,\n,]+/)
-    .map((value) => value.trim().toUpperCase())
-    .filter(Boolean)
-    .map((value) => {
-      if (/^\d{3,4}$/.test(value)) {
-        return `KJ${value}`;
-      }
-      return value;
-    });
-}
-
-function removeFlightFromScheduleRoom(room: MonitorRoom, targetFlight: string): MonitorRoom {
-  const targetKey = normalizeFlightKey(targetFlight);
-  const nextFlights = normalizeFlightsInput(room.flightsInput).filter(
-    (flight) => normalizeFlightKey(flight) !== targetKey,
-  );
-  const nextRows = (room.rows || []).filter(
-    (row) => normalizeFlightKey(getFlightNo(row)) !== targetKey,
-  );
-
-  return {
-    ...room,
-    flightsInput: nextFlights.join(", "),
-    rows: nextRows,
-    lastFetchedAt: new Date().toISOString(),
-  };
-}
-
-function normalizeAircraftRegistrationDate(value: unknown) {
-  if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    const kstDate = new Date(value.getTime() + 9 * 60 * 60 * 1000);
-    const yyyy = kstDate.getUTCFullYear();
-    const mm = String(kstDate.getUTCMonth() + 1).padStart(2, "0");
-    const dd = String(kstDate.getUTCDate()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}`;
-  }
-
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-
-  const match = raw.match(/^(\d{4})[-/.\s]+(\d{1,2})[-/.\s]+(\d{1,2})/);
-  if (match) {
-    const yyyy = match[1];
-    const mm = match[2].padStart(2, "0");
-    const dd = match[3].padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}`;
-  }
-
-  const digits = raw.replace(/\D/g, "");
-  if (digits.length >= 8) return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
-
-  return raw;
-}
-
-function getAircraftRegistrationDateFromRow(row: FlightRow) {
-  return normalizeAircraftRegistrationDate(
-    row.scheduleDateTime || row.formattedScheduleTime || row.estimatedDateTime || row.formattedEstimatedTime || "",
-  );
-}
-
-function buildAircraftRegistrationKey(date: string, flight: string, departureCode = "", arrivalCode = "") {
-  return [
-    normalizeAircraftRegistrationDate(date),
-    normalizeFlightKey(flight),
-    String(departureCode || "").replace(/\s+/g, "").toUpperCase(),
-    String(arrivalCode || "").replace(/\s+/g, "").toUpperCase(),
-  ].join("|");
-}
-
-function buildAircraftRegistrationFlightDateKey(date: string, flight: string) {
-  return [normalizeAircraftRegistrationDate(date), normalizeFlightKey(flight)].join("|");
-}
-
-function loadAircraftRegistrationRecords(): AircraftRegistrationRecord[] {
-  if (typeof window === "undefined") return [];
-
-  try {
-    const raw = window.localStorage.getItem(AIRCRAFT_REGISTRATION_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveAircraftRegistrationRecords(records: AircraftRegistrationRecord[]) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(AIRCRAFT_REGISTRATION_STORAGE_KEY, JSON.stringify(records));
-}
-
-async function fetchAircraftRegistrationRecordsFromServer(): Promise<AircraftRegistrationRecord[]> {
-  const res = await fetch(`${BACKEND_URL}/flights/aircraft-registrations`, {
-    cache: "no-store",
-  });
-  const json = await res.json();
-
-  if (!res.ok || json.success === false) {
-    throw new Error(json.detail || json.message || "등록기호 서버 조회 실패");
-  }
-
-  const records = Array.isArray(json.records) ? (json.records as AircraftRegistrationRecord[]) : [];
-  saveAircraftRegistrationRecords(records);
-  return records;
-}
-
-function addAircraftRegistrationRecordsToMap(map: Map<string, string>, records: AircraftRegistrationRecord[]) {
-  records.forEach((record) => {
-    if (!record.date || !record.flight || !record.registrationNo) return;
-    const exactKey = buildAircraftRegistrationKey(record.date, record.flight, record.departureCode, record.arrivalCode);
-    const fallbackKey = buildAircraftRegistrationFlightDateKey(record.date, record.flight);
-    if (!map.has(exactKey)) map.set(exactKey, record.registrationNo);
-    if (!map.has(fallbackKey)) map.set(fallbackKey, record.registrationNo);
-  });
-}
-
-function getRouteDisplay(row?: FlightRow) {
-  if (!row) return "";
-  const departure = row.departureCode || "";
-  const arrival = row.arrivalCode || "";
-
-  if (!departure && !arrival) return "";
-  if (departure && arrival) return `${departure}→${arrival}`;
-  if (departure) return `${departure}→-`;
-  return `-→${arrival}`;
-}
-
 
 function getRouteByFlight(room: MonitorRoom | null, flightInput: string) {
   if (!room || !flightInput.trim()) return "";
@@ -793,14 +440,6 @@ function getCurrentTimeText() {
 
 function getWeatherSummary(weather: WeatherInfo) {
   return `${weather.condition || "-"} ${weather.temperature || "-"}℃ / 습도 ${weather.humidity || "-"}% / 미세먼지 ${weather.pm10Grade || "-"}`;
-}
-
-
-function getCurrentTimeLabel() {
-  const now = new Date();
-  const hh = String(now.getHours()).padStart(2, "0");
-  const mm = String(now.getMinutes()).padStart(2, "0");
-  return `${hh}:${mm}`;
 }
 
 function resizeImageDataUrl(dataUrl: string, maxSize = 1280, quality = 0.72): Promise<string> {
@@ -1941,10 +1580,12 @@ export default function HomePage() {
       );
       // 슬롯 AFOCS를 최우선으로 덮어 기기 간 수동 입력값을 맞춥니다.
       const rowsFromSlot = preserveAfocsSkdOnRows(roomWithLocalAfocs?.rows || [], slotAfocsRows);
-      // 슬롯에 박힌 매뉴얼 등록번호를 1순위로 두고, 등록번호/AFOCS는 빈 칸만 채웁니다.
-      const registrationMapFromSlot = buildScheduleRegistrationMap(slotAfocsRows);
-      addAircraftRegistrationRecordsToMap(registrationMapFromSlot, serverRegistrationRecords);
-      const rowsWithSlotRegistration = applyRegistrationMapToRows(rowsFromSlot, registrationMapFromSlot);
+      // 등록번호는 공용 우선순위(최근 저장 기록 → 슬롯 값 → 행 값)로 정합니다.
+      const rowsWithSlotRegistration = applyRegistrationToRows(
+        rowsFromSlot,
+        serverRegistrationRecords,
+        slotAfocsRows,
+      );
       // latest-schedule(서버) AFOCS로 남은 빈 칸을 채웁니다.
       const rowsFromServer = fillEmptyAfocsSkdOnRows(rowsWithSlotRegistration, rawServerRoom?.rows || []);
       // PC 로컬에만 있던 AFOCS도 빈 칸에 채웁니다.

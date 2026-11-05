@@ -1,7 +1,8 @@
 "use client";
 
-import type { FlightRow, MonitorRoom } from "../page";
+import type { FlightRow, MonitorRoom } from "./flight-types";
 
+import { getFlightNo, normalizeFlightKey } from ".//flight-keys";
 const FLIGHT_ALERT_SNAPSHOT_KEY = "cargo_ops_flight_alert_snapshot_v1";
 const FLIGHT_ALERT_HISTORY_KEY = "cargo_ops_flight_alert_history_v1";
 
@@ -170,11 +171,7 @@ function getFlightAlertRows(room: MonitorRoom | null): FlightAlertSnapshotRow[] 
   });
 }
 
-function getFlightNo(row: FlightRow) {
-  return row.flightNo || row.flightId || "";
-}
-
-function getRouteDisplay(row?: FlightRow) {
+export function getRouteDisplay(row?: FlightRow) {
   if (!row) return "";
 
   const departure = row.departureCode || "";
@@ -187,15 +184,11 @@ function getRouteDisplay(row?: FlightRow) {
   return `-→${arrival}`;
 }
 
-function getCurrentTimeLabel() {
+export function getCurrentTimeLabel() {
   const now = new Date();
   const hh = String(now.getHours()).padStart(2, "0");
   const mm = String(now.getMinutes()).padStart(2, "0");
   return `${hh}:${mm}`;
-}
-
-function normalizeFlightKey(flight: string) {
-  return flight.replace(/\s+/g, "").toUpperCase();
 }
 
 function getRowScheduleTime(row: FlightRow) {

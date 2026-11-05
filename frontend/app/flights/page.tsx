@@ -11,7 +11,6 @@ import {
   clearAllScheduleSlotsOnServer,
   deleteScheduleSlotOnServer,
   formatScheduleCardName,
-  isActiveScheduleRoom as isActiveScheduleSlotRoom,
   linkScheduleSlotOnServer,
   loadScheduleSlotsFromServer,
   saveScheduleSlotToServer,
@@ -31,70 +30,51 @@ import {
 } from "../lib/afocs-skd";
 import { getComputedFlightStatus } from "../lib/flight-status";
 
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://cargo-ops-backend.onrender.com";
+import type { AircraftRegistrationRecord, FlightRow, MonitorRoom } from "../lib/flight-types";
+import {
+  confirmedRegistrationNo,
+  getRegistrationNo as getRegistrationNoValue,
+  normalizeFlightKey,
+  normalizeFlightsInput,
+  normalizeHlNumber,
+} from "../lib/flight-keys";
+import {
+  applyRegistrationToRows,
+  fetchAircraftRegistrationRecordsFromServer,
+  getAircraftRegistrationDateFromRow,
+  getFlightRowCandidateDates,
+  loadAircraftRegistrationRecords,
+  mergeAircraftRegistrationRecords,
+  normalizeAircraftRegistrationDate,
+  saveAircraftRegistrationRecords,
+  saveAircraftRegistrationRecordsToServer,
+} from "../lib/aircraft-registration";
+import {
+  buildScheduleRowsForFlights,
+  isActiveScheduleRoom,
+  loadLatestScheduleFromServer,
+  loadRooms,
+  mergeLatestScheduleRoom,
+  normalizeScheduleRoomRows,
+  removeEmptyScheduleRooms,
+  removeFlightFromScheduleRoom,
+  saveLatestScheduleToServer,
+  saveRooms,
+} from "../lib/schedule-store";
+import { BACKEND_URL } from "../lib/api-config";
 
+import { getFlightNoColor } from "../lib/flight-status";
 const REFRESH_INTERVAL_MINUTES = 10;
-
-type FlightRow = {
-  airline?: string;
-  flightId?: string;
-  flightNo?: string;
-  departureCode?: string;
-  departureName?: string;
-  arrivalCode?: string;
-  arrivalName?: string;
-  scheduleDateTime?: string;
-  estimatedDateTime?: string;
-  formattedScheduleTime?: string;
-  formattedEstimatedTime?: string;
-  gatenumber?: string;
-  terminalid?: string;
-  masterflightid?: string;
-  codeshare?: string;
-  typeOfFlight?: string;
-  remark?: string;
-  status?: string;
-  delay?: boolean;
-  canceled?: boolean;
-  gateChanged?: boolean;
-  sourceType?: string;
-  fid?: string;
-  afocsSkd?: string;
-  hlnbr?: string;
-  registrationNo?: string;
-  aircraftRegNo?: string;
-  registrationNoEdited?: boolean;
-  flightNoEdited?: boolean;
-};
-
-type MonitorRoom = {
-  id: string;
-  name: string;
-  flightsInput: string;
-  startDateTime: string;
-  endDateTime: string;
-  fixed: boolean;
-  lastFetchedAt: string;
-  rows: FlightRow[];
-};
-
-type AircraftRegistrationRecord = {
-  date: string;
-  flight: string;
-  departureCode: string;
-  arrivalCode: string;
-  registrationNo: string;
-  updatedAt: string;
-};
-
-const STORAGE_KEY = "cargo_ops_monitor_rooms_v6";
 const HL_MAPPING_STORAGE_KEY = "cargo_ops_hl_number_mapping_v1";
-const AIRCRAFT_REGISTRATION_STORAGE_KEY = "cargo_ops_aircraft_registration_records_v1";
 const REGISTRATION_RANGE_STORAGE_KEY = "cargo_ops_registration_query_range_v1";
 const LAST_FIXED_ROOM_KEY = "last_fixed_room_id";
 const FLIGHT_ALERT_SNAPSHOT_KEY = "cargo_ops_flight_alert_snapshot_v1";
 const FLIGHT_ALERT_HISTORY_KEY = "cargo_ops_flight_alert_history_v1";
+
+/** 이 화면은 등록번호가 없을 때 "-"로 표시·비교합니다. (공용 getRegistrationNo는 빈 문자열) */
+function getRegistrationNo(row: FlightRow) {
+  return getRegistrationNoValue(row) || "-";
+}
 
 function toDateTimeLocalString(date: Date) {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
@@ -207,23 +187,6 @@ function patchScheduleRowsWithRegistrationFields(
   });
 }
 
-function loadRooms(): MonitorRoom[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveRooms(rooms: MonitorRoom[]) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(rooms));
-}
-
 
 const FLIGHT_LOOKUP_CACHE_PREFIX = "cargo_ops_flight_lookup_cache_v1:";
 const FLIGHT_LOOKUP_CACHE_TTL_MS = 3 * 60 * 1000;
@@ -278,66 +241,14 @@ function saveFlightLookupCache(key: string, rows: FlightRow[], fetchedAt: string
   }
 }
 
-function isActiveScheduleRoom(room?: MonitorRoom | null) {
-  return isActiveScheduleSlotRoom(room);
-}
-
-function removeEmptyScheduleRooms(rooms: MonitorRoom[]) {
-  return rooms.filter((room) => !room.fixed || isActiveScheduleRoom(room));
-}
-
-function mergeLatestScheduleRoom(rooms: MonitorRoom[], latestRoom: MonitorRoom | null) {
-  const localRooms = removeEmptyScheduleRooms(rooms).filter((room) => !room.fixed);
-  if (!isActiveScheduleRoom(latestRoom)) return localRooms;
-  return [latestRoom as MonitorRoom, ...localRooms];
-}
-
-async function loadLatestScheduleFromServer() {
-  const res = await fetch(`${BACKEND_URL}/flights/latest-schedule`, {
-    cache: "no-store",
-  });
-  const json = await res.json();
-
-  if (!res.ok || json.success === false) {
-    throw new Error(json.detail || json.message || "Schedule Flight 서버 조회 실패");
-  }
-
-  const room = (json.room || null) as MonitorRoom | null;
-  return isActiveScheduleRoom(room) ? room : null;
-}
-
-async function saveLatestScheduleToServer(room: MonitorRoom) {
-  const roomToSave = normalizeScheduleRoomRows(room);
-
-  const res = await fetch(`${BACKEND_URL}/flights/latest-schedule`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ room: roomToSave }),
-  });
-
-  const json = await res.json();
-
-  if (!res.ok || json.success === false) {
-    throw new Error(json.detail || json.message || "Schedule Flight 서버 동기화 실패");
-  }
-
-  return normalizeScheduleRoomRows((json.room || roomToSave) as MonitorRoom);
-}
-
 function clearFlightAlertBaselineAndHistory() {
   if (typeof window === "undefined") return;
   localStorage.removeItem(FLIGHT_ALERT_SNAPSHOT_KEY);
   localStorage.removeItem(FLIGHT_ALERT_HISTORY_KEY);
 }
 
-function getComputedStatus(row: FlightRow) {
-  return getComputedFlightStatus(row);
-}
-
 function getStatusColor(row: FlightRow) {
-  const status = getComputedStatus(row);
+  const status = getComputedFlightStatus(row);
 
   if (status === "결항") return "#111111";
   if (status === "게이트 변경") return "#a855f7";
@@ -348,7 +259,7 @@ function getStatusColor(row: FlightRow) {
 }
 
 function getAlertCounts(rows: FlightRow[]) {
-  const computed = rows.map((r) => getComputedStatus(r));
+  const computed = rows.map((r) => getComputedFlightStatus(r));
   return {
     delay: computed.filter((s) => s.includes("지연")).length,
     gateChanged: computed.filter((s) => s === "게이트 변경").length,
@@ -357,7 +268,7 @@ function getAlertCounts(rows: FlightRow[]) {
 }
 
 function getRowBackground(row: FlightRow) {
-  const status = getComputedStatus(row);
+  const status = getComputedFlightStatus(row);
 
   if (status === "결항") return "rgba(239, 68, 68, 0.12)";
   if (status === "게이트 변경") return "rgba(168, 85, 247, 0.14)";
@@ -375,29 +286,6 @@ function getChangedDateTime(row: FlightRow) {
     row.scheduleDateTime ||
     "-"
   );
-}
-
-function getRegistrationNo(row: FlightRow) {
-  const maybeRow = row as FlightRow & {
-    hlnbr?: string;
-    registrationNo?: string;
-    aircraftRegNo?: string;
-    fid?: string;
-  };
-
-  const candidates = [
-    maybeRow.hlnbr,
-    maybeRow.registrationNo,
-    maybeRow.aircraftRegNo,
-    /^HL\d{3,5}$/i.test(maybeRow.fid || "") ? maybeRow.fid : "",
-  ];
-
-  for (const candidate of candidates) {
-    const normalized = normalizeHlNumber(String(candidate || ""));
-    if (/^HL\d{3,5}$/i.test(normalized)) return normalized;
-  }
-
-  return "-";
 }
 
 function getFlightDisplay(row: FlightRow) {
@@ -514,59 +402,6 @@ function mergeRowsKeepFinal(previousRows: FlightRow[], refreshedRows: FlightRow[
   return [...finalRowsToKeep, ...refreshedRows];
 }
 
-function normalizeFlightsInput(rawInput: string) {
-  return rawInput
-    .split(/[\s,\n,]+/)
-    .map((value) => value.trim().toUpperCase())
-    .filter(Boolean)
-    .map((value) => {
-      if (/^\d{3,4}$/.test(value)) {
-        return `KJ${value}`;
-      }
-      return value;
-    });
-}
-
-function normalizeHlFlightKey(value: string) {
-  let normalized = value.replace(/\s+/g, "").toUpperCase();
-  normalized = normalized.replace(/[^A-Z0-9]/g, "");
-
-  const match = normalized.match(/^([A-Z]{2,3})?0*([1-9]\d*)$/);
-  if (match) {
-    const prefix = match[1] || "KJ";
-    const num = match[2];
-    return `${prefix}${num}`;
-  }
-
-  const allZerosMatch = normalized.match(/^([A-Z]{2,3})?0+$/);
-  if (allZerosMatch) {
-    const prefix = allZerosMatch[1] || "KJ";
-    return `${prefix}0`;
-  }
-
-  return normalized;
-}
-
-function normalizeFlightKey(value: string) {
-  return normalizeHlFlightKey(value);
-}
-
-function normalizeHlNumber(value: string) {
-  let normalized = value.replace(/\s+/g, "").toUpperCase();
-  normalized = normalized.replace(/[^A-Z0-9]/g, "");
-
-  if (/^\d{3,5}$/.test(normalized)) {
-    return `HL${normalized}`;
-  }
-
-  return normalized;
-}
-
-function confirmedRegistrationNo(value: string) {
-  const normalized = normalizeHlNumber(String(value || ""));
-  return /^HL\d{3,5}$/i.test(normalized) ? normalized : "";
-}
-
 function confirmedRegistrationNoFromRow(row?: FlightRow) {
   if (!row) return "";
   const fromFields = confirmedRegistrationNo(
@@ -612,7 +447,7 @@ function parseHlMappingText(text: string): Record<string, string> {
       const parts = cleaned.split(/\s+/).filter(Boolean);
       if (parts.length < 2) return;
 
-      const flight = normalizeHlFlightKey(parts[0]);
+      const flight = normalizeFlightKey(parts[0]);
       const hlNumber = normalizeHlNumber(parts[1]);
 
       if (!/^KJ\d{2,4}$/i.test(flight)) return;
@@ -639,242 +474,6 @@ function loadHlMappingText() {
 function saveHlMappingText(value: string) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(HL_MAPPING_STORAGE_KEY, value);
-}
-
-
-
-function normalizeAircraftRegistrationDate(value: unknown) {
-  if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    const kstDate = new Date(value.getTime() + 9 * 60 * 60 * 1000);
-    const yyyy = kstDate.getUTCFullYear();
-    const mm = String(kstDate.getUTCMonth() + 1).padStart(2, "0");
-    const dd = String(kstDate.getUTCDate()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}`;
-  }
-
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-
-  const match = raw.match(/^(\d{4})[-/.\s]+(\d{1,2})[-/.\s]+(\d{1,2})/);
-  if (match) {
-    const yyyy = match[1];
-    const mm = match[2].padStart(2, "0");
-    const dd = match[3].padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}`;
-  }
-
-  const digits = raw.replace(/\D/g, "");
-  if (digits.length >= 8) return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
-
-  return raw;
-}
-
-function getAircraftRegistrationDateFromRow(row: FlightRow) {
-  return normalizeAircraftRegistrationDate(
-    row.scheduleDateTime ||
-      row.formattedScheduleTime ||
-      row.estimatedDateTime ||
-      row.formattedEstimatedTime ||
-      "",
-  );
-}
-
-function buildAircraftRegistrationKey(date: string, flight: string, departureCode = "", arrivalCode = "") {
-  return [
-    normalizeAircraftRegistrationDate(date),
-    normalizeHlFlightKey(flight),
-    String(departureCode || "").replace(/\s+/g, "").toUpperCase(),
-    String(arrivalCode || "").replace(/\s+/g, "").toUpperCase(),
-  ].join("|");
-}
-
-function buildAircraftRegistrationFlightDateKey(date: string, flight: string) {
-  return [normalizeAircraftRegistrationDate(date), normalizeHlFlightKey(flight)].join("|");
-}
-
-function buildAircraftRegistrationMap(records: AircraftRegistrationRecord[]) {
-  const tempMap = new Map<string, { registrationNo: string; updatedAt: string }>();
-  const hlByFlight = new Map<string, Set<string>>();
-
-  const setIfNewer = (key: string, registrationNo: string, updatedAt: string) => {
-    if (!key) return;
-    const existing = tempMap.get(key);
-    if (!existing || updatedAt >= existing.updatedAt) {
-      tempMap.set(key, { registrationNo, updatedAt });
-    }
-  };
-
-  records.forEach((record) => {
-    if (!record.flight || !record.registrationNo) return;
-    const registrationNo = normalizeHlNumber(record.registrationNo);
-    if (!/^HL\d{3,5}$/i.test(registrationNo)) return;
-
-    const currentUpdateTime = record.updatedAt || "";
-    const flightKey = normalizeHlFlightKey(record.flight);
-
-    if (record.date) {
-      setIfNewer(
-        buildAircraftRegistrationKey(record.date, record.flight, record.departureCode, record.arrivalCode),
-        registrationNo,
-        currentUpdateTime,
-      );
-      setIfNewer(buildAircraftRegistrationFlightDateKey(record.date, record.flight), registrationNo, currentUpdateTime);
-    }
-
-    if (flightKey) {
-      if (!hlByFlight.has(flightKey)) hlByFlight.set(flightKey, new Set());
-      hlByFlight.get(flightKey)?.add(registrationNo);
-    }
-  });
-
-  const finalMap = new Map<string, { registrationNo: string; updatedAt: string }>(tempMap);
-  // 같은 편명이 날짜마다 다른 HL이면 편명만으로 덮지 않습니다. (KJ283 09.04 HL7620 vs 다른 날 HL7423)
-  hlByFlight.forEach((hls, flightKey) => {
-    if (hls.size === 1) {
-      finalMap.set(flightKey, { registrationNo: [...hls][0], updatedAt: "" });
-    }
-  });
-
-  return finalMap;
-}
-
-function getFlightRowCandidateDates(row: FlightRow) {
-  const dates: string[] = [];
-  [
-    row.estimatedDateTime,
-    row.formattedEstimatedTime,
-    row.scheduleDateTime,
-    row.formattedScheduleTime,
-  ].forEach((value) => {
-    const date = normalizeAircraftRegistrationDate(value || "");
-    if (/^\d{4}-\d{2}-\d{2}$/.test(date) && !dates.includes(date)) dates.push(date);
-  });
-
-  const primaryDate = getAircraftRegistrationDateFromRow(row);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(primaryDate) && !dates.includes(primaryDate)) {
-    dates.push(primaryDate);
-  }
-
-  return dates;
-}
-
-function getAircraftRegistrationForRow(row: FlightRow, records: AircraftRegistrationRecord[]) {
-  const map = buildAircraftRegistrationMap(records);
-  const flight = getFlightDisplay(row);
-  const dates = getFlightRowCandidateDates(row);
-
-  // 엑셀 업로드와 매뉴얼 저장이 날짜·노선 키만 달라도 가장 최근에 저장한 값을 사용합니다.
-  let best: { registrationNo: string; updatedAt: string } | null = null;
-  const consider = (key: string) => {
-    const hit = map.get(key);
-    if (hit && (!best || hit.updatedAt > best.updatedAt)) best = hit;
-  };
-  for (const date of dates) {
-    consider(buildAircraftRegistrationKey(date, flight, row.departureCode, row.arrivalCode));
-    consider(buildAircraftRegistrationFlightDateKey(date, flight));
-  }
-  if (best) return (best as { registrationNo: string }).registrationNo;
-
-  return map.get(normalizeHlFlightKey(flight))?.registrationNo || "";
-}
-
-function applyAircraftRegistrationToRows(rows: FlightRow[], records: AircraftRegistrationRecord[]) {
-  return rows.map((row) => {
-    const existing = confirmedRegistrationNoFromRow(row);
-    const fromRegistrationDb = getAircraftRegistrationForRow(row, records);
-    // 1순위: 매뉴얼(행·스케줄에 이미 있는 값)  2순위: 등록번호/AFOCS DB
-    const registrationNo = existing || fromRegistrationDb;
-
-    return registrationNo
-      ? {
-          ...row,
-          hlnbr: registrationNo,
-          registrationNo,
-          aircraftRegNo: registrationNo,
-        }
-      : row;
-  });
-}
-
-function loadAircraftRegistrationRecords(): AircraftRegistrationRecord[] {
-  if (typeof window === "undefined") return [];
-
-  try {
-    const raw = window.localStorage.getItem(AIRCRAFT_REGISTRATION_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveAircraftRegistrationRecords(records: AircraftRegistrationRecord[]) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(AIRCRAFT_REGISTRATION_STORAGE_KEY, JSON.stringify(records));
-}
-
-async function fetchAircraftRegistrationRecordsFromServer() {
-  const res = await fetch(`${BACKEND_URL}/flights/aircraft-registrations`, {
-    cache: "no-store",
-  });
-  const json = await res.json();
-
-  if (!res.ok || json.success === false) {
-    throw new Error(json.detail || json.message || "등록기호 서버 조회 실패");
-  }
-
-  const records = Array.isArray(json.records) ? (json.records as AircraftRegistrationRecord[]) : [];
-  saveAircraftRegistrationRecords(records);
-  return records;
-}
-
-async function saveAircraftRegistrationRecordsToServer(
-  records: AircraftRegistrationRecord[],
-  mode: "merge" | "replace" = "merge",
-) {
-  const res = await fetch(`${BACKEND_URL}/flights/aircraft-registrations`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ records, mode }),
-  });
-  const json = await res.json();
-
-  if (!res.ok || json.success === false) {
-    throw new Error(json.detail || json.message || "등록기호 서버 저장 실패");
-  }
-
-  const nextRecords = Array.isArray(json.records) ? (json.records as AircraftRegistrationRecord[]) : records;
-  saveAircraftRegistrationRecords(nextRecords);
-  return nextRecords;
-}
-
-function mergeAircraftRegistrationRecords(
-  baseRecords: AircraftRegistrationRecord[],
-  incomingRecords: AircraftRegistrationRecord[],
-) {
-  const map = new Map<string, AircraftRegistrationRecord>();
-
-  baseRecords.forEach((record) => {
-    map.set(buildAircraftRegistrationKey(record.date, record.flight, record.departureCode, record.arrivalCode), record);
-  });
-
-  incomingRecords.forEach((record) => {
-    const key = buildAircraftRegistrationKey(record.date, record.flight, record.departureCode, record.arrivalCode);
-    const existing = map.get(key);
-    
-    if (!existing || (record.updatedAt || "") >= (existing.updatedAt || "")) {
-      map.set(key, record);
-    }
-  });
-
-  return Array.from(map.values()).sort((a, b) => {
-    const dateDiff = a.date.localeCompare(b.date);
-    if (dateDiff !== 0) return dateDiff;
-    return a.flight.localeCompare(b.flight, "en");
-  });
 }
 
 function getAircraftRegistrationCell(row: Record<string, unknown>, candidates: string[]) {
@@ -958,7 +557,7 @@ function parseAircraftRegistrationRows(rawRows: Record<string, unknown>[]) {
     const date = normalizeAircraftRegistrationDate(
       getAircraftRegistrationCell(row, ["운항일자", "일자", "날짜", "date", "operationdate"]),
     );
-    const flight = normalizeHlFlightKey(
+    const flight = normalizeFlightKey(
       String(getAircraftRegistrationCell(row, ["편명", "flight", "flightid", "flightno"]) || ""),
     );
     const departureCode = String(
@@ -1213,21 +812,6 @@ function getFlightKeyFromRow(row: FlightRow) {
   return normalizeFlightKey(getFlightDisplay(row));
 }
 
-function removeFlightFromScheduleRoom(room: MonitorRoom, targetFlight: string): MonitorRoom {
-  const targetKey = normalizeFlightKey(targetFlight);
-  const nextFlights = normalizeFlightsInput(room.flightsInput).filter(
-    (flight) => normalizeFlightKey(flight) !== targetKey,
-  );
-  const nextRows = (room.rows || []).filter((row) => getFlightKeyFromRow(row) !== targetKey);
-
-  return {
-    ...room,
-    flightsInput: nextFlights.join(", "),
-    rows: nextRows,
-    lastFetchedAt: new Date().toISOString(),
-  };
-}
-
 function filterRowsByFlightInput(rows: FlightRow[], flights: string[]) {
   const flightSet = new Set(flights.map((flight) => flight.replace(/\s+/g, "").toUpperCase()));
 
@@ -1237,46 +821,9 @@ function filterRowsByFlightInput(rows: FlightRow[], flights: string[]) {
   });
 }
 
-function buildRowsByFlight(rows: FlightRow[]) {
-  const rowsByFlight = new Map<string, FlightRow>();
-
-  rows.forEach((row) => {
-    const flight = getFlightKeyFromRow(row);
-    if (!flight || flight === "-") return;
-    rowsByFlight.set(flight, row);
-  });
-
-  return rowsByFlight;
-}
-
-function buildScheduleRowsForFlights(rows: FlightRow[], flights: string[]) {
-  const rowsByFlight = buildRowsByFlight(rows);
-
-  return flights
-    .map((flight) => rowsByFlight.get(normalizeFlightKey(flight)))
-    .filter((row): row is FlightRow => Boolean(row));
-}
-
-function normalizeScheduleRoomRows(room: MonitorRoom): MonitorRoom {
-  const sourceRows = Array.isArray(room.rows) ? room.rows : [];
-  const rowsByFlight = buildRowsByFlight(sourceRows);
-  const requestedFlights = normalizeFlightsInput(room.flightsInput);
-  // flightsInput이 비어 있으면 rows로 편을 되살리지 않습니다 (편 삭제 유지).
-  const finalFlights =
-    requestedFlights.length > 0
-      ? requestedFlights.filter((flight) => rowsByFlight.has(normalizeFlightKey(flight)))
-      : [];
-
-  return {
-    ...room,
-    flightsInput: finalFlights.join(", "),
-    rows: buildScheduleRowsForFlights(sourceRows, finalFlights),
-  };
-}
-
 function buildFixedDetailRows(row: FlightRow) {
   return [
-    { label: "현황", value: getComputedStatus(row) },
+    { label: "현황", value: getComputedFlightStatus(row) },
     { label: "편명", value: getFlightDisplay(row) },
     { label: "출발지코드", value: row.departureCode || "-" },
     { label: "출발지공항명", value: row.departureName || "-" },
@@ -1652,7 +1199,7 @@ function FixedResultsTable({
                       fontWeight: 800,
                     }}
                   >
-                    {getComputedStatus(row)}
+                    {getComputedFlightStatus(row)}
                   </td>
                   <td style={tdStyle}>{row.departureCode || "-"}</td>
                   <td style={tdStyle}>{row.arrivalCode || "-"}</td>
@@ -1790,11 +1337,11 @@ export default function FlightsPage() {
 
         setAircraftRegistrationRecords(finalRecords);
         aircraftRegistrationRecordsRef.current = finalRecords;
-        setRows((prevRows) => applyAircraftRegistrationToRows(prevRows, finalRecords));
+        setRows((prevRows) => applyRegistrationToRows(prevRows, finalRecords));
         setRooms((prevRooms) => {
           const nextRooms = prevRooms.map((room) => ({
             ...room,
-            rows: applyAircraftRegistrationToRows(room.rows || [], finalRecords),
+            rows: applyRegistrationToRows(room.rows || [], finalRecords),
           }));
           saveRooms(nextRooms);
           return nextRooms;
@@ -2011,7 +1558,7 @@ export default function FlightsPage() {
       }
 
       const verifiedSlots = await loadScheduleSlotsFromServer();
-      if (isActiveScheduleSlotRoom(verifiedSlots.active?.room) || isActiveScheduleSlotRoom(verifiedSlots.archive?.room)) {
+      if (isActiveScheduleRoom(verifiedSlots.active?.room) || isActiveScheduleRoom(verifiedSlots.archive?.room)) {
         throw new Error("삭제 후에도 Schedule Flight 카드가 남아 있습니다.");
       }
       applyScheduleSlotsState(verifiedSlots);
@@ -2108,7 +1655,7 @@ export default function FlightsPage() {
     });
     const withManual = mergeManualRegistrationFields(manualRows, targetRows);
     const withDrafts = applyInlineHlDraftsToRows(withManual, hlInlineDrafts);
-    return applyAircraftRegistrationToRows(applyHlMappingToRows(withDrafts, hlNumberMap), latestRecords);
+    return applyRegistrationToRows(applyHlMappingToRows(withDrafts, hlNumberMap), latestRecords);
   };
 
   const ensureAircraftRegistrationRecordsFromServer = async () => {
@@ -2200,7 +1747,7 @@ export default function FlightsPage() {
   };
 
   const handleHlInlineDraftChange = (flight: string, value: string) => {
-    const key = normalizeHlFlightKey(flight);
+    const key = normalizeFlightKey(flight);
     if (!key) return;
 
     setHlInlineDrafts((prev) => ({
@@ -2377,7 +1924,7 @@ export default function FlightsPage() {
         uploadRecords.length > 0
           ? mergeAircraftRegistrationRecords(latestRecords, uploadRecords)
           : latestRecords;
-      nextRows = applyAircraftRegistrationToRows(nextRows, nextRecords);
+      nextRows = applyRegistrationToRows(nextRows, nextRecords);
 
       if (matchedHl === 0 && matchedAfocs === 0) {
         setHlMappingStatus(
@@ -2538,12 +2085,12 @@ export default function FlightsPage() {
       });
 
     const nextRows = applyChangedOverrides(
-      applyAircraftRegistrationToRows(applyHlMappingToRows(rows, nextMap), nextAircraftRegistrationRecords),
+      applyRegistrationToRows(applyHlMappingToRows(rows, nextMap), nextAircraftRegistrationRecords),
     );
     const nextRooms = rooms.map((room) => ({
       ...room,
       rows: applyChangedOverrides(
-        applyAircraftRegistrationToRows(applyHlMappingToRows(room.rows || [], nextMap), nextAircraftRegistrationRecords),
+        applyRegistrationToRows(applyHlMappingToRows(room.rows || [], nextMap), nextAircraftRegistrationRecords),
       ),
     }));
 
@@ -2805,7 +2352,7 @@ export default function FlightsPage() {
 
         nextRows = mergeRowsKeepFinal(room.rows || [], json.data || []);
         nextRows = mergeManualRegistrationFields(room.rows || [], nextRows);
-        nextRows = applyAircraftRegistrationToRows(
+        nextRows = applyRegistrationToRows(
           applyHlMappingToRows(nextRows, hlNumberMap),
           aircraftRegistrationRecordsRef.current.length > 0
             ? aircraftRegistrationRecordsRef.current
@@ -4555,7 +4102,7 @@ export default function FlightsPage() {
                           fontWeight: 700,
                         }}
                       >
-                        {getComputedStatus(r)}
+                        {getComputedFlightStatus(r)}
                       </td>
                       <td style={{ ...tdStyle, color: getFlightNoColor(r.departureCode, r.arrivalCode) }}>
                         {formatFlightDisplayWithMarker(r, hlInlineDrafts)}
@@ -4918,15 +4465,3 @@ const badgeNormal: CSSProperties = {
   background: "rgba(148, 163, 184, 0.16)",
   color: "#cbd5e1",
 };
-
-function getFlightNoColor(dep?: string, arr?: string): string {
-  const d = String(dep || "").trim().toUpperCase();
-  const a = String(arr || "").trim().toUpperCase();
-  if (d === "ICN" || d === "RKSI") {
-    return "#ef4444"; // 빨간색 (인천출발)
-  }
-  if (a === "ICN" || a === "RKSI") {
-    return "#3b82f6"; // 파란색 (인천도착)
-  }
-  return "#e2e8f0"; // 기본 색상 (회백색)
-}

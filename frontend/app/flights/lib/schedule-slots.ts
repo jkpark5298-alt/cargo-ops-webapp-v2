@@ -1,43 +1,10 @@
-export type FlightRow = {
-  airline?: string;
-  flightId?: string;
-  flightNo?: string;
-  departureCode?: string;
-  departureName?: string;
-  arrivalCode?: string;
-  arrivalName?: string;
-  scheduleDateTime?: string;
-  estimatedDateTime?: string;
-  formattedScheduleTime?: string;
-  formattedEstimatedTime?: string;
-  gatenumber?: string;
-  terminalid?: string;
-  masterflightid?: string;
-  codeshare?: string;
-  typeOfFlight?: string;
-  remark?: string;
-  status?: string;
-  delay?: boolean;
-  canceled?: boolean;
-  gateChanged?: boolean;
-  sourceType?: string;
-  fid?: string;
-  afocsSkd?: string;
-  hlnbr?: string;
-  registrationNo?: string;
-  aircraftRegNo?: string;
-};
+import { BACKEND_URL } from "../../lib/api-config";
+import { getFlightNo } from "../../lib/flight-keys";
+import type { FlightRow, MonitorRoom } from "../../lib/flight-types";
+import { isActiveScheduleRoom } from "../../lib/schedule-store";
 
-export type MonitorRoom = {
-  id: string;
-  name: string;
-  flightsInput: string;
-  startDateTime: string;
-  endDateTime: string;
-  fixed: boolean;
-  lastFetchedAt: string;
-  rows: FlightRow[];
-};
+export type { FlightRow, MonitorRoom };
+export { isActiveScheduleRoom };
 
 export type ScheduleSlotKey = "active" | "archive";
 
@@ -55,9 +22,6 @@ export type ScheduleSlotsState = {
 };
 
 export type FlightMode = "query" | "edit" | "registration" | "home-link";
-
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://cargo-ops-backend.onrender.com";
 
 export function formatScheduleCardName(startDateTime: string, savedAt = new Date()) {
   const periodMatch = String(startDateTime || "")
@@ -80,10 +44,6 @@ function formatTodayPeriodDate(date: Date) {
   const mm = String(date.getMonth() + 1).padStart(2, "0");
   const dd = String(date.getDate()).padStart(2, "0");
   return `${yyyy}.${mm}.${dd}`;
-}
-
-export function getFlightNo(row: FlightRow) {
-  return String(row.flightId || row.flightNo || "").trim();
 }
 
 export function countTargetFlights(room?: MonitorRoom | null) {
@@ -134,13 +94,6 @@ export function getScheduleStatusLabel(rows: FlightRow[]) {
   if (canceled > 0) return `결항 ${canceled}`;
   if (rows.length > 0) return "이상 없음";
   return "비어 있음";
-}
-
-export function isActiveScheduleRoom(room?: MonitorRoom | null) {
-  if (!room) return false;
-  const flightsInput = String(room.flightsInput || "").trim();
-  const rows = Array.isArray(room.rows) ? room.rows : [];
-  return Boolean(flightsInput || rows.length > 0);
 }
 
 export function slotsToRooms(slots: ScheduleSlotsState): MonitorRoom[] {

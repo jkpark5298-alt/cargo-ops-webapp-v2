@@ -1,7 +1,6 @@
 "use client";
 
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "https://cargo-ops-backend.onrender.com";
+import { BACKEND_URL } from "./api-config";
 
 type NotionMutationResult = {
   success?: boolean;

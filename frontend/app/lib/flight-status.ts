@@ -141,3 +141,16 @@ export function isFinalCompletedFlightStatus(status: string) {
     s === "cancelled"
   );
 }
+
+/** 편명 색: 인천 출발=빨강, 인천 도착=파랑, 그 외=회백색 */
+export function getFlightNoColor(dep?: string, arr?: string): string {
+  const d = String(dep || "").trim().toUpperCase();
+  const a = String(arr || "").trim().toUpperCase();
+  if (d === "ICN" || d === "RKSI") {
+    return "#ef4444"; // 빨간색 (인천출발)
+  }
+  if (a === "ICN" || a === "RKSI") {
+    return "#3b82f6"; // 파란색 (인천도착)
+  }
+  return "#e2e8f0"; // 기본 색상 (회백색)
+}
