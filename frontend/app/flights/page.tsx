@@ -51,6 +51,7 @@ import {
   scheduleSaveStatusSubStyle,
 } from "./styles";
 import { FixedResultsTable } from "./components/FixedResultsTable";
+import { ExcelUploadReportDetails } from "./components/ExcelUploadReportDetails";
 import { useScheduleSlots } from "./hooks/useScheduleSlots";
 import { useRegistrationEditor } from "./hooks/useRegistrationEditor";
 import { useScheduleSelection } from "./hooks/useScheduleSelection";
@@ -308,6 +309,7 @@ export default function FlightsPage() {
     handleSaveInlineAfocsSkd,
     handleSaveInlineHlMapping,
     hlInlineDrafts,
+    excelUploadReport,
     hlMappingStatus,
     hlNumberMap,
     persistRegistrationDraftsForRows,
@@ -708,6 +710,7 @@ export default function FlightsPage() {
         )}
 
         {hlMappingStatus ? <div style={hlMappingStatusStyle}>{hlMappingStatus}</div> : null}
+        {excelUploadReport ? <ExcelUploadReportDetails report={excelUploadReport} /> : null}
 
         {(flightMode === "query" || (flightMode === "edit" && !fixed)) && rows.length > 0 && (
           <div style={{ ...hlInlineSaveRowStyle, marginTop: 16 }}>

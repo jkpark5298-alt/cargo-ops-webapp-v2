@@ -686,15 +686,15 @@ export function findBestExcelRowForScheduleRow(
 }
 
 export type ExcelUploadReport = {
-  /** 엑셀에는 있지만 어느 조회 행에도 반영되지 못한 줄 */
-  unmatched: { flight: string; date: string; reason: string }[];
+  /** 엑셀에는 있지만 이번 조회 결과의 어느 행에도 반영되지 못한 줄 */
+  unmatched: { flight: string; date: string; reason: string; saved: boolean }[];
   /** 반영은 했지만 엑셀과 조회 결과의 출발/도착 코드가 다른 편 */
   routeDiffs: { flight: string; excelRoute: string; rowRoute: string }[];
 };
 
 /**
- * 엑셀 업로드 결과 점검: 반영하지 못한 줄(조회 목록에 없음 / 일자 다름)과 노선이 다른 편을 찾습니다.
- * 상태 문구에 건수만 보여주면 일부 편이 빠져도 알아채기 어려워서 편명까지 알려주기 위한 용도입니다.
+ * 엑셀 업로드 결과 점검: 이번 조회에 반영하지 못한 줄(조회 기간 밖 / 일자 다름)과 노선이 다른 편을 찾습니다.
+ * 반영하지 못한 줄도 일자·등록기호가 있으면 등록 기록에는 저장되므로(saved), 나중에 그 일자를 조회하면 채워집니다.
  */
 export function buildExcelUploadReport(
   excelRows: ParsedRegistrationAfocsExcelRow[],
@@ -711,7 +711,8 @@ export function buildExcelUploadReport(
     unmatched.push({
       flight: excel.flight,
       date: excel.date,
-      reason: rowFlights.has(excel.flight) ? "일자가 다름" : "조회 목록에 없음",
+      reason: rowFlights.has(excel.flight) ? "일자가 다름" : "조회 기간 밖",
+      saved: Boolean(excel.date && excel.registrationNo),
     });
   });
 
@@ -736,29 +737,20 @@ export function buildExcelUploadReport(
   return { unmatched, routeDiffs };
 }
 
-/** 상태 문구에 덧붙일 점검 결과 (문제가 없으면 빈 문자열). 길어지지 않게 최대 maxItems건만 나열합니다. */
-export function formatExcelUploadReport(report: ExcelUploadReport, maxItems = 6) {
+/** 상태 문구에 덧붙일 한 줄 요약 (문제가 없으면 빈 문자열). 편명 목록은 화면의 '자세히 보기'에서 확인합니다. */
+export function formatExcelUploadReport(report: ExcelUploadReport) {
   const parts: string[] = [];
-  const list = <T,>(items: T[], format: (item: T) => string) => {
-    const shown = items.slice(0, maxItems).map(format).join(", ");
-    return items.length > maxItems ? `${shown} 외 ${items.length - maxItems}건` : shown;
-  };
 
   if (report.unmatched.length > 0) {
+    const saved = report.unmatched.filter((item) => item.saved).length;
     parts.push(
-      ` · 미반영 ${report.unmatched.length}건(${list(
-        report.unmatched,
-        (item) => `${item.flight} ${item.reason}`,
-      )})`,
+      ` · 이번 조회 밖 ${report.unmatched.length}건(${
+        saved === report.unmatched.length ? "등록기호는 기록에 저장됨" : `그중 ${saved}건 기록에 저장됨`
+      })`,
     );
   }
   if (report.routeDiffs.length > 0) {
-    parts.push(
-      ` · 노선 다름 ${report.routeDiffs.length}건(${list(
-        report.routeDiffs,
-        (item) => `${item.flight} 엑셀 ${item.excelRoute} / 조회 ${item.rowRoute}`,
-      )}) — 엑셀 값은 반영했습니다`,
-    );
+    parts.push(` · 노선 다름 ${report.routeDiffs.length}건(엑셀 값 반영)`);
   }
   return parts.join("");
 }

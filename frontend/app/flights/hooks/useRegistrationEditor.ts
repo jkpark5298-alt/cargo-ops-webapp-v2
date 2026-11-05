@@ -26,6 +26,7 @@ import {
   applyHlMappingToRows,
   applyInlineHlDraftsToRows,
   buildExcelUploadReport,
+  type ExcelUploadReport,
   findBestExcelRowForScheduleRow,
   formatExcelUploadReport,
   getEditableHlValue,
@@ -68,10 +69,17 @@ export function useRegistrationEditor({
   const [hlMappingStatus, setHlMappingStatus] = useState("");
   const [hlInlineDrafts, setHlInlineDrafts] = useState<Record<string, string>>({});
   const [afocsSkdInlineDrafts, setAfocsSkdInlineDrafts] = useState<Record<string, string>>({});
+  /** 엑셀 업로드 후 '자세히 보기'에 보여줄 상세(이번 조회 밖 편, 노선이 다른 편) */
+  const [excelUploadReport, setExcelUploadReport] = useState<ExcelUploadReport | null>(null);
   const [aircraftRegistrationRecords, setAircraftRegistrationRecords] = useState<AircraftRegistrationRecord[]>([]);
   const aircraftRegistrationRecordsRef = useRef<AircraftRegistrationRecord[]>([]);
 
   const hlNumberMap = useMemo(() => parseHlMappingText(hlMappingText), [hlMappingText]);
+
+  // 엑셀 업로드 결과가 아닌 다른 안내 문구로 바뀌면 '자세히 보기'도 함께 닫습니다.
+  useEffect(() => {
+    if (!hlMappingStatus.startsWith("엑셀")) setExcelUploadReport(null);
+  }, [hlMappingStatus]);
 
   useEffect(() => {
     aircraftRegistrationRecordsRef.current = aircraftRegistrationRecords;
@@ -351,7 +359,9 @@ export function useRegistrationEditor({
       nextRows = applyRegistrationToRows(nextRows, nextRecords);
 
       // 건수만으로는 일부 편이 빠져도 알아채기 어려우므로, 미반영 편과 노선이 다른 편을 함께 알려줍니다.
-      const reportText = formatExcelUploadReport(buildExcelUploadReport(excelRows, rows, matchedPairs));
+      const uploadReport = buildExcelUploadReport(excelRows, rows, matchedPairs);
+      const reportText = formatExcelUploadReport(uploadReport);
+      setExcelUploadReport(uploadReport.unmatched.length + uploadReport.routeDiffs.length > 0 ? uploadReport : null);
 
       if (matchedHl === 0 && matchedAfocs === 0) {
         setHlMappingStatus(
@@ -568,6 +578,7 @@ export function useRegistrationEditor({
   };
 
   return {
+    excelUploadReport,
     afocsSkdInlineDrafts,
     aircraftRegistrationRecords,
     aircraftRegistrationRecordsRef,
