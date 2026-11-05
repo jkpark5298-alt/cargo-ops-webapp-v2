@@ -22,7 +22,15 @@ export type MonthlyFlight = {
   source: string;
 };
 
-export type MonthlyAssignee = { flightDate: string; shift: ShiftCode; nameA: string; nameB: string; nameC: string };
+export type MonthlyAssignee = {
+  flightDate: string;
+  shift: ShiftCode;
+  nameA: string;
+  nameB: string;
+  nameC: string;
+  /** 그 근무조의 담당 인원 수: 1(A) / 2(A,B) / 3(A,B,C). 없으면 3 */
+  slotCount?: number;
+};
 
 export type MonthlyScheduleData = {
   title: string;
@@ -100,14 +108,43 @@ export function flightsForShift(flights: MonthlyFlight[], date: string, shift: S
     .sort((a, b) => displayTime(a, viewType).localeCompare(displayTime(b, viewType)) || a.flight.localeCompare(b.flight));
 }
 
-/** 근무조 안 시간순으로 A→B→C→A… 자동 배정. 편별로 지정한 값이 있으면 그 값을 쓴다. */
-export function assignSlots(list: MonthlyFlight[]): Record<string, SlotCode> {
+/** 담당 인원 수(1/2/3)에 따른 사용 칸: 1명=A, 2명=A·B, 3명=A·B·C */
+export function activeSlots(count?: number): SlotCode[] {
+  const n = count === 1 || count === 2 ? count : 3;
+  return SLOTS.slice(0, n);
+}
+
+/**
+ * 근무조 안 시간순으로 사용 칸(A→B→C 중 인원 수만큼)을 돌아가며 자동 배정한다.
+ * 편별로 지정한 값이 사용 칸에 있으면 그 값을 쓴다.
+ */
+export function assignSlots(list: MonthlyFlight[], count: number = 3): Record<string, SlotCode> {
+  const active = activeSlots(count);
   const result: Record<string, SlotCode> = {};
-  list.forEach((f, i) => {
-    const fixed = String(f.assigneeSlot || "").toUpperCase();
-    result[f.recordKey] = (SLOTS as string[]).includes(fixed) ? (fixed as SlotCode) : SLOTS[i % 3];
+  let cursor = 0;
+  list.forEach((f) => {
+    const fixed = String(f.assigneeSlot || "").toUpperCase() as SlotCode;
+    if (active.includes(fixed)) {
+      result[f.recordKey] = fixed;
+    } else {
+      result[f.recordKey] = active[cursor % active.length];
+      cursor += 1;
+    }
   });
   return result;
+}
+
+/** 도착지가 비어 있고 출발지가 인천이 아니면 도착은 ICN (KJ 편은 인천 출발 또는 도착) */
+export function arrivalOf(f: Pick<MonthlyFlight, "departureCode" | "arrivalCode">): string {
+  const dep = String(f.departureCode || "").toUpperCase();
+  const arr = String(f.arrivalCode || "").toUpperCase();
+  return arr || (dep && dep !== "ICN" ? "ICN" : "");
+}
+
+export function departureOf(f: Pick<MonthlyFlight, "departureCode" | "arrivalCode">): string {
+  const dep = String(f.departureCode || "").toUpperCase();
+  const arr = String(f.arrivalCode || "").toUpperCase();
+  return dep || (arr && arr !== "ICN" ? "ICN" : "");
 }
 
 /** 담당 이름. 이름을 입력하지 않았으면 'A'/'B'/'C' 글자 그대로 */
@@ -116,8 +153,8 @@ export function assigneeName(slot: SlotCode, names?: Pick<MonthlyAssignee, "name
   return String(name || "").trim() || slot;
 }
 
-export function isIcnDeparture(f: Pick<MonthlyFlight, "departureCode">) {
-  return String(f.departureCode || "").toUpperCase() === "ICN";
+export function isIcnDeparture(f: Pick<MonthlyFlight, "departureCode" | "arrivalCode">) {
+  return departureOf(f) === "ICN";
 }
 
 /** '2026-11-06 23:15' → '11-06 23:15' */
@@ -230,13 +267,12 @@ export function parseSkdMatrix(matrix: unknown[][]): ParseResult {
     }
     const hlRaw = String(get("registrationNo") ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
     const registrationNo = /^\d{4,5}$/.test(hlRaw) ? `HL${hlRaw}` : /^HL\d{4,5}$/.test(hlRaw) ? hlRaw : "";
-    records.push({
-      flight,
-      skdTime,
-      departureCode: String(get("departureCode") ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase(),
-      arrivalCode: String(get("arrivalCode") ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase(),
-      registrationNo,
-    });
+    let departureCode = String(get("departureCode") ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+    let arrivalCode = String(get("arrivalCode") ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+    // 한쪽만 있으면 다른 쪽은 인천(ICN)으로 채운다
+    if (departureCode && departureCode !== "ICN" && !arrivalCode) arrivalCode = "ICN";
+    else if (arrivalCode && arrivalCode !== "ICN" && !departureCode) departureCode = "ICN";
+    records.push({ flight, skdTime, departureCode, arrivalCode, registrationNo });
   }
   return { records, skipped };
 }

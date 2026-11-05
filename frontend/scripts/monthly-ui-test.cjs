@@ -253,6 +253,24 @@ const setValue = async (el, value, eventName = "change") => {
   await setValue(dateSelect2, "2026-11-20");
   check("유형 2: 11/20 A조 KJ500", JSON.stringify(flightsShown(container)) === JSON.stringify(["KJ500"]), flightsShown(container));
 
+  // 표 글자색·머리글 서식
+  await clickText(container, "유형 1");
+  await clickText(container, "S조");
+  const td0 = container.querySelector("tbody td");
+  const th0 = container.querySelector("thead th");
+  check("표 안 글자는 검은색", td0.style.color === "rgb(0, 0, 0)" || td0.style.color === "#000000", td0.style.color);
+  check("머리글: 굵게·가운데·회색 배경·검은 글자", th0.style.fontWeight === "900" && th0.style.textAlign === "center" && th0.style.color === "rgb(0, 0, 0)" && /212, 212, 216|#d4d4d8/i.test(th0.style.background), [th0.style.fontWeight, th0.style.textAlign, th0.style.color, th0.style.background]);
+
+  // 담당 인원 1/2명
+  const countSel = container.querySelector('select[aria-label="담당 인원"]');
+  await setValue(countSel, "2");
+  check("인원 2명: 이름 칸이 A·B만 보임", !!container.querySelector('input[aria-label="담당 A 이름"]') && !!container.querySelector('input[aria-label="담당 B 이름"]') && !container.querySelector('input[aria-label="담당 C 이름"]'));
+  check("인원 2명: 배정이 A·B로만 순환", new Set(rows(container).map((r) => r[5].slice(0, 1))).size <= 2 && !rows(container).some((r) => r[5].startsWith("C")), rows(container).map((r) => r[5]));
+  check("인원 저장 요청(slotCount=2)", calls.some((c) => c.startsWith("POST /flights/monthly-schedule/assignees")) && DATA.assignees.some((a) => a.slotCount === 2), DATA.assignees);
+  await setValue(countSel, "1");
+  check("인원 1명: 모든 편이 A", new Set(rows(container).map((r) => r[5])).size === 1 && !container.querySelector('input[aria-label="담당 B 이름"]'), rows(container).map((r) => r[5]));
+  await setValue(countSel, "3");
+
   // 월간 SKD 입력(붙여넣기)
   await clickText(container, "월간 SKD 입력");
   const ta = container.querySelector("textarea");

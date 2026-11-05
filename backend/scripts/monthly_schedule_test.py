@@ -91,7 +91,20 @@ res = client.post("/flights/monthly-schedule/assignee-slot", json={"recordKey": 
 check("편별 담당 B 지정", res["flight"]["assigneeSlot"] == "B", res)
 check("담당은 A/B/C만", client.post("/flights/monthly-schedule/assignee-slot", json={"recordKey": key967, "slot": "D"}).status_code == 400)
 res = client.post("/flights/monthly-schedule/assignees", json={"flightDate": d0, "shift": "C", "nameA": "홍길동", "nameB": "", "nameC": "김철수"}).json()
-check("근무조별 담당 이름 저장", res["assignee"]["nameA"] == "홍길동" and res["assignee"]["shift"] == "C", res)
+check("근무조별 담당 이름 저장(인원 기본 3명)", res["assignee"]["nameA"] == "홍길동" and res["assignee"]["shift"] == "C" and res["assignee"]["slotCount"] == 3, res)
+res = client.post("/flights/monthly-schedule/assignees", json={"flightDate": d0, "shift": "A", "nameA": "박종규", "slotCount": 2}).json()
+check("담당 인원 2명(A,B) 저장", res["assignee"]["slotCount"] == 2, res)
+res = client.post("/flights/monthly-schedule/assignees", json={"flightDate": d0, "shift": "S", "nameA": "x", "slotCount": 7}).json()
+check("잘못된 인원 수는 3명으로", res["assignee"]["slotCount"] == 3, res)
+got = {(a["flightDate"], a["shift"]): a for a in client.get("/flights/monthly-schedule").json()["assignees"]}
+check("조회에서 근무조별 인원 수 유지", got[(d0, "A")]["slotCount"] == 2 and got[(d0, "C")]["slotCount"] == 3, got)
+
+# 도착지(또는 출발지)가 비어 있으면 ICN 으로 채움
+client.post("/flights/monthly-schedule", json={"replaceDates": False, "records": [rec("KJ932", f"{d0} 14:20", "CAN", ""), rec("KJ587", f"{d0} 16:15", "", "BRU")]})
+infer = {f["flight"]: (f["departureCode"], f["arrivalCode"]) for f in client.get("/flights/monthly-schedule").json()["flights"]}
+check("ARR 빈칸 → ICN, DEP 빈칸 → ICN", infer["KJ932"] == ("CAN", "ICN") and infer["KJ587"] == ("ICN", "BRU"), infer)
+client.delete("/flights/monthly-schedule/" + f"{d0}|KJ932|CAN|ICN")
+client.delete("/flights/monthly-schedule/" + f"{d0}|KJ587|ICN|BRU")
 check("근무조는 A/C/S만", client.post("/flights/monthly-schedule/assignees", json={"flightDate": d0, "shift": "B"}).status_code == 400)
 
 # 3) 같은 일자 SKD 재업로드: 빠진 편 삭제, 담당 지정은 유지

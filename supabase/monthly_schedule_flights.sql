@@ -31,5 +31,9 @@ create table if not exists public.monthly_schedule_assignees (
   name_a text not null default '',
   name_b text not null default '',
   name_c text not null default '',
+  slot_count integer not null default 3,   -- 그 근무조의 담당 인원 수: 1(A) / 2(A,B) / 3(A,B,C)
   updated_at timestamptz not null default now()
 );
+
+-- 이미 테이블을 만든 경우 아래 한 줄만 실행하세요.
+alter table public.monthly_schedule_assignees add column if not exists slot_count integer not null default 3;

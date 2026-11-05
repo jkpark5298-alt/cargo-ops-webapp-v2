@@ -94,6 +94,11 @@ def _normalize_record(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     flight_date = str(raw.get("flightDate") or raw.get("flight_date") or skd_time[:10]).strip()[:10]
     dep = _norm_code(raw.get("departureCode") or raw.get("departure_code"))
     arr = _norm_code(raw.get("arrivalCode") or raw.get("arrival_code"))
+    # KJ 편은 인천(ICN) 출발 또는 도착이므로 한쪽만 있으면 다른 쪽을 채운다
+    if dep and dep != "ICN" and not arr:
+        arr = "ICN"
+    elif arr and arr != "ICN" and not dep:
+        dep = "ICN"
     return {
         "record_key": _record_key(flight_date, flight, dep, arr),
         "flight_date": flight_date,
@@ -311,7 +316,7 @@ def _list_assignees(start: Optional[str] = None, end: Optional[str] = None) -> L
     return [v for v in _read_file()["assignees"].values() if start <= v.get("flight_date", "") <= end]
 
 
-def _save_assignees(flight_date: str, shift: str, name_a: str, name_b: str, name_c: str) -> Dict[str, Any]:
+def _save_assignees(flight_date: str, shift: str, name_a: str, name_b: str, name_c: str, slot_count: int = 3) -> Dict[str, Any]:
     shift = str(shift or "").strip().upper()
     if shift not in SHIFTS:
         raise ValueError("근무조는 A, C, S 중 하나여야 합니다.")
@@ -325,15 +330,23 @@ def _save_assignees(flight_date: str, shift: str, name_a: str, name_b: str, name
         "name_a": str(name_a or "").strip()[:20],
         "name_b": str(name_b or "").strip()[:20],
         "name_c": str(name_c or "").strip()[:20],
+        "slot_count": slot_count if slot_count in (1, 2, 3) else 3,
         "updated_at": _ts(),
     }
     if _supabase_usage_enabled():
-        _supabase_request(
-            "POST",
-            f"{_ASSIGNEES_PATH}?on_conflict=assignee_key",
-            row,
-            {"Prefer": "resolution=merge-duplicates,return=minimal"},
-        )
+        def _post(payload: Dict[str, Any]) -> None:
+            _supabase_request(
+                "POST",
+                f"{_ASSIGNEES_PATH}?on_conflict=assignee_key",
+                payload,
+                {"Prefer": "resolution=merge-duplicates,return=minimal"},
+            )
+
+        try:
+            _post(row)
+        except Exception:
+            # slot_count 열을 아직 만들지 않은 경우(SQL 미실행): 이름만 저장한다
+            _post({k: v for k, v in row.items() if k != "slot_count"})
     else:
         data = _read_file()
         data["assignees"][row["assignee_key"]] = row
@@ -348,6 +361,7 @@ def _assignee_to_client(row: Dict[str, Any]) -> Dict[str, Any]:
         "nameA": row.get("name_a", ""),
         "nameB": row.get("name_b", ""),
         "nameC": row.get("name_c", ""),
+        "slotCount": int(row.get("slot_count") or 3),
     }
 
 

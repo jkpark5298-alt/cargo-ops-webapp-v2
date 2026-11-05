@@ -55,6 +55,7 @@ class AssigneeNamesRequest(BaseModel):
     nameA: str = ""
     nameB: str = ""
     nameC: str = ""
+    slotCount: int = 3
 
 
 def _storage_error(exc: Exception) -> HTTPException:
@@ -132,7 +133,7 @@ async def set_monthly_assignee_slot(payload: AssigneeSlotRequest) -> Dict[str, A
 @router.post("/monthly-schedule/assignees", dependencies=[Depends(require_api_token)])
 async def save_monthly_assignees(payload: AssigneeNamesRequest) -> Dict[str, Any]:
     try:
-        row = _save_assignees(payload.flightDate, payload.shift, payload.nameA, payload.nameB, payload.nameC)
+        row = _save_assignees(payload.flightDate, payload.shift, payload.nameA, payload.nameB, payload.nameC, payload.slotCount)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"success": True, "assignee": _assignee_to_client(row)}

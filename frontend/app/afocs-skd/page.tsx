@@ -4,11 +4,13 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "r
 import { MonthlySkdInputPanel } from "../components/MonthlySkdInputPanel";
 import {
   SHIFTS,
-  SLOTS,
+  activeSlots,
   addDays,
+  arrivalOf,
   assignSlots,
   assigneeName,
   datesBetween,
+  departureOf,
   deleteMonthlyFlight,
   displayTime,
   fetchMonthlySchedule,
@@ -52,6 +54,7 @@ export default function MonthlyScheduledFlightPage() {
   const [editMode, setEditMode] = useState(false);
   const [showInput, setShowInput] = useState(false);
   const [names, setNames] = useState({ nameA: "", nameB: "", nameC: "" });
+  const [slotCount, setSlotCount] = useState(3);
 
   const load = useCallback(async (refresh: boolean) => {
     setLoading(true);
@@ -93,19 +96,28 @@ export default function MonthlyScheduledFlightPage() {
   );
   useEffect(() => {
     setNames({ nameA: assignee?.nameA || "", nameB: assignee?.nameB || "", nameC: assignee?.nameC || "" });
+    setSlotCount(assignee?.slotCount === 1 || assignee?.slotCount === 2 ? assignee.slotCount : 3);
   }, [assignee, date, shift]);
 
   const list = useMemo(() => (data ? flightsForShift(data.flights, date, shift, viewType) : []), [data, date, shift, viewType]);
-  const slots = useMemo(() => assignSlots(list), [list]);
+  const slots = useMemo(() => assignSlots(list, slotCount), [list, slotCount]);
+  const usedSlots = useMemo(() => activeSlots(slotCount), [slotCount]);
   const shiftCounts = useMemo(
     () => Object.fromEntries(SHIFTS.map((s) => [s.code, data ? flightsForShift(data.flights, date, s.code, viewType).length : 0])),
     [data, date, viewType],
   );
 
-  const saveNames = async () => {
-    if ((assignee?.nameA || "") === names.nameA && (assignee?.nameB || "") === names.nameB && (assignee?.nameC || "") === names.nameC) return;
+  const saveNames = async (nextCount: number = slotCount) => {
+    if (
+      (assignee?.nameA || "") === names.nameA &&
+      (assignee?.nameB || "") === names.nameB &&
+      (assignee?.nameC || "") === names.nameC &&
+      (assignee?.slotCount ?? 3) === nextCount
+    ) {
+      return;
+    }
     try {
-      await saveMonthlyAssignees({ flightDate: date, shift, ...names });
+      await saveMonthlyAssignees({ flightDate: date, shift, ...names, slotCount: nextCount });
       await load(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "담당 이름 저장 실패");
@@ -186,7 +198,21 @@ export default function MonthlyScheduledFlightPage() {
 
           <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
             <span style={labelStyle}>담당</span>
-            {SLOTS.map((slot) => {
+            <select
+              value={slotCount}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                setSlotCount(next);
+                void saveNames(next);
+              }}
+              style={selectStyle}
+              aria-label="담당 인원"
+            >
+              <option value={1}>1명 (A)</option>
+              <option value={2}>2명 (A·B)</option>
+              <option value={3}>3명 (A·B·C)</option>
+            </select>
+            {usedSlots.map((slot) => {
               const key = `name${slot}` as "nameA" | "nameB" | "nameC";
               return (
                 <label key={slot} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13 }}>
@@ -194,7 +220,7 @@ export default function MonthlyScheduledFlightPage() {
                   <input
                     value={names[key]}
                     onChange={(e) => setNames({ ...names, [key]: e.target.value })}
-                    onBlur={() => void saveNames()}
+                    onBlur={() => void saveNames(slotCount)}
                     placeholder={slot}
                     style={nameInputStyle}
                     aria-label={`담당 ${slot} 이름`}
@@ -238,8 +264,8 @@ export default function MonthlyScheduledFlightPage() {
                     <tr key={f.recordKey} style={{ background: isIcnDeparture(f) ? "#fff59d" : "#ffffff" }}>
                       <td style={tdStyle}>{f.flight}</td>
                       <td style={tdStyle}>{f.registrationNo || "-"}</td>
-                      <td style={tdStyle}>{f.departureCode}</td>
-                      <td style={tdStyle}>{f.arrivalCode}</td>
+                      <td style={tdStyle}>{departureOf(f)}</td>
+                      <td style={tdStyle}>{arrivalOf(f)}</td>
                       <td style={tdStyle}>
                         {shortDateTime(time)}
                         {changed ? <div style={subTextStyle}>SKD {f.skdTime.slice(11, 16)}</div> : null}
@@ -253,7 +279,7 @@ export default function MonthlyScheduledFlightPage() {
                           aria-label={`${f.flight} 담당`}
                         >
                           <option value="">{assigneeName(slot, assignee)}</option>
-                          {SLOTS.map((s) => (
+                          {usedSlots.map((s) => (
                             <option key={s} value={s}>{`${s} · ${assigneeName(s, assignee)}`}</option>
                           ))}
                         </select>
@@ -304,11 +330,21 @@ const tabActiveStyle: CSSProperties = { ...navButtonStyle, background: "#2563eb"
 const selectStyle: CSSProperties = { background: "#020817", color: "#e2e8f0", border: "1px solid #334155", borderRadius: 8, padding: "6px 8px", fontSize: 14 };
 const nameInputStyle: CSSProperties = { width: 80, background: "#020817", color: "#e2e8f0", border: "1px solid #334155", borderRadius: 8, padding: "6px 8px", fontSize: 13 };
 const errorStyle: CSSProperties = { marginTop: 8, color: "#fca5a5", fontSize: 13 };
-const sheetTitleStyle: CSSProperties = { color: "#111827", textAlign: "center", fontSize: 15, fontWeight: 700, padding: "8px 6px", borderBottom: "1px solid #cbd5e1" };
-const tableStyle: CSSProperties = { width: "100%", borderCollapse: "collapse", color: "#111827", fontSize: 13, minWidth: 640 };
-const thStyle: CSSProperties = { border: "1px solid #94a3b8", padding: "6px 6px", background: "#f8fafc", fontWeight: 800, whiteSpace: "nowrap" };
-const tdStyle: CSSProperties = { border: "1px solid #cbd5e1", padding: "6px 6px", textAlign: "center", whiteSpace: "nowrap" };
-const subTextStyle: CSSProperties = { fontSize: 11, color: "#64748b" };
+const sheetTitleStyle: CSSProperties = { color: "#000000", textAlign: "center", fontSize: 15, fontWeight: 800, padding: "8px 6px", borderBottom: "1px solid #cbd5e1" };
+const tableStyle: CSSProperties = { width: "100%", borderCollapse: "collapse", color: "#000000", fontSize: 13, minWidth: 640 };
+// 전역 CSS(th/td 색)가 연한 파란색이라 표 안 글자는 모두 검은색으로 직접 지정한다
+const thStyle: CSSProperties = {
+  border: "1px solid #6b7280",
+  padding: "8px 6px",
+  background: "#d4d4d8", // 회색 형광펜
+  color: "#000000",
+  fontWeight: 900,
+  textAlign: "center",
+  verticalAlign: "middle",
+  whiteSpace: "nowrap",
+};
+const tdStyle: CSSProperties = { border: "1px solid #9ca3af", padding: "6px 6px", color: "#000000", textAlign: "center", verticalAlign: "middle", whiteSpace: "nowrap" };
+const subTextStyle: CSSProperties = { fontSize: 11, color: "#475569" };
 const remarkStyle: CSSProperties = { fontSize: 11, color: "#b45309", fontWeight: 700 };
-const slotSelectStyle: CSSProperties = { border: "none", background: "transparent", color: "#111827", fontSize: 13, fontWeight: 700 };
+const slotSelectStyle: CSSProperties = { border: "none", background: "transparent", color: "#000000", fontSize: 13, fontWeight: 800, textAlign: "center" };
 const deleteButtonStyle: CSSProperties = { padding: "4px 8px", background: "#fee2e2", color: "#b91c1c", border: "1px solid #fca5a5", borderRadius: 6, fontSize: 12, cursor: "pointer" };
