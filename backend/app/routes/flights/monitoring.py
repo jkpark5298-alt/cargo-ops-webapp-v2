@@ -23,6 +23,7 @@ from app.services.notification_store import (
 )
 from app.services.schedule_monitor import (
     _append_arrival_prealert_keys,
+    _auto_interval_mode,
     _auto_push_loop,
     _get_arrival_prealert_changes,
     _get_auto_interval_minutes_for_room,
@@ -106,7 +107,7 @@ async def health_check(tick: bool = True) -> Dict[str, Any]:
         "nowKst": _now_kst_iso(),
         "autoPushEnabled": bool(status.get("enabled", True)),
         "intervalMinutes": interval,
-        "mode": "focus" if interval == 5 else "normal",
+        "mode": _auto_interval_mode(interval),
         "lastRunAt": status.get("lastRunAt") or "",
         "lastMessage": status.get("lastMessage") or "",
         "scheduleFlightCount": len(requested_flights),
@@ -124,7 +125,7 @@ async def get_auto_push_status() -> Dict[str, Any]:
         **status,
         "enabled": bool(status.get("enabled", True)),
         "intervalMinutes": interval,
-        "mode": "focus" if interval == 5 else "normal",
+        "mode": _auto_interval_mode(interval),
         "subscriptionCount": len(_read_push_subscriptions()),
         "nowKst": _now_kst_iso(),
     }

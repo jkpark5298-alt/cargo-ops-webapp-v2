@@ -99,7 +99,7 @@ export function PwaNotificationCard({
       <div style={autoStatusStyle}>
         자동 확인 상태: {autoEnabled ? "자동 적용 중" : "일시 중지"}
         <br />
-        {autoStatusMessage || "평상시 30분, 집중 시간대 5분 간격으로 확인합니다."}
+        {autoStatusMessage || "평상시 30분, 해외 출발편 운항 중 20분, 집중 시간대 5분 간격으로 확인합니다."}
         {lastRunText ? (
           <>
             <br />

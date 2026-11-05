@@ -466,7 +466,8 @@ export function buildAutoPushSummary(json: {
   nowKst?: string;
   subscriptionCount?: number;
 }): AutoPushSummary {
-  const modeText = json.mode === "focus" ? "집중 5분 확인" : "일반 30분 확인";
+  const modeText =
+    json.mode === "focus" ? "집중 5분 확인" : json.mode === "enroute" ? "해외 출발편 운항 중 20분 확인" : "일반 30분 확인";
   const last = String(json.lastMessage || "");
   // 서버 문구에 이미 "(일반 30분)" 같은 모드 표시가 있으면 앞에 또 붙이지 않는다.
   const message = /\d+분/.test(last) ? last : `${modeText} · ${last}`.replace(/ · $/, "");

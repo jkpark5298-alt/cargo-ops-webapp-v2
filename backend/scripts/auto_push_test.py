@@ -147,6 +147,46 @@ left = [i["subscription"]["endpoint"] for i in ns._read_push_subscriptions()]
 check("정상 1 / 실패 2 집계", result["sent"] == 1 and result["failed"] == 2, result)
 check("410(만료) 구독만 삭제하고 일시 오류(500)는 유지", left == ["https://push.example/good", "https://push.example/broken"] and result["removed"] == 1, left)
 
+# 3-2) 자동 확인 간격: 집중 5분 / 해외 출발편 운항 중 20분 / 평상시 30분
+from datetime import datetime  # noqa: E402
+
+real_now = monitor._now_kst
+
+
+def interval_for(rows, now):
+    monitor._now_kst = lambda: now
+    try:
+        room = {"flightsInput": ", ".join(r["flightNo"] for r in rows), "rows": rows}
+        return monitor._get_auto_interval_minutes_for_room(room)
+    finally:
+        monitor._now_kst = real_now
+
+
+def inbound(flight, eta, remark=""):  # 해외 출발편(인천 도착)
+    r = row(flight, eta)
+    r.update({"departureCode": "PVG", "arrivalCode": "ICN", "sourceType": "arrival", "remark": remark})
+    return r
+
+
+def outbound(flight, etd):  # 인천 출발편
+    return row(flight, etd)
+
+
+check("해외 출발편 운항 중(도착 5시간 전)은 20분", interval_for([inbound("KJ970", "202611061400")], datetime(2026, 11, 6, 9, 0)) == 20)
+check("도착 1시간 1분 전까지도 20분", interval_for([inbound("KJ970", "202611061400")], datetime(2026, 11, 6, 12, 59)) == 20)
+check("도착 1시간 전부터는 집중 5분", interval_for([inbound("KJ970", "202611061400")], datetime(2026, 11, 6, 13, 0)) == 5)
+check("도착 30분 후까지 집중 5분, 이후 평상시 30분",
+      interval_for([inbound("KJ970", "202611061400")], datetime(2026, 11, 6, 14, 30)) == 5
+      and interval_for([inbound("KJ970", "202611061400")], datetime(2026, 11, 6, 14, 31)) == 30)
+check("도착까지 16시간을 넘게 남은 해외 출발편은 평상시 30분", interval_for([inbound("KJ970", "202611070800")], datetime(2026, 11, 6, 9, 0)) == 30)
+check("도착 확정된 해외 출발편은 20분 대상 아님(30분)", interval_for([inbound("KJ970", "202611061400", "도착")], datetime(2026, 11, 6, 9, 0)) == 30)
+check("인천 출발편만 있으면 출발 30분 전까지 평상시 30분", interval_for([outbound("KJ987", "202611061400")], datetime(2026, 11, 6, 9, 0)) == 30)
+check("인천 출발편 출발 30분 전부터는 집중 5분", interval_for([outbound("KJ987", "202611061400")], datetime(2026, 11, 6, 13, 30)) == 5)
+check("집중 구간 편이 있으면 20분보다 5분이 우선",
+      interval_for([inbound("KJ970", "202611061400"), outbound("KJ987", "202611060930")], datetime(2026, 11, 6, 9, 0)) == 5)
+check("모드 이름: 5=focus, 20=enroute, 30=normal",
+      [monitor._auto_interval_mode(m) for m in (5, 20, 30)] == ["focus", "enroute", "normal"])
+
 # 4) API 토큰
 client = TestClient(app)
 res = client.post("/flights/push-test", json={})

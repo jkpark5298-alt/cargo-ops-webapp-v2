@@ -517,9 +517,47 @@ def _is_row_in_focus_window(row: Dict[str, Any], now: Optional[datetime] = None)
     return False
 
 
+# 자동 확인 간격(분): 집중(출발·도착 임박) 5, 해외 출발편 운항 중 20, 평상시 30
+AUTO_INTERVAL_FOCUS_MINUTES = 5
+AUTO_INTERVAL_ENROUTE_MINUTES = 20
+AUTO_INTERVAL_NORMAL_MINUTES = 30
+# 해외 출발편은 출발 시각을 알 수 없어, 인천 도착까지 이 시간 이내로 남은 편만 '운항 중'으로 본다(최장 노선 기준).
+ENROUTE_MAX_HOURS_BEFORE_ARRIVAL = 16
+
+
+def _auto_interval_mode(interval_minutes: int) -> str:
+    if interval_minutes == AUTO_INTERVAL_FOCUS_MINUTES:
+        return "focus"
+    if interval_minutes == AUTO_INTERVAL_ENROUTE_MINUTES:
+        return "enroute"
+    return "normal"
+
+
+def _auto_interval_mode_text(interval_minutes: int) -> str:
+    mode = _auto_interval_mode(interval_minutes)
+    if mode == "focus":
+        return "집중 5분"
+    if mode == "enroute":
+        return "해외 출발편 운항 중 20분"
+    return "일반 30분"
+
+
+def _is_inbound_enroute(row: Dict[str, Any], now: datetime) -> bool:
+    """해외 출발편(인천 도착)이 아직 도착 1시간 전 이전이고 도착까지 16시간 이내인지."""
+    if not _is_arrival_row(row):
+        return False
+    target_dt = _get_row_datetime(row)
+    if target_dt is None:
+        return False
+    return (
+        now < target_dt - timedelta(hours=1)
+        and target_dt - now <= timedelta(hours=ENROUTE_MAX_HOURS_BEFORE_ARRIVAL)
+    )
+
+
 def _get_auto_interval_minutes_for_room(room: Optional[Dict[str, Any]]) -> int:
     if not room:
-        return 30
+        return AUTO_INTERVAL_NORMAL_MINUTES
 
     rows = room.get("rows") or []
     if not isinstance(rows, list):
@@ -528,6 +566,7 @@ def _get_auto_interval_minutes_for_room(room: Optional[Dict[str, Any]]) -> int:
     latest = _latest_rows_by_flight(rows)
     requested_flights = _normalize_flights([str(room.get("flightsInput") or "")])
     now = _now_kst()
+    enroute = False
 
     for flight in requested_flights:
         row = latest.get(flight)
@@ -536,9 +575,11 @@ def _get_auto_interval_minutes_for_room(room: Optional[Dict[str, Any]]) -> int:
         if _is_refresh_excluded(row):
             continue
         if _is_row_in_focus_window(row, now):
-            return 5
+            return AUTO_INTERVAL_FOCUS_MINUTES
+        if _is_inbound_enroute(row, now):
+            enroute = True
 
-    return 30
+    return AUTO_INTERVAL_ENROUTE_MINUTES if enroute else AUTO_INTERVAL_NORMAL_MINUTES
 
 
 def _get_current_auto_interval_minutes() -> int:
@@ -546,7 +587,7 @@ def _get_current_auto_interval_minutes() -> int:
 
 
 async def _auto_push_loop() -> None:
-    """1분마다 '확인할 때가 되었는지'만 검사한다. 실제 확인은 평상시 30분, 집중 시간대 5분 간격(_run_auto_push_tick_if_due)."""
+    """1분마다 '확인할 때가 되었는지'만 검사한다. 실제 확인은 평상시 30분, 해외 출발편 운항 중 20분, 집중 시간대 5분 간격(_run_auto_push_tick_if_due)."""
     while True:
         try:
             await _run_auto_push_tick_if_due("loop")
@@ -580,7 +621,7 @@ async def _run_auto_push_tick_if_due(source: str = "health") -> Dict[str, Any]:
     tick_result: Dict[str, Any] = {
         "enabled": enabled,
         "intervalMinutes": interval_minutes,
-        "mode": "focus" if interval_minutes == 5 else "normal",
+        "mode": _auto_interval_mode(interval_minutes),
         "due": due,
         "source": source,
         "lastRunAt": status.get("lastRunAt") or "",
@@ -596,7 +637,7 @@ async def _run_auto_push_tick_if_due(source: str = "health") -> Dict[str, Any]:
         result = await _run_schedule_change_check(push_on_change=True)
         changed = result.get("changed", 0)
         sent = result.get("sent", 0)
-        mode_text = "집중 5분" if interval_minutes == 5 else "일반 30분"
+        mode_text = _auto_interval_mode_text(interval_minutes)
         message = (
             f"자동 확인 완료({mode_text}, {source}): 변경 {changed}건, 푸시 {sent}건"
             if changed
