@@ -25,7 +25,9 @@ import {
 import {
   applyHlMappingToRows,
   applyInlineHlDraftsToRows,
+  buildExcelUploadReport,
   findBestExcelRowForScheduleRow,
+  formatExcelUploadReport,
   getEditableHlValue,
   getFlightKeyFromRow,
   getRegistrationNo,
@@ -315,8 +317,10 @@ export function useRegistrationEditor({
       const rowRecords: AircraftRegistrationRecord[] = [];
       let matchedHl = 0;
       let matchedAfocs = 0;
+      const matchedPairs: { excel: (typeof excelRows)[number]; row: FlightRow }[] = [];
       let nextRows = rows.map((row) => {
         const matchedExcel = findBestExcelRowForScheduleRow(excelRows, row);
+        if (matchedExcel) matchedPairs.push({ excel: matchedExcel, row });
         let next = row;
         if (matchedExcel?.registrationNo) {
           matchedHl += 1;
@@ -353,9 +357,12 @@ export function useRegistrationEditor({
           : latestRecords;
       nextRows = applyRegistrationToRows(nextRows, nextRecords);
 
+      // 건수만으로는 일부 편이 빠져도 알아채기 어려우므로, 미반영 편과 노선이 다른 편을 함께 알려줍니다.
+      const reportText = formatExcelUploadReport(buildExcelUploadReport(excelRows, rows, matchedPairs));
+
       if (matchedHl === 0 && matchedAfocs === 0) {
         setHlMappingStatus(
-          `엑셀에서 등록기호 ${hlCount}건 · AFOCS ${afocsCount}건을 읽었지만, 현재 조회 목록과 일치하는 편명이 없습니다.`,
+          `엑셀에서 등록기호 ${hlCount}건 · AFOCS ${afocsCount}건을 읽었지만, 현재 조회 목록과 일치하는 편명이 없습니다.${reportText}`,
         );
         return;
       }
@@ -395,13 +402,13 @@ export function useRegistrationEditor({
         setHlMappingStatus(
           `엑셀 반영 · 등록기호 ${matchedHl}건 · AFOCS ${matchedAfocs}건${serverMessage}${
             synced > 0 ? ` · Schedule Flight 카드 ${synced}장 동기화` : ""
-          }`,
+          }${reportText}`,
         );
       } catch (syncError) {
         setHlMappingStatus(
           syncError instanceof Error
-            ? `엑셀 반영 · 등록기호 ${matchedHl}건 · AFOCS ${matchedAfocs}건${serverMessage} · 카드 동기화 실패: ${syncError.message}`
-            : `엑셀 반영 · 등록기호 ${matchedHl}건 · AFOCS ${matchedAfocs}건${serverMessage} · 카드 동기화 실패`,
+            ? `엑셀 반영 · 등록기호 ${matchedHl}건 · AFOCS ${matchedAfocs}건${serverMessage} · 카드 동기화 실패: ${syncError.message}${reportText}`
+            : `엑셀 반영 · 등록기호 ${matchedHl}건 · AFOCS ${matchedAfocs}건${serverMessage} · 카드 동기화 실패${reportText}`,
         );
       }
     } catch (error) {

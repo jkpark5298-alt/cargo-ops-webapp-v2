@@ -186,6 +186,34 @@ test("엑셀 행 매칭: 같은 편명이 여러 날이면 일자·노선·시�
   assert.strictEqual(helpers.findBestExcelRowForScheduleRow(cands, apiRow).registrationNo, "HL7423");
 });
 
+test("엑셀 업로드 점검: 미반영 편(조회 목록에 없음/일자 다름)과 노선이 다른 편을 알려줌", () => {
+  const rows = [row("KJ932", "HAN", "ICN", "202611061420"), row("KJ587", "ICN", "BRU", "202611061615"), row("KJ951", "ICN", "HAN", "202611062345")];
+  const excel = [
+    xl("KJ932", "2026-11-06", "CAN", "ICN", "HL7436", "14:20"),
+    xl("KJ587", "2026-11-06", "ICN", "ANC", "HL7436", "16:15"),
+    xl("KJ951", "2026-11-07", "ICN", "HAN", "HL7620", "23:45"),   // 일자 다름
+    xl("KJ999", "2026-11-06", "ICN", "HKG", "HL7000", "10:00"),   // 조회 목록에 없음
+    xl("KJ111", "2026-11-06", "ICN", "HKG", "", ""),              // 값이 없는 줄은 점검 대상 아님
+  ];
+  const pairs = rows.map((r) => ({ r, e: helpers.findBestExcelRowForScheduleRow(excel, r) })).filter((p) => p.e).map((p) => ({ excel: p.e, row: p.r }));
+  assert.strictEqual(pairs.length, 2);
+  const report = helpers.buildExcelUploadReport(excel, rows, pairs);
+  assert.deepStrictEqual(report.unmatched.map((u) => u.flight + ":" + u.reason), ["KJ951:일자가 다름", "KJ999:조회 목록에 없음"]);
+  assert.deepStrictEqual(report.routeDiffs.map((d) => d.flight + " " + d.excelRoute + "/" + d.rowRoute), ["KJ932 CAN→ICN/HAN→ICN", "KJ587 ICN→ANC/ICN→BRU"]);
+  const text = helpers.formatExcelUploadReport(report);
+  assert.ok(text.includes("미반영 2건(KJ951 일자가 다름, KJ999 조회 목록에 없음)"), text);
+  assert.ok(text.includes("노선 다름 2건(KJ932 엑셀 CAN→ICN / 조회 HAN→ICN"), text);
+});
+test("엑셀 업로드 점검: 문제가 없으면 빈 문자열, 많으면 일부만 나열", () => {
+  const rows = [row("KJ247", "ATL", "ICN", "202611060020")];
+  const excel = [xl("KJ247", "2026-11-06", "ATL", "ICN", "HL8000", "00:20")];
+  const pairs = [{ excel: excel[0], row: rows[0] }];
+  assert.strictEqual(helpers.formatExcelUploadReport(helpers.buildExcelUploadReport(excel, rows, pairs)), "");
+  const many = Array.from({ length: 9 }, (_, i) => xl("KJ" + (500 + i), "2026-11-06", "ICN", "HKG", "HL7000", "10:00"));
+  const text = helpers.formatExcelUploadReport(helpers.buildExcelUploadReport(many, rows, []));
+  assert.ok(text.includes("미반영 9건") && text.includes("외 3건"), text);
+});
+
 /* ───────── 스케줄 저장소 ───────── */
 const room = (over = {}) => ({
   id: "r1", name: "n", flightsInput: "KJ247, KJ972", startDateTime: "", endDateTime: "", fixed: true, lastFetchedAt: "",
