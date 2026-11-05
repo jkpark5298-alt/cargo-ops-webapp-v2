@@ -662,14 +662,12 @@ export function findBestExcelRowForScheduleRow(
   const candidates = excelRows.filter((excel) => excel.flight === getFlightKeyFromRow(row));
   if (candidates.length === 0) return null;
   if (candidates.length === 1) {
-    // 한 줄뿐이어도 일자·노선이 다르면 다른 운항분이므로 적용하지 않습니다.
+    // 한 줄뿐이면 일자가 같은 경우에만 적용합니다. (다른 날의 운항분은 제외)
+    // 출발/도착 코드는 비교하지 않습니다: 엑셀의 오타·노선 변경(예: CAN↔HAN, ANC↔BRU)이 있어도
+    // 편명과 일자가 같으면 같은 운항으로 보고 엑셀 값을 반영합니다.
     const only = candidates[0];
     const rowDates = getFlightRowCandidateDates(row);
-    const rowDep = normalizeAirportCode(row.departureCode);
-    const rowArr = normalizeAirportCode(row.arrivalCode);
     if (only.date && rowDates.length > 0 && !rowDates.includes(only.date)) return null;
-    if (only.departureCode && rowDep && only.departureCode !== rowDep) return null;
-    if (only.arrivalCode && rowArr && only.arrivalCode !== rowArr) return null;
     return only;
   }
 

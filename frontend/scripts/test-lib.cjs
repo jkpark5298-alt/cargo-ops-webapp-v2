@@ -5,14 +5,21 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const assert = require("assert");
+// 변환한 모듈이 xlsx 등 프로젝트 패키지를 찾을 수 있게 함
+process.env.NODE_PATH = path.join(__dirname, "..", "node_modules");
+require("module")._initPaths();
 
-const libDir = path.join(__dirname, "..", "app", "lib");
+const appDir = path.join(__dirname, "..", "app");
 const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "cargo-lib-test-"));
-for (const f of ["flight-types", "flight-keys", "aircraft-registration", "schedule-store", "api-config", "afocs-skd"]) {
-  const src = fs.readFileSync(path.join(libDir, f + ".ts"), "utf8");
+const compile = (rel) => {
+  const src = fs.readFileSync(path.join(appDir, rel + ".ts"), "utf8");
   const js = ts.transpileModule(src, { compilerOptions: { module: "commonjs", target: "es2020" } }).outputText;
-  fs.writeFileSync(path.join(outDir, f + ".js"), js);
-}
+  const dest = path.join(outDir, "app", rel + ".js");
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.writeFileSync(dest, js);
+};
+["lib/flight-types", "lib/flight-keys", "lib/flight-status", "lib/aircraft-registration", "lib/schedule-store", "lib/api-config", "lib/afocs-skd",
+  "flights/lib/helpers", "flights/lib/types", "flights/lib/constants"].forEach(compile);
 
 // 브라우저 환경 흉내
 const store = {};
@@ -24,9 +31,10 @@ const mockStorage = {
 global.window = { localStorage: mockStorage };
 global.localStorage = mockStorage;
 
-const keys = require(path.join(outDir, "flight-keys.js"));
-const reg = require(path.join(outDir, "aircraft-registration.js"));
-const sched = require(path.join(outDir, "schedule-store.js"));
+const keys = require(path.join(outDir, "app/lib/flight-keys.js"));
+const reg = require(path.join(outDir, "app/lib/aircraft-registration.js"));
+const helpers = require(path.join(outDir, "app/flights/lib/helpers.js"));
+const sched = require(path.join(outDir, "app/lib/schedule-store.js"));
 
 let passed = 0;
 function test(name, fn) {
@@ -156,6 +164,26 @@ test("저장 시 이미 같은 값으로 저장된 기록은 제외(다른 기�
   const out = reg.excludeUnchangedRegistrationRecords(incoming, existing);
   assert.deepStrictEqual(out.map((r) => r.flight), ["KJ247", "KJ111"]);
   assert.deepStrictEqual(reg.excludeUnchangedRegistrationRecords(incoming, []).length, 3);
+});
+
+/* ───────── 엑셀 업로드 매칭 ───────── */
+const xl = (flight, date, dep, arr, hl, time) => ({ flight, date, departureCode: dep, arrivalCode: arr, registrationNo: hl, afocsSkd: "", time });
+test("엑셀 행 매칭: 같은 일자의 한 줄이면 출발/도착 코드가 달라도 적용(엑셀 오타·노선 변경 대응)", () => {
+  const apiRow = row("KJ932", "HAN", "ICN", "202611061420");
+  const matched = helpers.findBestExcelRowForScheduleRow([xl("KJ932", "2026-11-06", "CAN", "ICN", "HL7436", "14:20")], apiRow);
+  assert.ok(matched, "KJ932(엑셀 CAN→ICN, 조회 HAN→ICN)이 적용되어야 함");
+  assert.strictEqual(matched.registrationNo, "HL7436");
+  const apiRow2 = row("KJ587", "ICN", "BRU", "202611061615");
+  assert.ok(helpers.findBestExcelRowForScheduleRow([xl("KJ587", "2026-11-06", "ICN", "ANC", "HL7436", "16:15")], apiRow2), "KJ587(엑셀 ICN→ANC, 조회 ICN→BRU)도 적용");
+});
+test("엑셀 행 매칭: 일자가 다른 한 줄은 적용하지 않음", () => {
+  const apiRow = row("KJ932", "HAN", "ICN", "202611061420");
+  assert.strictEqual(helpers.findBestExcelRowForScheduleRow([xl("KJ932", "2026-11-07", "HAN", "ICN", "HL7436", "14:20")], apiRow), null);
+});
+test("엑셀 행 매칭: 같은 편명이 여러 날이면 일자·노선·시각이 맞는 행만", () => {
+  const apiRow = row("KJ283", "SFO", "ICN", "202611050305");
+  const cands = [xl("KJ283", "2026-11-04", "SFO", "ICN", "HL7620", "03:05"), xl("KJ283", "2026-11-05", "SFO", "ICN", "HL7423", "03:05")];
+  assert.strictEqual(helpers.findBestExcelRowForScheduleRow(cands, apiRow).registrationNo, "HL7423");
 });
 
 /* ───────── 스케줄 저장소 ───────── */
