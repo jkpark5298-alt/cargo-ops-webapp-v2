@@ -11,7 +11,10 @@ from app.services.flight_common import _now_kst, _now_kst_iso
 from app.services.notification_store import _update_auto_push_status
 from app.services.schedule_monitor import _get_auto_interval_minutes_for_room
 from app.services.schedule_store import (
+    _apply_removed_flights,
     _build_schedule_card_name,
+    _current_removed_flights,
+    _remove_flight_from_linked_schedule,
     _clear_all_schedule_slots,
     _clear_schedule_slot,
     _get_schedule_slot_entry,
@@ -59,6 +62,8 @@ async def save_latest_schedule(payload: LatestScheduleRequest) -> Dict[str, Any]
     if not room.get("name"):
         room["name"] = "Schedule_Synced"
 
+    # 최근 삭제한 편은 오래된 화면·다른 기기의 저장으로 되살아나지 않게 걸러낸다.
+    room = _apply_removed_flights(room, _current_removed_flights(), payload.explicitEdit)
     room = _sanitize_latest_schedule_room(room)
 
     saved = _write_latest_schedule(room)
@@ -89,6 +94,20 @@ async def save_latest_schedule(payload: LatestScheduleRequest) -> Dict[str, Any]
     }
 
 
+@router.delete("/schedule-flights/{flight}")
+async def delete_schedule_flight(flight: str) -> Dict[str, Any]:
+    """연동된 Schedule Flight(초기화면 최신 일정 + 연동 슬롯)에서 편 하나를 삭제한다."""
+    result = _remove_flight_from_linked_schedule(flight)
+    room = result.get("room")
+    if isinstance(room, dict):
+        _update_auto_push_status(
+            enabled=True,
+            intervalMinutes=_get_auto_interval_minutes_for_room(room),
+            lastMessage=f"{flight} 편을 Schedule Flight에서 삭제했습니다.",
+        )
+    return {"success": True, **result}
+
+
 @router.get("/schedule-slots")
 async def get_schedule_slots() -> Dict[str, Any]:
     supabase_payload = _read_schedule_slots_from_supabase()
@@ -108,6 +127,7 @@ async def save_schedule_slot(payload: ScheduleSlotSaveRequest) -> Dict[str, Any]
     target_slot = str(payload.slot or "").strip().lower()
 
     if payload.rotate and not target_slot:
+        room.pop("removedFlights", None)  # 새 Schedule Flight 저장 → 이전 삭제 기록은 초기화
         result = _save_schedule_slots_with_rotate(room)
         _update_auto_push_status(
             enabled=True,
@@ -124,6 +144,8 @@ async def save_schedule_slot(payload: ScheduleSlotSaveRequest) -> Dict[str, Any]
         }
 
     slot = target_slot or "active"
+    if slot == _read_linked_slot():
+        room = _apply_removed_flights(room, _current_removed_flights(), payload.explicitEdit)
     entry = _update_schedule_slot(slot, room)
     linked = _read_linked_slot()
     if slot == linked:

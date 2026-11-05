@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 import json
 import re
@@ -302,6 +302,121 @@ def _get_schedule_slot_entry(
     return entry if isinstance(entry, dict) else None
 
 
+# ── 편 삭제 기록(tombstone) ─────────────────────────────────────────────
+# 삭제한 편이 오래된 화면·다른 기기의 자동 저장으로 되살아나지 않도록, 삭제한 편을 방 안에 일정 시간 기록한다.
+REMOVED_FLIGHT_TTL = timedelta(hours=24)
+
+
+def _parse_kst_naive(value: Any) -> Optional[datetime]:
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except Exception:
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone(timedelta(hours=9))).replace(tzinfo=None)
+    return parsed
+
+
+def _live_removed_flights(room: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    """방에 기록된 삭제 편 중 유효 기간(24시간) 안의 것만 돌려준다."""
+    raw = room.get("removedFlights") if isinstance(room, dict) else None
+    if not isinstance(raw, dict):
+        return {}
+    now = _now_kst()
+    live: Dict[str, str] = {}
+    for key, value in raw.items():
+        removed_at = _parse_kst_naive(value)
+        if removed_at is None or now - removed_at > REMOVED_FLIGHT_TTL:
+            continue
+        live[str(key)] = str(value)
+    return live
+
+
+def _current_removed_flights() -> Dict[str, str]:
+    """서버에 저장된 최신 일정과 연동 슬롯에 기록된 삭제 편을 합친다."""
+    merged: Dict[str, str] = {}
+    sources = [_read_latest_schedule()]
+    entry = _get_schedule_slot_entry(_read_schedule_slots_without_migration(), _read_linked_slot())
+    sources.append(entry.get("room") if entry else None)
+    for source in sources:
+        for key, value in _live_removed_flights(source).items():
+            if key not in merged or value > merged[key]:
+                merged[key] = value
+    return merged
+
+
+def _strip_flights_from_room(room: Dict[str, Any], keys: set) -> Dict[str, Any]:
+    flights = [f for f in _normalize_flights([str(room.get("flightsInput") or "")]) if f not in keys]
+    rows = room.get("rows") if isinstance(room.get("rows"), list) else []
+    next_room = dict(room)
+    next_room["flightsInput"] = ", ".join(flights)
+    next_room["rows"] = [row for row in rows if not (isinstance(row, dict) and _get_flight_key(row) in keys)]
+    return next_room
+
+
+def _apply_removed_flights(
+    room: Dict[str, Any],
+    server_removed: Dict[str, str],
+    explicit_edit: bool = False,
+) -> Dict[str, Any]:
+    """저장하려는 방에서 최근 삭제된 편을 걸러낸다.
+
+    - 자동 갱신·등록기호 저장 같은 일반 저장: 삭제 기록에 있는 편은 다시 들어오지 못한다.
+    - 사용자가 편명을 직접 편집한 저장(explicit_edit): 이번에 포함된 편은 삭제 기록에서 풀어 준다.
+    """
+    incoming = dict(room or {})
+    present = set(_normalize_flights([str(incoming.get("flightsInput") or "")]))
+    merged = {**_live_removed_flights(incoming), **server_removed}
+
+    if explicit_edit:
+        incoming["removedFlights"] = {k: v for k, v in merged.items() if k not in present}
+        return incoming
+
+    blocked = {key for key in present if key in merged}
+    if blocked:
+        incoming = _strip_flights_from_room(incoming, blocked)
+    incoming["removedFlights"] = merged
+    return incoming
+
+
+def _remove_flight_from_linked_schedule(flight: str) -> Dict[str, Any]:
+    """연동된 Schedule Flight(최신 일정 + 연동 슬롯)에서 편을 한 번에 삭제하고 삭제 기록을 남긴다."""
+    keys = _normalize_flights([re.sub(r"[\s\-]+", "", str(flight or "")).upper()])
+    if not keys:
+        raise HTTPException(status_code=400, detail="삭제할 편명이 올바르지 않습니다.")
+    key = keys[0]
+
+    linked = _read_linked_slot()
+    entry = _get_schedule_slot_entry(_read_schedule_slots_without_migration(), linked)
+    entry_room = entry.get("room") if entry else None
+    latest = _read_latest_schedule()
+    base = latest if _is_active_schedule_room(latest) else entry_room if _is_active_schedule_room(entry_room) else None
+
+    removed_flights = _current_removed_flights()
+    removed_flights[key] = _now_kst_iso()
+
+    if base is None:
+        return {"removed": False, "room": None, "removedFlights": removed_flights}
+
+    was_present = key in set(_normalize_flights([str(base.get("flightsInput") or "")]))
+    updated = _strip_flights_from_room(base, {key})
+    updated["removedFlights"] = removed_flights
+    updated["lastFetchedAt"] = _now_kst_iso()
+    updated = _sanitize_latest_schedule_room(updated)
+
+    saved = _write_latest_schedule(updated)
+    saved_at = saved.get("savedAt") or _now_kst_iso()
+    slot_entry = _schedule_slot_payload(
+        linked,
+        str((entry or {}).get("name") or _build_schedule_card_name(str(updated.get("startDateTime") or ""))),
+        saved.get("room") or updated,
+        saved_at,
+    )
+    _write_schedule_slot_entry(linked, slot_entry)
+    return {"removed": was_present, "room": saved.get("room") or updated, "savedAt": saved_at}
+
+
+
 def _sync_latest_schedule_from_linked_slot() -> Optional[Dict[str, Any]]:
     slots = _read_schedule_slots_without_migration()
     linked_slot = _read_linked_slot()
@@ -309,6 +424,10 @@ def _sync_latest_schedule_from_linked_slot() -> Optional[Dict[str, Any]]:
     room = entry.get("room") if entry else None
 
     if _is_active_schedule_room(room):
+        return _write_latest_schedule(room)
+
+    # 사용자가 마지막 편까지 삭제해 비운 카드(삭제 기록이 남아 있음)는 다른 카드로 바꾸지 않고 그대로 둔다.
+    if isinstance(room, dict) and _live_removed_flights(room):
         return _write_latest_schedule(room)
 
     fallback_order = [linked_slot] + [slot for slot in SCHEDULE_SLOT_KEYS if slot != linked_slot]

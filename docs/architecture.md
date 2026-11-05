@@ -54,6 +54,9 @@
 - **Schedule Flight 카드 자동 갱신·변경 감지**: 예정시각 **또는** 변경시각 중 하나라도 기간 안이면 포함합니다(`includeScheduled: true`, `_row_matches_schedule_or_estimate_range`). 기간 밖으로 크게 지연된 편도 지연 알림이 누락되지 않게 하기 위함입니다.
 - 서버 시각 비교(알림 시간대, 자동 갱신 주기 등)는 모두 `_now_kst()`(한국 시각)를 사용합니다. 서버 시간대(UTC)에 의존하는 `datetime.now()`는 쓰지 않습니다.
 
+### Schedule Flight 편 삭제
+`DELETE /flights/schedule-flights/{편명}`이 최신 일정과 연동 슬롯에서 편을 한 번에 지우고, 방 안에 삭제 기록(`removedFlights`, 24시간)을 남깁니다. 오래된 화면·다른 기기가 삭제 전 방 전체를 다시 저장해도 서버가 기록에 있는 편을 걸러냅니다. 사용자가 편명을 직접 편집해 저장하거나(`explicitEdit`) 새 Schedule Flight를 저장(rotate)하면 삭제 기록은 풀립니다. 마지막 편까지 삭제한 카드는 보관 카드로 바뀌지 않고 빈 카드로 유지됩니다.
+
 ### Schedule Flight 저장 계층
 1. 브라우저 `localStorage`의 방 목록(`cargo_ops_monitor_rooms_v6`)
 2. 서버 `latest-schedule`(초기화면 기준 1개) — 파일(`/tmp`) + Supabase

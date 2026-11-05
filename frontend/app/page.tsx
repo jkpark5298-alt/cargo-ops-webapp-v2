@@ -54,6 +54,7 @@ import {
   mergeLatestScheduleRoom,
   mergeScheduleRegistrationIntoRoom,
   removeEmptyScheduleRooms,
+  removeFlightFromScheduleOnServer,
   removeFlightFromScheduleRoom,
   saveLatestScheduleToServer,
   saveRooms,
@@ -615,6 +616,9 @@ export default function HomePage() {
 
     const updatedRoom = removeFlightFromScheduleRoom(latestRoom, targetFlight);
     const hasRemaining = isActiveScheduleRoom(updatedRoom);
+    // 서버 삭제에 실패하면 화면을 원래대로 되돌리기 위해 삭제 전 상태를 보관한다.
+    const previousRooms = loadRooms();
+    const previousSnapshot = buildFlightAlertSnapshot(latestRoom);
     const nextRooms = hasRemaining
       ? mergeLatestScheduleRoom(loadRooms(), updatedRoom)
       : removeEmptyScheduleRooms(
@@ -635,12 +639,8 @@ export default function HomePage() {
     }
 
     try {
-      const result = await saveScheduleSlotToServer(updatedRoom, {
-        rotate: false,
-        slot: linkedScheduleSlotRef.current,
-      });
-      linkedScheduleSlotRef.current = result.linkedSlot;
-      await saveLatestScheduleToServer(updatedRoom);
+      // 서버가 최신 일정과 연동 슬롯에서 한 번에 삭제하고 삭제 기록을 남긴다(되살아남 방지).
+      await removeFlightFromScheduleOnServer(targetFlight);
 
       if (typeof window !== "undefined") {
         window.localStorage.setItem("cargo_ops_latest_schedule_updated_at", new Date().toISOString());
@@ -653,10 +653,17 @@ export default function HomePage() {
       );
       setScheduleSyncCheckedAt(getCurrentSyncLabel());
     } catch (error) {
+      // 서버에 반영되지 않았으므로 화면도 되돌린다(그대로 두면 다음 동기화 때 조용히 되살아난다).
+      setRooms(previousRooms);
+      saveRooms(previousRooms);
+      if (previousSnapshot) {
+        setFlightAlertSnapshot(previousSnapshot);
+        saveFlightAlertSnapshot(previousSnapshot);
+      }
       setScheduleApiSyncStatus(
         error instanceof Error
-          ? `${targetFlight} 로컬 삭제 완료 · 서버 반영 실패: ${error.message}`
-          : `${targetFlight} 로컬 삭제 완료 · 서버 반영 실패`,
+          ? `${targetFlight} 삭제하지 못했습니다(서버 반영 실패): ${error.message} · 편은 그대로 유지됩니다.`
+          : `${targetFlight} 삭제하지 못했습니다(서버 반영 실패) · 편은 그대로 유지됩니다.`,
       );
     } finally {
       setScheduleFlightDeleting(false);

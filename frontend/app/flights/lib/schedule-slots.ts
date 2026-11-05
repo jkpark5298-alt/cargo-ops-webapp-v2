@@ -129,7 +129,7 @@ export async function loadScheduleSlotsFromServer(): Promise<ScheduleSlotsState>
 
 export async function saveScheduleSlotToServer(
   room: MonitorRoom,
-  options: { rotate?: boolean; slot?: ScheduleSlotKey } = {},
+  options: { rotate?: boolean; slot?: ScheduleSlotKey; explicitEdit?: boolean } = {},
 ) {
   const res = await fetch(`${BACKEND_URL}/flights/schedule-slots/save`, {
     method: "POST",
@@ -138,6 +138,7 @@ export async function saveScheduleSlotToServer(
       room,
       rotate: options.rotate ?? true,
       slot: options.slot,
+      explicitEdit: Boolean(options.explicitEdit),
     }),
   });
   const json = await res.json();

@@ -9,6 +9,7 @@ import {
   normalizeScheduleRoomRows,
   removeEmptyScheduleRooms,
   removeFlightFromScheduleRoom,
+  removeFlightFromScheduleOnServer,
   saveLatestScheduleToServer,
   saveRooms,
 } from "../../lib/schedule-store";
@@ -158,6 +159,10 @@ export function useScheduleSelection({
       // 연동 슬롯 삭제는 latest-schedule에도 명시 반영해 초기화면 재진입 시 되살림을 막습니다.
       if (targetSlot === result.linkedSlot) {
         await saveLatestScheduleToServer(normalizeScheduleRoomRows(updatedRoom));
+        // 삭제 기록을 서버에 남겨, 오래된 화면·다른 기기의 저장으로 되살아나지 않게 한다.
+        for (const flight of targetFlights) {
+          await removeFlightFromScheduleOnServer(flight);
+        }
       }
       if (typeof window !== "undefined") {
         if (!hasRemaining) {
@@ -314,6 +319,7 @@ export function useScheduleSelection({
       const result = await saveScheduleSlotToServer(baseRoom, {
         rotate: shouldRotate,
         slot: targetSlot,
+        explicitEdit: !shouldRotate,
       });
       applyScheduleSlotsState(
         {

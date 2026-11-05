@@ -130,7 +130,12 @@ export function mergeScheduleRegistrationIntoRoom(
 }
 
 /** 서버에 최신 스케줄 저장. 저장 전 편명 목록과 행을 맞추고, 돌려받은 방에는 등록번호를 다시 합칩니다. */
-export async function saveLatestScheduleToServer(room: MonitorRoom) {
+/**
+ * 서버의 최신 Schedule Flight에 방을 저장한다.
+ * explicitEdit: 사용자가 편명을 직접 편집해 저장하는 경우(최근 삭제한 편도 다시 넣을 수 있음).
+ * 그 외 자동 갱신·등록기호 저장은 최근 삭제한 편을 서버가 걸러낸다.
+ */
+export async function saveLatestScheduleToServer(room: MonitorRoom, options: { explicitEdit?: boolean } = {}) {
   const roomToSave = normalizeScheduleRoomRows(room);
 
   const res = await fetch(`${BACKEND_URL}/flights/latest-schedule`, {
@@ -138,7 +143,7 @@ export async function saveLatestScheduleToServer(room: MonitorRoom) {
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ room: roomToSave }),
+    body: JSON.stringify({ room: roomToSave, explicitEdit: Boolean(options.explicitEdit) }),
   });
 
   const json = await res.json();
@@ -151,6 +156,21 @@ export async function saveLatestScheduleToServer(room: MonitorRoom) {
     normalizeScheduleRoomRows((json.room || roomToSave) as MonitorRoom),
     roomToSave,
   ) as MonitorRoom;
+}
+
+/**
+ * 연동된 Schedule Flight(최신 일정 + 연동 슬롯)에서 편 하나를 서버에서 한 번에 삭제한다.
+ * 서버가 삭제 기록을 남겨, 오래된 화면·다른 기기가 나중에 저장해도 되살아나지 않는다.
+ */
+export async function removeFlightFromScheduleOnServer(flight: string) {
+  const res = await fetch(`${BACKEND_URL}/flights/schedule-flights/${encodeURIComponent(normalizeFlightKey(flight))}`, {
+    method: "DELETE",
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.success === false) {
+    throw new Error(json.detail || json.message || "서버에서 편을 삭제하지 못했습니다.");
+  }
+  return { removed: Boolean(json.removed), room: (json.room || null) as MonitorRoom | null };
 }
 
 /** 서버의 최신 스케줄을 읽고, 로컬 고정 방의 등록번호·AFOCS를 합칩니다. */

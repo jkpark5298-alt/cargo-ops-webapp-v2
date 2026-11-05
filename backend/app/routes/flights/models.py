@@ -26,12 +26,15 @@ class AutoPushConfigRequest(BaseModel):
 
 class LatestScheduleRequest(BaseModel):
     room: Dict[str, Any]
+    # True 이면 사용자가 편명을 직접 편집한 저장 → 최근 삭제 기록에 있던 편도 다시 넣을 수 있다.
+    explicitEdit: bool = False
 
 
 class ScheduleSlotSaveRequest(BaseModel):
     room: Dict[str, Any]
     rotate: bool = True
     slot: Optional[str] = None
+    explicitEdit: bool = False
 
 
 class ScheduleSlotUpdateRequest(BaseModel):

@@ -259,7 +259,7 @@ export default function FlightsPage() {
     setExpandedDetailKeys({});
 
     try {
-      await saveLatestScheduleToServer(updatedRoom);
+      await saveLatestScheduleToServer(updatedRoom, { explicitEdit: true });
       setError(
         normalizedFlights.length > 0
           ? "Schedule Flight 편명 변경을 AFOCS SKD와 최근 Schedule Flight에 동기화했습니다."
