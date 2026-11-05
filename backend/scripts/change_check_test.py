@@ -118,7 +118,7 @@ INBOUND = {"flightNo": "KJ970", "departureCode": "HKG", "arrivalCode": "ICN", "f
            "formattedEstimatedTime": "2026/11/06 14:00", "remark": "", "status": "", "gatenumber": "621",
            "terminalid": "C01", "sourceType": "arrival"}
 inferred_prev = monitor._apply_elapsed_status_to_row(INBOUND)  # 시간이 지나 앱이 '도착'으로 추정한 행
-check("시간 경과로 추정한 상태에는 추정 표시가 붙음", inferred_prev["status"] == "도착" and inferred_prev.get("statusInferred") is True, inferred_prev)
+check("도착 예정 시각이 지나도 API 도착 전에는 '도착'이 아니라 '도착 지연'(추정 표시)", inferred_prev["status"] == "도착 지연" and inferred_prev.get("statusInferred") is True, inferred_prev)
 
 changes = monitor._row_changed_fields(inferred_prev, dict(INBOUND, remark="도착"))
 check("추정 '도착' 이후 API 가 실제 도착을 알리면 알림이 감(이전엔 누락)", changes and changes[0] == "상태 도착 (도착 확인)", changes)
@@ -157,6 +157,11 @@ def _items(remark):
 
 check("파서: remark 도착이면 추정 아님", _api._rows_from_items(_items("도착"), "arrival")[0]["statusInferred"] is False)
 check("파서: remark 비어 있고 시각만 지났으면 추정 표시", _api._rows_from_items(_items(""), "arrival")[0]["statusInferred"] is True)
+check("파서: 도착편 remark 도착이면 status 도착", _api._rows_from_items(_items("도착"), "arrival")[0]["status"] == "도착")
+check("파서: 도착편 remark 없고 시각만 지나면 status 도착 지연", _api._rows_from_items(_items(""), "arrival")[0]["status"] == "도착 지연")
+check("파서: 도착편 remark 지연이고 시각이 지나도 status 도착 지연(도착 아님)", _api._rows_from_items(_items("지연"), "arrival")[0]["status"] == "도착 지연")
+check("파서: 결항편은 상태를 추정하지 않음", _api._rows_from_items(_items("결항"), "arrival")[0]["status"] == "")
+check("출발편은 기존처럼 시각이 지나면 출발(추정)", _api._rows_from_items(_items(""), "departure")[0]["status"] == "출발")
 monitor._now_kst = _real_now
 
 print(f"\n{passed}개 통과")

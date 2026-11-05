@@ -19,6 +19,8 @@ export type FlightRow = {
   typeOfFlight?: string;
   remark?: string;
   status?: string;
+  /** status 가 API 값이 아니라 시각이 지나 추정해 붙인 값인지(도착 지연/출발 등) */
+  statusInferred?: boolean;
   delay?: boolean;
   canceled?: boolean;
   gateChanged?: boolean;

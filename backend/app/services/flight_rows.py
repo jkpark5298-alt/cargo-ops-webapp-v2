@@ -264,6 +264,8 @@ def _row_operational_status(row: Optional[Dict[str, Any]]) -> str:
         return "결항"
     if "RETURN" in text or "회항" in text:
         return "회항"
+    if row.get("statusInferred") and str(row.get("status") or "").strip() == "도착 지연":
+        return "도착 지연"
     if "ARRIV" in text or "도착" in text:
         if "DELAY" in text or "지연" in text or row.get("delay"):
             return "도착(지연)"

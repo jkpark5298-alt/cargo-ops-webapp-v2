@@ -258,10 +258,18 @@ def _rows_from_items(items: List[ET.Element], source_type: str) -> List[Dict[str
         delay = bool(schedule and estimated and schedule != estimated and not canceled)
 
         status_inferred = False
-        if estimated and estimated <= now_str:
-            status_text = "출발" if is_departure else "도착"
-            # API remark 가 실제로 출발/도착을 말하지 않는데 시각이 지나서 붙인 추정값이면 표시해 둔다.
-            status_inferred = not any(token in remark for token in ("출발", "도착"))
+        if estimated and estimated <= now_str and not canceled:
+            # API remark 가 실제로 출발/도착을 말하지 않는데 시각만 지난 경우는 추정값으로 표시한다.
+            # 도착편은 '도착'이 아니라 '도착 지연'(도착 예정 시각이 지났지만 도착 미확인)으로 둔다.
+            says_actual = any(token in remark for token in ("출발", "도착"))
+            if is_departure:
+                status_text = "출발"
+                status_inferred = not says_actual
+            elif says_actual:
+                status_text = "도착"
+            else:
+                status_text = "도착 지연"
+                status_inferred = True
 
         rows.append(
             {

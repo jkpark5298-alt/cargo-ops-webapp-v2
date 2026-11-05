@@ -1,5 +1,6 @@
 export type FlightStatusRow = {
   status?: string;
+  statusInferred?: boolean;
   remark?: string;
   delay?: boolean;
   canceled?: boolean;
@@ -80,14 +81,17 @@ function getElapsedStatus(row: FlightStatusRow, delayed: boolean): string | null
 
   const kind = getDirectionKind(row);
   if (kind === "departure") return delayed ? "출발(지연)" : "출발";
-  if (kind === "arrival") return delayed ? "도착(지연)" : "도착";
+  // 도착 예정 시각이 지났지만 인천 API 가 아직 도착을 알리지 않은 상태 → 도착 확정이 아니라 '도착 지연'
+  if (kind === "arrival") return "도착 지연";
   return null;
 }
 
 export function getComputedFlightStatus(row?: FlightStatusRow | null): string {
   if (!row) return "-";
 
-  const remarkStatus = `${row.status || ""} ${row.remark || ""}`.trim().toUpperCase();
+  // 시각이 지나 추정해 붙인 status 는 API 값이 아니므로 판단에서 제외한다.
+  const apiStatus = row.statusInferred ? "" : row.status || "";
+  const remarkStatus = `${apiStatus} ${row.remark || ""}`.trim().toUpperCase();
 
   if (row.canceled || remarkStatus.includes("CANCEL")) return "결항";
   if (row.gateChanged) return "게이트 변경";
@@ -98,17 +102,17 @@ export function getComputedFlightStatus(row?: FlightStatusRow | null): string {
     remarkStatus.includes("지연");
 
   if (delayed) {
-    if (remarkStatus.includes("ARRIV") || remarkStatus.includes("도착") || row.status === "도착") {
+    if (remarkStatus.includes("ARRIV") || remarkStatus.includes("도착") || apiStatus === "도착") {
       return "도착(지연)";
     }
-    if (remarkStatus.includes("DEPAR") || remarkStatus.includes("출발") || row.status === "출발") {
+    if (remarkStatus.includes("DEPAR") || remarkStatus.includes("출발") || apiStatus === "출발") {
       return "출발(지연)";
     }
     return getElapsedStatus(row, true) || "지연";
   }
 
   if (
-    row.status === "출발" ||
+    apiStatus === "출발" ||
     remarkStatus.includes("DEPART") ||
     remarkStatus.includes("DEP") ||
     remarkStatus.includes("출발")
@@ -117,7 +121,7 @@ export function getComputedFlightStatus(row?: FlightStatusRow | null): string {
   }
 
   if (
-    row.status === "도착" ||
+    apiStatus === "도착" ||
     remarkStatus.includes("ARRIV") ||
     remarkStatus.includes("ARR") ||
     remarkStatus.includes("도착")
@@ -130,6 +134,8 @@ export function getComputedFlightStatus(row?: FlightStatusRow | null): string {
 
 export function isFinalCompletedFlightStatus(status: string) {
   if (!status || status === "-") return false;
+  // 도착 예정 시각이 지났지만 도착이 확인되지 않은 편은 아직 진행 중으로 본다.
+  if (status === "도착 지연") return false;
   const s = status.toLowerCase();
   return (
     s.includes("도착") ||

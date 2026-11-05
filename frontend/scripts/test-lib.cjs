@@ -18,7 +18,7 @@ const compile = (rel) => {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.writeFileSync(dest, js);
 };
-["lib/flight-types", "lib/flight-keys", "lib/flight-status", "lib/aircraft-registration", "lib/schedule-store", "lib/api-config", "lib/afocs-skd", "lib/csm-checklist", "lib/flight-alerts", "home/helpers", "home/constants", "home/types",
+["lib/flight-types", "lib/flight-keys", "lib/flight-status", "lib/aircraft-registration", "lib/schedule-store", "lib/api-config", "lib/afocs-skd", "lib/csm-checklist", "lib/flight-status", "lib/flight-alerts", "home/helpers", "home/constants", "home/types",
   "flights/lib/helpers", "flights/lib/types", "flights/lib/constants"].forEach(compile);
 
 // 브라우저 환경 흉내
@@ -402,6 +402,34 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
     const a = homeHelpers.buildAutoPushSummary({ enabled: true, mode: "focus", lastMessage: "Schedule Flight 기준 자동 변경 확인 대기 중" });
     assert.strictEqual(a.message, "집중 5분 확인 · Schedule Flight 기준 자동 변경 확인 대기 중");
     assert.strictEqual(a.lastRunText, "아직 자동 확인 기록이 없습니다.");
+  });
+
+  // 도착 예정 시각이 지났지만 인천 API 가 도착을 알리지 않은 편 → '도착 지연'
+  const fstatus = require(path.join(outDir, "app/lib/flight-status.js"));
+  const past = "2000/01/01 10:00";
+  const arrivalRow = (extra) => ({ departureCode: "HKG", arrivalCode: "ICN", sourceType: "arrival", formattedScheduleTime: past, formattedEstimatedTime: past, ...extra });
+  test("도착편: 시각이 지났고 API 상태가 비어 있으면 '도착 지연'", () => {
+    assert.strictEqual(fstatus.getComputedFlightStatus(arrivalRow({ remark: "", status: "" })), "도착 지연");
+  });
+  test("도착편: remark 가 지연이고 시각이 지나도 '도착'이 아니라 '도착 지연'", () => {
+    assert.strictEqual(fstatus.getComputedFlightStatus(arrivalRow({ remark: "지연", delay: true })), "도착 지연");
+  });
+  test("도착편: 추정으로 붙은 status 도착(statusInferred)은 도착으로 보지 않음", () => {
+    assert.strictEqual(fstatus.getComputedFlightStatus(arrivalRow({ remark: "지연", status: "도착", statusInferred: true })), "도착 지연");
+    assert.strictEqual(fstatus.getComputedFlightStatus(arrivalRow({ remark: "", status: "도착 지연", statusInferred: true })), "도착 지연");
+  });
+  test("도착편: API remark 가 도착이면 '도착', 지연이 함께면 '도착(지연)'", () => {
+    assert.strictEqual(fstatus.getComputedFlightStatus(arrivalRow({ remark: "도착", status: "도착" })), "도착");
+    assert.strictEqual(fstatus.getComputedFlightStatus(arrivalRow({ remark: "도착", status: "도착", delay: true })), "도착(지연)");
+  });
+  test("출발편은 기존처럼 시각이 지나면 '출발'", () => {
+    assert.strictEqual(fstatus.getComputedFlightStatus({ departureCode: "ICN", arrivalCode: "PVG", sourceType: "departure", formattedEstimatedTime: past, remark: "" }), "출발");
+  });
+  test("'도착 지연'은 진행 중(완료 아님), '도착'·'도착(지연)'은 완료", () => {
+    assert.strictEqual(fstatus.isFinalCompletedFlightStatus("도착 지연"), false);
+    assert.strictEqual(fstatus.isFinalCompletedFlightStatus("도착"), true);
+    assert.strictEqual(fstatus.isFinalCompletedFlightStatus("도착(지연)"), true);
+    assert.strictEqual(fstatus.isFinalCompletedFlightStatus("결항"), true);
   });
 
   console.log(`\n${passed}개 통과${process.exitCode ? " · 실패 있음" : ""}`);
