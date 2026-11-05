@@ -1,5 +1,7 @@
 const DEFAULT_CSM_CHECKLIST_URL = "https://csm-checklist.vercel.app";
 const CSM_MAX_FLIGHTS = 8;
+/** URL 길이 제한을 넘지 않도록 CSM Report 내용은 이 글자 수까지만 전달한다. */
+export const CSM_MAX_REPORT_CHARS = 1500;
 
 export type CsmChecklistType = "A" | "B";
 
@@ -76,13 +78,34 @@ function encodeBase64UrlJson(payload: unknown): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
+export type CsmReportTransfer = {
+  /** 홈 화면 일일 보고의 "주요 사항" 메모 → CSM "CSM Report 내용" */
+  text: string;
+  /** 메모의 업무일자(YYYY-MM-DD) */
+  workDate?: string;
+};
+
+/** 줄바꿈을 통일하고 앞뒤 공백을 정리한 뒤 최대 글자 수로 자른다. */
+export function normalizeCsmReportText(text: string): { text: string; truncated: boolean } {
+  const cleaned = String(text || "").replace(/\r\n?/g, "\n").trim();
+  if (cleaned.length <= CSM_MAX_REPORT_CHARS) return { text: cleaned, truncated: false };
+  return { text: cleaned.slice(0, CSM_MAX_REPORT_CHARS), truncated: true };
+}
+
 export function buildCsmChecklistImportUrl(
   items: CsmFlightTransferItem[],
-  options?: { baseUrl?: string },
-): { url: string; count: number; truncated: boolean } {
+  options?: { baseUrl?: string; report?: CsmReportTransfer },
+): { url: string; count: number; truncated: boolean; reportSent: boolean; reportTruncated: boolean } {
   const limited = items.slice(0, CSM_MAX_FLIGHTS);
   const truncated = items.length > CSM_MAX_FLIGHTS;
-  const encoded = encodeBase64UrlJson({ flights: limited });
+  const report = options?.report ? normalizeCsmReportText(options.report.text) : null;
+  const reportSent = Boolean(report && report.text);
+  const encoded = encodeBase64UrlJson({
+    flights: limited,
+    ...(reportSent && report
+      ? { reportText: report.text, reportDate: options?.report?.workDate || "" }
+      : {}),
+  });
   const baseUrl = (options?.baseUrl || getCsmChecklistBaseUrl()).replace(/\/+$/, "");
   const params = new URLSearchParams({
     scheduleImport: encoded,
@@ -91,6 +114,8 @@ export function buildCsmChecklistImportUrl(
     url: `${baseUrl}/?${params.toString()}`,
     count: limited.length,
     truncated,
+    reportSent,
+    reportTruncated: Boolean(report?.truncated),
   };
 }
 
@@ -101,6 +126,7 @@ export function openCsmChecklistWithFlights(
     departureCode?: string;
     arrivalCode?: string;
   }>,
+  report?: CsmReportTransfer,
 ): { opened: boolean; count: number; message: string } {
   const mapped = toCsmFlightTransferItems(items);
   if (mapped.length === 0) {
@@ -111,7 +137,7 @@ export function openCsmChecklistWithFlights(
     };
   }
 
-  const { url, count, truncated } = buildCsmChecklistImportUrl(mapped);
+  const { url, count, truncated, reportSent, reportTruncated } = buildCsmChecklistImportUrl(mapped, { report });
   const openedWindow = window.open(url, "_blank");
   if (!openedWindow) {
     return {
@@ -123,11 +149,18 @@ export function openCsmChecklistWithFlights(
   }
   openedWindow.opener = null;
 
+  const base = truncated
+    ? `CSM CHECK LIST로 편명·SPOT ${count}건을 전달했습니다. (최대 ${CSM_MAX_FLIGHTS}건만 전달)`
+    : `CSM CHECK LIST로 편명·SPOT ${count}건을 전달했습니다.`;
+  const reportNote = reportSent
+    ? reportTruncated
+      ? ` CSM Report 내용(주요 사항)은 ${CSM_MAX_REPORT_CHARS}자까지만 전달했습니다.`
+      : " CSM Report 내용(주요 사항)도 함께 전달했습니다."
+    : "";
+
   return {
     opened: true,
     count,
-    message: truncated
-      ? `CSM CHECK LIST로 편명·SPOT ${count}건을 전달했습니다. (최대 ${CSM_MAX_FLIGHTS}건만 전달)`
-      : `CSM CHECK LIST로 편명·SPOT ${count}건을 전달했습니다.`,
+    message: base + reportNote,
   };
 }

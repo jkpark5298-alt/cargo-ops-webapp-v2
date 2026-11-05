@@ -1163,6 +1163,7 @@ export default function HomePage() {
           onDeleteAlertHistoryItem={handleDeleteFlightAlertHistoryItem}
           onUpdateAfocsSkd={handleUpdateAfocsSkd}
           onDeleteFlight={handleDeleteFlightFromSchedule}
+          csmReport={{ text: note, workDate: dailyWorkDate }}
         />
 
         <ActionCard

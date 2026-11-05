@@ -26,6 +26,7 @@ export function ScheduleSummaryCard({
   onDeleteAlertHistoryItem,
   onUpdateAfocsSkd,
   onDeleteFlight,
+  csmReport,
 }: ScheduleSummaryCardProps) {
   return (
     <section style={cardStyle}>
@@ -39,6 +40,7 @@ export function ScheduleSummaryCard({
           onDeleteAlertHistoryItem={onDeleteAlertHistoryItem}
           onUpdateAfocsSkd={onUpdateAfocsSkd}
           onDeleteFlight={onDeleteFlight}
+          csmReport={csmReport}
         />
       </div>
       {apiSyncStatus ? <div style={apiSyncStatusStyle}>{apiSyncStatus}</div> : null}

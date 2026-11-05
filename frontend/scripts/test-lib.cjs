@@ -18,7 +18,7 @@ const compile = (rel) => {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.writeFileSync(dest, js);
 };
-["lib/flight-types", "lib/flight-keys", "lib/flight-status", "lib/aircraft-registration", "lib/schedule-store", "lib/api-config", "lib/afocs-skd",
+["lib/flight-types", "lib/flight-keys", "lib/flight-status", "lib/aircraft-registration", "lib/schedule-store", "lib/api-config", "lib/afocs-skd", "lib/csm-checklist",
   "flights/lib/helpers", "flights/lib/types", "flights/lib/constants"].forEach(compile);
 
 // 브라우저 환경 흉내
@@ -348,6 +348,35 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
     global.fetch = async () => ({ ok: true, json: async () => ({ success: true, room: room({ rows: [row("KJ247", "ATL", "ICN", "202610310020")] }) }) });
     const loaded = await sched.loadLatestScheduleFromServer();
     assert.strictEqual(loaded.rows[0].registrationNo, "HL5555");
+  });
+
+  // CSM CHECK LIST 전달: 일일 보고 "주요 사항" → "CSM Report 내용"
+  const csm = require(path.join(outDir, "app/lib/csm-checklist.js"));
+  const decodeImport = (url) => {
+    const b64 = new URL(url).searchParams.get("scheduleImport").replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(Buffer.from(b64, "base64").toString("utf8"));
+  };
+  test("CSM 전달: 주요 사항 메모가 reportText 로 함께 전달됨(줄바꿈·한글 보존)", () => {
+    const text = "- KJ371 AAP 점검(22:10 탑재 완료)\r\n- KJ947 AAP 점검(KJ284 동시 탑재)\n* kj284 nose door 탑재 등 중량 CGO 탑재로 탑재  지연(23:00~00:40)";
+    const built = csm.buildCsmChecklistImportUrl([{ flight: "371", spot: "621", type: "A" }], { baseUrl: "https://csm.test", report: { text, workDate: "2026-11-05" } });
+    const payload = decodeImport(built.url);
+    assert.strictEqual(built.reportSent, true);
+    assert.strictEqual(payload.reportText, text.replace(/\r\n/g, "\n"));
+    assert.strictEqual(payload.reportDate, "2026-11-05");
+    assert.strictEqual(payload.flights.length, 1);
+  });
+  test("CSM 전달: 메모가 비어 있으면 reportText 를 보내지 않음(기존 방식 유지)", () => {
+    const built = csm.buildCsmChecklistImportUrl([{ flight: "371", spot: "621", type: "A" }], { baseUrl: "https://csm.test", report: { text: "  \n " } });
+    assert.strictEqual(built.reportSent, false);
+    assert.ok(!("reportText" in decodeImport(built.url)));
+    const noReport = csm.buildCsmChecklistImportUrl([{ flight: "371", spot: "621", type: "A" }], { baseUrl: "https://csm.test" });
+    assert.deepStrictEqual(Object.keys(decodeImport(noReport.url)), ["flights"]);
+  });
+  test("CSM 전달: 너무 긴 메모는 1500자에서 자르고 알림", () => {
+    const built = csm.buildCsmChecklistImportUrl([{ flight: "1", spot: "", type: "A" }], { baseUrl: "https://csm.test", report: { text: "가".repeat(2000) } });
+    assert.strictEqual(built.reportTruncated, true);
+    assert.strictEqual(decodeImport(built.url).reportText.length, 1500);
+    assert.ok(built.url.length < 8000, "URL 길이 " + built.url.length);
   });
 
   console.log(`\n${passed}개 통과${process.exitCode ? " · 실패 있음" : ""}`);

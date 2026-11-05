@@ -37,6 +37,7 @@ export function FlightRouteRows({
   onDeleteAlertHistoryItem,
   onUpdateAfocsSkd,
   onDeleteFlight,
+  csmReport,
 }: {
   room: MonitorRoom | null;
   flightAlertHistory?: FlightAlertHistoryItem[];
@@ -44,6 +45,7 @@ export function FlightRouteRows({
   onDeleteAlertHistoryItem?: (item: FlightAlertHistoryItem) => void;
   onUpdateAfocsSkd?: (flight: string, date: string, time: string) => void;
   onDeleteFlight?: (flight: string) => void;
+  csmReport?: { text: string; workDate?: string };
 }) {
   const baseItems = useMemo(() => getFlightRouteItems(room), [room]);
   const [expandedFlights, setExpandedFlights] = useState<Record<string, boolean>>({});
@@ -88,7 +90,7 @@ export function FlightRouteRows({
   }, []);
 
   const handleSendToCsmChecklist = () => {
-    const result = openCsmChecklistWithFlights(visibleItems);
+    const result = openCsmChecklistWithFlights(visibleItems, csmReport);
     setCsmTransferOk(result.opened);
     setCsmTransferStatus(result.message);
   };
