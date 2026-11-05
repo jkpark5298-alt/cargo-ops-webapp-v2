@@ -22,8 +22,49 @@ from app.services.flight_common import (
     NOTIFICATION_HISTORY_FILE,
     PUSH_SUBSCRIPTIONS_FILE,
     _now_kst_iso,
+    _supabase_request,
+    _supabase_usage_enabled,
 )
+
+# Supabase 영구 저장(app_state_documents 테이블). 테이블이 없거나 장애면 /tmp 파일만 사용한다.
+_DOC_HISTORY = "notification_history"
+_DOC_SUBSCRIPTIONS = "push_subscriptions"
+_DOC_AUTO_STATUS = "auto_push_status"
+
+
+def _read_state_document(doc_key: str) -> Optional[Any]:
+    """Supabase 에 저장된 문서(payload)를 읽는다. 없거나 실패하면 None → 호출부가 파일로 대체."""
+    if not _supabase_usage_enabled():
+        return None
+    try:
+        rows = _supabase_request(
+            "GET",
+            f"/rest/v1/app_state_documents?doc_key=eq.{doc_key}&select=payload&limit=1",
+        )
+    except Exception:
+        return None
+    if isinstance(rows, list) and rows and isinstance(rows[0], dict):
+        return rows[0].get("payload")
+    return None
+
+
+def _write_state_document(doc_key: str, payload: Any) -> None:
+    """Supabase 에 문서를 저장한다(실패해도 파일 저장은 이미 끝난 상태라 서비스는 계속)."""
+    if not _supabase_usage_enabled():
+        return
+    try:
+        _supabase_request(
+            "POST",
+            "/rest/v1/app_state_documents?on_conflict=doc_key",
+            {"doc_key": doc_key, "payload": payload, "updated_at": _now_kst_iso()},
+            {"Prefer": "resolution=merge-duplicates,return=minimal"},
+        )
+    except Exception:
+        pass
 def _read_notification_history() -> List[Dict[str, Any]]:
+    remote = _read_state_document(_DOC_HISTORY)
+    if isinstance(remote, dict) and isinstance(remote.get("items"), list):
+        return remote["items"]
     try:
         if not NOTIFICATION_HISTORY_FILE.exists():
             return []
@@ -41,6 +82,7 @@ def _write_notification_history(items: List[Dict[str, Any]]) -> None:
         json.dumps({"items": items[:100]}, ensure_ascii=False),
         encoding="utf-8",
     )
+    _write_state_document(_DOC_HISTORY, {"items": items[:100]})
 
 
 def _append_notification_history(
@@ -119,6 +161,9 @@ def _append_notification_history(
 
 
 def _read_push_subscriptions() -> List[Dict[str, Any]]:
+    remote = _read_state_document(_DOC_SUBSCRIPTIONS)
+    if isinstance(remote, dict) and isinstance(remote.get("items"), list):
+        return remote["items"]
     try:
         if not PUSH_SUBSCRIPTIONS_FILE.exists():
             return []
@@ -135,6 +180,7 @@ def _write_push_subscriptions(items: List[Dict[str, Any]]) -> None:
         json.dumps(items, ensure_ascii=False),
         encoding="utf-8",
     )
+    _write_state_document(_DOC_SUBSCRIPTIONS, {"items": items})
 
 
 def _read_auto_push_status() -> Dict[str, Any]:
@@ -146,6 +192,10 @@ def _read_auto_push_status() -> Dict[str, Any]:
         "lastMessage": "Schedule Flight 기준 자동 변경 확인 대기 중",
         "lastResult": None,
     }
+
+    remote = _read_state_document(_DOC_AUTO_STATUS)
+    if isinstance(remote, dict) and remote:
+        return {**default_status, **remote}
 
     try:
         if not AUTO_PUSH_STATUS_FILE.exists():
@@ -166,6 +216,7 @@ def _write_auto_push_status(status: Dict[str, Any]) -> Dict[str, Any]:
         json.dumps(status, ensure_ascii=False),
         encoding="utf-8",
     )
+    _write_state_document(_DOC_AUTO_STATUS, status)
     return status
 
 
