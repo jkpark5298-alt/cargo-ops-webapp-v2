@@ -11,6 +11,7 @@ import {
   assigneeLabel,
   datesBetween,
   departureOf,
+  isHighlightedAssignee,
   deleteMonthlyFlight,
   displayTime,
   fetchMonthlySchedule,
@@ -259,18 +260,20 @@ export default function MonthlyScheduledFlightPage() {
                   const time = displayTime(f, viewType);
                   const changed = viewType === 1 && f.apiTime && f.apiTime !== f.skdTime;
                   const slot = slots[f.recordKey];
+                  const hi = isHighlightedAssignee(slot, names); // 박종규 담당: 행 전체 굵게 + 굵은 노란 테두리
+                  const cell = (i: number) => cellStyle(hi, i, editMode ? 9 : 8);
                   return (
-                    <tr key={f.recordKey} style={{ background: isIcnDeparture(f) ? "#fff59d" : "#ffffff" }}>
-                      <td style={tdStyle}>{f.flight}</td>
-                      <td style={tdStyle}>{f.registrationNo || "-"}</td>
-                      <td style={tdStyle}>{departureOf(f)}</td>
-                      <td style={tdStyle}>{arrivalOf(f)}</td>
-                      <td style={tdStyle}>
+                    <tr key={f.recordKey} data-highlight={hi ? "1" : undefined} style={{ background: isIcnDeparture(f) ? "#fff59d" : "#ffffff", fontWeight: hi ? 900 : undefined }}>
+                      <td style={cell(0)}>{f.flight}</td>
+                      <td style={cell(1)}>{f.registrationNo || "-"}</td>
+                      <td style={cell(2)}>{departureOf(f)}</td>
+                      <td style={cell(3)}>{arrivalOf(f)}</td>
+                      <td style={cell(4)}>
                         {shortDateTime(time)}
                         {changed ? <div style={subTextStyle}>SKD {f.skdTime.slice(11, 16)}</div> : null}
                         {viewType === 1 && f.apiRemark ? <div style={remarkStyle}>{f.apiRemark}</div> : null}
                       </td>
-                      <td style={tdStyle}>
+                      <td style={cell(5)}>
                         <select
                           value={f.assigneeSlot || ""}
                           onChange={(e) => void changeSlot(f.recordKey, e.target.value)}
@@ -283,10 +286,10 @@ export default function MonthlyScheduledFlightPage() {
                           ))}
                         </select>
                       </td>
-                      <td style={tdStyle} />
-                      <td style={tdStyle}>{viewType === 1 ? f.apiGate : ""}</td>
+                      <td style={cell(6)} />
+                      <td style={cell(7)}>{viewType === 1 ? f.apiGate : ""}</td>
                       {editMode ? (
-                        <td style={tdStyle}>
+                        <td style={cell(8)}>
                           <button type="button" onClick={() => void removeFlight(f.recordKey, f.flight)} style={deleteButtonStyle}>삭제</button>
                         </td>
                       ) : null}
@@ -345,5 +348,18 @@ const thStyle: CSSProperties = {
 const tdStyle: CSSProperties = { border: "1px solid #9ca3af", padding: "6px 6px", color: "#000000", textAlign: "center", verticalAlign: "middle", whiteSpace: "nowrap" };
 const subTextStyle: CSSProperties = { fontSize: 11, color: "#475569" };
 const remarkStyle: CSSProperties = { fontSize: 11, color: "#b45309", fontWeight: 700 };
-const slotSelectStyle: CSSProperties = { border: "none", background: "transparent", color: "#000000", fontSize: 13, fontWeight: 800, textAlign: "center" };
+/** 행 전체를 굵은 노란 테두리로 두른다(첫 칸 왼쪽, 마지막 칸 오른쪽, 모든 칸 위·아래). 강조가 아니면 기본 셀 서식 */
+const HIGHLIGHT_BORDER = "4px solid #facc15";
+function cellStyle(highlight: boolean, index: number, total: number): CSSProperties {
+  if (!highlight) return tdStyle;
+  return {
+    ...tdStyle,
+    fontWeight: 900,
+    borderTop: HIGHLIGHT_BORDER,
+    borderBottom: HIGHLIGHT_BORDER,
+    ...(index === 0 ? { borderLeft: HIGHLIGHT_BORDER } : {}),
+    ...(index === total - 1 ? { borderRight: HIGHLIGHT_BORDER } : {}),
+  };
+}
+const slotSelectStyle: CSSProperties = { border: "none", background: "transparent", color: "#000000", fontSize: 13, fontWeight: "inherit" as CSSProperties["fontWeight"], textAlign: "center" };
 const deleteButtonStyle: CSSProperties = { padding: "4px 8px", background: "#fee2e2", color: "#b91c1c", border: "1px solid #fca5a5", borderRadius: 6, fontSize: 12, cursor: "pointer" };

@@ -146,6 +146,18 @@ export function departureOf(f: Pick<MonthlyFlight, "departureCode" | "arrivalCod
   return dep || (arr && arr !== "ICN" ? "ICN" : "");
 }
 
+/** 이 담당자가 맡은 편은 행 전체를 굵은 글씨 + 굵은 노란 테두리로 강조한다 */
+export const HIGHLIGHT_ASSIGNEE = "박종규";
+
+/** 배정된 칸(slot)의 담당 이름이 강조 대상인지 */
+export function isHighlightedAssignee(
+  slot: SlotCode,
+  names?: Pick<MonthlyAssignee, "nameA" | "nameB" | "nameC"> | null,
+): boolean {
+  const name = String((slot === "A" ? names?.nameA : slot === "B" ? names?.nameB : names?.nameC) || "").trim();
+  return name === HIGHLIGHT_ASSIGNEE;
+}
+
 /** 담당 표시: 이름이 있으면 'A(홍길동)', 없으면 'A' */
 export function assigneeLabel(slot: SlotCode, names?: Pick<MonthlyAssignee, "nameA" | "nameB" | "nameC"> | null): string {
   const name = String((slot === "A" ? names?.nameA : slot === "B" ? names?.nameB : names?.nameC) || "").trim();

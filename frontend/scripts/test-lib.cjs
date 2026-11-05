@@ -490,6 +490,15 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
     ]);
     assert.deepStrictEqual(res.records.map((r) => [r.flight, r.departureCode, r.arrivalCode]), [["KJ587", "ICN", "BRU"], ["KJ932", "CAN", "ICN"]]);
   });
+  test("담당이 박종규이면 강조 대상(배정된 칸의 이름 기준)", () => {
+    const names = { nameA: "홍길동", nameB: "박종규", nameC: "" };
+    assert.strictEqual(monthly.HIGHLIGHT_ASSIGNEE, "박종규");
+    assert.strictEqual(monthly.isHighlightedAssignee("B", names), true);
+    assert.strictEqual(monthly.isHighlightedAssignee("A", names), false);
+    assert.strictEqual(monthly.isHighlightedAssignee("C", names), false, "이름이 없으면 강조 안 함");
+    assert.strictEqual(monthly.isHighlightedAssignee("A", { nameA: " 박종규 ", nameB: "", nameC: "" }), true, "앞뒤 공백 무시");
+    assert.strictEqual(monthly.isHighlightedAssignee("A", { nameA: "박종규철", nameB: "", nameC: "" }), false, "이름이 정확히 같을 때만");
+  });
   test("출도착 공항: 한쪽만 있으면 다른 쪽은 ICN, 인천 출발 판정", () => {
     assert.strictEqual(monthly.arrivalOf({ departureCode: "CAN", arrivalCode: "" }), "ICN");
     assert.strictEqual(monthly.arrivalOf({ departureCode: "ICN", arrivalCode: "" }), "");
