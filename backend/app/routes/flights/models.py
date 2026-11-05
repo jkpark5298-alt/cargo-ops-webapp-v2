@@ -1,0 +1,80 @@
+"""항공편 API 요청 본문 모델"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field
+
+from app.services.flight_common import AUTO_PUSH_DEFAULT_INTERVAL_MINUTES
+class PushSubscriptionRequest(BaseModel):
+    subscription: Dict[str, Any]
+    userAgent: Optional[str] = None
+    deviceName: Optional[str] = None
+
+
+class TestPushRequest(BaseModel):
+    title: str = "KJ Cargo Ops 테스트 알림"
+    body: str = "PWA 푸시 알림 수신 준비가 완료되었습니다."
+    url: str = "/"
+
+
+class AutoPushConfigRequest(BaseModel):
+    enabled: bool
+    intervalMinutes: int = AUTO_PUSH_DEFAULT_INTERVAL_MINUTES
+
+
+class LatestScheduleRequest(BaseModel):
+    room: Dict[str, Any]
+
+
+class ScheduleSlotSaveRequest(BaseModel):
+    room: Dict[str, Any]
+    rotate: bool = True
+    slot: Optional[str] = None
+
+
+class ScheduleSlotUpdateRequest(BaseModel):
+    room: Dict[str, Any]
+
+
+class AircraftRegistrationRecord(BaseModel):
+    date: str
+    flight: str
+    departureCode: str = ""
+    arrivalCode: str = ""
+    registrationNo: str
+    updatedAt: Optional[str] = None
+
+
+class AircraftRegistrationSaveRequest(BaseModel):
+    records: List[AircraftRegistrationRecord] = Field(default_factory=list)
+    mode: str = "merge"
+
+
+class NotificationHistoryDeleteItemRequest(BaseModel):
+    key: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    checkedAt: Optional[str] = None
+    roomName: Optional[str] = None
+
+
+class FlightQueryRequest(BaseModel):
+    flights: List[str] = Field(default_factory=list)
+    start: str
+    end: str
+
+
+class FlightRangeRequest(BaseModel):
+    start: str
+    end: str
+
+
+class DailyReportTextSaveRequest(BaseModel):
+    workDate: str
+    status: str = "normal"
+    author: str = ""
+    note: str = ""
+    images: Optional[List[Dict[str, Any]]] = None
+    savedAt: Optional[str] = None
