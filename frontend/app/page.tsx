@@ -812,10 +812,11 @@ export default function HomePage() {
     syncPwaPermissionAndSubscription,
   } = usePwaPush({ fetchIncheonApiUsage, handleLoadServerFlightAlertHistory, syncFlightAlertHistoryFromCheck, syncLatestScheduleFromServer });
 
-  async function fetchWeather() {
+  async function fetchWeather(force = false) {
     setWeatherLoading(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/weather/current`, {
+      // 갱신 버튼은 서버 캐시를 건너뛰고(refresh=true) 새로 조회합니다.
+      const res = await fetch(`${BACKEND_URL}/weather/current${force ? "?refresh=true" : ""}`, {
         cache: "no-store",
       });
       const json = await res.json();
@@ -831,10 +832,9 @@ export default function HomePage() {
       });
     } catch (error) {
       setWeather({
-        ...DEFAULT_WEATHER,
         success: false,
-        source: "fallback",
-        message: "날씨 API 연결 전이거나 응답이 지연되어 예시값을 표시합니다.",
+        source: "unavailable",
+        message: "날씨 정보를 불러오지 못했습니다. 서버 응답이 없거나 지연되고 있습니다. 잠시 후 갱신해 주세요.",
       });
     } finally {
       setWeatherLoading(false);
@@ -1016,7 +1016,7 @@ export default function HomePage() {
         <WeatherCard
           weather={weather}
           weatherLoading={weatherLoading}
-          onRefresh={fetchWeather}
+          onRefresh={() => void fetchWeather(true)}
           onOpenNaver={openNaverWeather}
         />
 

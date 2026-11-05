@@ -81,6 +81,13 @@ export type WeatherInfo = {
   icon?: string;
   source?: string;
   message?: string;
+  windDirectionText?: string;
+  windGust?: string;
+  visibility?: string;
+  /** 불러오지 못한 항목: "hourly"(시간별 예보), "air"(미세먼지) */
+  missing?: string[];
+  /** 관측 시각이 3시간 이상 지났으면 true */
+  stale?: boolean;
 };
 
 export type SavedImage = {

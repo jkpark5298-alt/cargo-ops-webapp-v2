@@ -10,6 +10,34 @@ import httpx
 
 KST = timezone(timedelta(hours=9))
 
+# 외부 날씨 API는 Render(해외 리전)에서 느릴 수 있어 넉넉한 제한 시간과 재시도를 사용한다.
+HTTP_TIMEOUT_SECONDS = float(os.getenv("WEATHER_HTTP_TIMEOUT_SECONDS", "8"))
+HTTP_RETRIES = int(os.getenv("WEATHER_HTTP_RETRIES", "1"))
+METAR_STALE_MINUTES = 180
+
+
+async def _get(client: httpx.AsyncClient, url: str, params: dict[str, Any] | None = None) -> httpx.Response:
+    """GET + 상태 코드 검사, 실패하면 HTTP_RETRIES 만큼 다시 시도."""
+    last: Exception | None = None
+    for attempt in range(HTTP_RETRIES + 1):
+        try:
+            res = await client.get(url, params=params, timeout=HTTP_TIMEOUT_SECONDS)
+            res.raise_for_status()
+            return res
+        except Exception as exc:  # noqa: BLE001 - 어떤 실패든 재시도 후 호출한 쪽에서 기록
+            last = exc
+            if attempt < HTTP_RETRIES:
+                await asyncio.sleep(0.4)
+    assert last is not None
+    raise last
+
+
+def describe_error(source: str, exc: BaseException) -> str:
+    """오류 내용이 비어 있는 예외(시간 초과 등)도 종류가 보이도록 문자열로 만든다."""
+    detail = str(exc).strip()
+    return f"{source}: {type(exc).__name__}" + (f": {detail}" if detail else "")
+
+
 # Incheon Jung-gu Unseo-dong approximate coordinates.
 UNSEO_DONG_LAT = 37.4923
 UNSEO_DONG_LON = 126.4930
@@ -18,29 +46,6 @@ AIRKOREA_STATIONS = [
     "영종",
     "송해",
 ]
-
-MOCK_WEATHER = {
-    "success": False,
-    "source": "fallback",
-    "location": "인천시 중구 운서동",
-    "temperature": "19.6",
-    "condition": "맑음",
-    "feelsLike": "18.0",
-    "humidity": "32",
-    "windSpeed": "3.3",
-    "pm10Grade": "좋음",
-    "pm25Grade": "좋음",
-    "hourly": [
-        {"time": "18시", "condition": "맑음", "temperature": "19", "icon": "☀️"},
-        {"time": "21시", "condition": "구름많음", "temperature": "17", "icon": "⛅"},
-        {"time": "00시", "condition": "흐림", "temperature": "15", "icon": "☁️"},
-        {"time": "03시", "condition": "맑음", "temperature": "14", "icon": "☀️"},
-    ],
-    "baseTime": "14:00",
-    "icon": "☀️",
-    "message": "날씨 API 키가 없거나 응답이 없어 예시값을 표시합니다.",
-}
-
 
 def _clean_key(value: str | None) -> str:
     if not value:
@@ -206,14 +211,12 @@ async def _fetch_kma_weather(client: httpx.AsyncClient) -> dict[str, Any]:
     fcst_url = "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtFcst"
 
     async def fetch_ncst():
-        res = await client.get(ncst_url, params=common_params, timeout=3.5)
-        res.raise_for_status()
+        res = await _get(client, ncst_url, common_params)
         js = res.json()
         return js.get("response", {}).get("body", {}).get("items", {}).get("item", [])
 
     async def fetch_fcst():
-        res = await client.get(fcst_url, params=common_params, timeout=3.5)
-        res.raise_for_status()
+        res = await _get(client, fcst_url, common_params)
         js = res.json()
         return js.get("response", {}).get("body", {}).get("items", {}).get("item", [])
 
@@ -235,12 +238,9 @@ async def _fetch_kma_weather(client: httpx.AsyncClient) -> dict[str, Any]:
     sky = forecast.get("SKY")
     condition, icon = _weather_condition(str(pty) if pty is not None else None, str(sky) if sky is not None else None)
 
-    feels_like = temperature
-
     return {
         "temperature": str(temperature),
         "condition": condition,
-        "feelsLike": str(feels_like),
         "humidity": str(humidity),
         "windSpeed": str(wind_speed),
         "baseTime": _format_base_time(base_date, base_time),
@@ -266,8 +266,7 @@ async def _fetch_airkorea(client: httpx.AsyncClient) -> dict[str, Any]:
             "dataTerm": "DAILY",
             "ver": "1.3",
         }
-        res = await client.get(url, params=params, timeout=3.5)
-        res.raise_for_status()
+        res = await _get(client, url, params)
         data = res.json()
         items = data.get("response", {}).get("body", {}).get("items", [])
         if not items:
@@ -454,74 +453,181 @@ def parse_metar_visibility(metar_text: str) -> str:
     return "-"
 
 
-async def _fetch_rksi_metar(client: httpx.AsyncClient) -> dict[str, Any]:
-    url = "https://tgftp.nws.noaa.gov/data/observations/metar/stations/RKSI.TXT"
-    res = await client.get(url, timeout=3.5)
-    res.raise_for_status()
-    text = res.text
+def _metar_observed_kst(metar_text: str, now_utc: datetime | None = None) -> datetime | None:
+    """METAR의 관측 시각(일·시·분, UTC)을 KST 시각으로 바꾼다. (예: 050730Z → 11/05 16:30 KST)"""
+    match = re.search(r"\b(\d{2})(\d{2})(\d{2})Z\b", metar_text)
+    if not match:
+        return None
+
+    day, hour, minute = (int(value) for value in match.groups())
+    now_utc = now_utc or datetime.now(timezone.utc)
+    year, month = now_utc.year, now_utc.month
+    # 월말에 지난달 기록을 읽는 경우(관측 일이 오늘보다 크면 지난달로 본다)
+    if day > now_utc.day + 1:
+        month -= 1
+        if month == 0:
+            month, year = 12, year - 1
+
+    try:
+        observed = datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return observed.astimezone(KST)
+
+
+def calculate_feels_like(temp_c: Any, humidity_pct: Any, wind_ms: Any) -> str | None:
+    """체감온도. 기온 10℃ 이하·풍속 1.3m/s 이상이면 기상청 체감온도(윈드칠), 그 외는 겉보기 온도(수증기압·풍속 반영).
+
+    값을 계산할 수 없으면 None (화면에는 '-'로 표시)."""
+    try:
+        temp = float(temp_c)
+    except (TypeError, ValueError):
+        return None
+
+    try:
+        wind = float(wind_ms)
+    except (TypeError, ValueError):
+        wind = None
+    try:
+        humidity = float(humidity_pct)
+    except (TypeError, ValueError):
+        humidity = None
+
+    if wind is not None and temp <= 10 and wind >= 1.3:
+        v = wind * 3.6
+        value = 13.12 + 0.6215 * temp - 11.37 * (v**0.16) + 0.3965 * temp * (v**0.16)
+        return str(round(value, 1))
+
+    if humidity is not None and wind is not None:
+        vapor = humidity / 100.0 * 6.105 * math.exp(17.27 * temp / (237.7 + temp))
+        value = temp + 0.33 * vapor - 0.70 * wind - 4.00
+        return str(round(value, 1))
+
+    return None
+
+
+METAR_SOURCES = (
+    ("NOAA", "https://tgftp.nws.noaa.gov/data/observations/metar/stations/RKSI.TXT"),
+    ("aviationweather.gov", "https://aviationweather.gov/api/data/metar?ids=RKSI&format=raw"),
+)
+
+
+def _extract_metar_line(text: str) -> str:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if len(lines) < 2:
-        raise ValueError("Invalid METAR format")
-        
-    obs_time_raw = lines[0]
-    metar_line = lines[1]
-    
+    for line in lines:
+        if re.search(r"\b\d{6}Z\b", line):
+            return line
+    raise ValueError("Invalid METAR format")
+
+
+async def _fetch_rksi_metar(client: httpx.AsyncClient) -> dict[str, Any]:
+    """인천공항(RKSI) METAR. 첫 번째 출처가 실패하면 다음 출처로 대체한다."""
+    failures: list[str] = []
+    metar_line = ""
+    used_source = ""
+    for name, url in METAR_SOURCES:
+        try:
+            res = await _get(client, url)
+            metar_line = _extract_metar_line(res.text)
+            used_source = name
+            break
+        except Exception as exc:  # noqa: BLE001
+            failures.append(describe_error(name, exc))
+
+    if not metar_line:
+        raise RuntimeError("; ".join(failures))
+
     wind = parse_metar_wind(metar_line)
     temp_hum = parse_metar_temp_humidity(metar_line)
     visibility = parse_metar_visibility(metar_line)
     condition, icon = parse_metar_weather(metar_line)
-    
-    result = {
-        "success": True,
-        "source": "metar",
+    observed = _metar_observed_kst(metar_line)
+
+    result: dict[str, Any] = {
         "location": "인천공항 활주로 (RKSI)",
         "condition": condition,
         "icon": icon,
         "visibility": visibility,
-        "baseTime": obs_time_raw.split(" ")[1] if " " in obs_time_raw else obs_time_raw,
         "metarText": metar_line,
+        "metarSource": used_source,
     }
+    if observed is not None:
+        result["baseTime"] = observed.strftime("%H:%M")
+        result["observedAt"] = observed.isoformat()
+        age = (datetime.now(KST) - observed).total_seconds() / 60
+        result["ageMinutes"] = max(0, int(age))
+        result["stale"] = age > METAR_STALE_MINUTES
     result.update(wind)
     result.update(temp_hum)
     return result
 
 
 async def get_current_weather() -> dict[str, Any]:
-    result = dict(MOCK_WEATHER)
+    """현재 날씨. 가져오지 못한 항목은 비워 두고(예시값을 채우지 않음) errors에 이유를 남긴다."""
+    result: dict[str, Any] = {
+        "success": False,
+        "source": "unavailable",
+        "location": "인천시 중구 운서동",
+        "fetchedAt": datetime.now(KST).isoformat(timespec="seconds"),
+    }
     errors: list[str] = []
+    missing: list[str] = []
 
     async with httpx.AsyncClient() as client:
-        metar_task = _fetch_rksi_metar(client)
-        kma_task = _fetch_kma_weather(client)
-        air_task = _fetch_airkorea(client)
+        metar_res, kma_res, air_res = await asyncio.gather(
+            _fetch_rksi_metar(client),
+            _fetch_kma_weather(client),
+            _fetch_airkorea(client),
+            return_exceptions=True,
+        )
 
-        metar_res, kma_res, air_res = await asyncio.gather(metar_task, kma_task, air_task, return_exceptions=True)
+    if isinstance(metar_res, dict):
+        result.update(metar_res)
+        result["success"] = True
+        result["source"] = "metar"
+    else:
+        errors.append(describe_error("metar", metar_res))
 
-        if isinstance(metar_res, dict):
-            result.update(metar_res)
+    if isinstance(kma_res, dict):
+        if result["source"] != "metar":
+            for key in ("temperature", "humidity", "windSpeed", "condition", "icon", "baseTime"):
+                if kma_res.get(key) not in (None, "", "-"):
+                    result[key] = kma_res[key]
             result["success"] = True
-            result["source"] = "metar"
-            result["message"] = "인천공항 실시간 활주로 기상(METAR)을 표시 중입니다."
+            result["source"] = "live"
+        if kma_res.get("hourly"):
+            result["hourly"] = kma_res["hourly"]
         else:
-            errors.append(f"metar: {metar_res}")
+            missing.append("hourly")
+    else:
+        errors.append(describe_error("kma", kma_res))
+        missing.append("hourly")
 
-        if isinstance(kma_res, dict):
-            if result.get("source") != "metar":
-                result.update(kma_res)
-                result["success"] = True
-                result["source"] = "live"
-                result["message"] = "실시간 날씨(기상청)를 표시 중입니다."
-            if "hourly" in kma_res:
-                result["hourly"] = kma_res["hourly"]
-        else:
-            errors.append(f"weather: {kma_res}")
+    if isinstance(air_res, dict):
+        result.update(air_res)
+    else:
+        errors.append(describe_error("airkorea", air_res))
+        missing.append("air")
 
-        if isinstance(air_res, dict):
-            result.update(air_res)
-            if result.get("success") is False:
-                result["success"] = True
-                result["source"] = "partial"
+    feels_like = calculate_feels_like(result.get("temperature"), result.get("humidity"), result.get("windSpeed"))
+    if feels_like is not None:
+        result["feelsLike"] = feels_like
 
+    if result["success"]:
+        parts = []
+        if "hourly" in missing:
+            parts.append("시간별 예보")
+        if "air" in missing:
+            parts.append("미세먼지")
+        base = "인천공항 METAR" if result["source"] == "metar" else "기상청 초단기실황"
+        result["message"] = f"{base} 기준" + (f" · {', '.join(parts)}는 불러오지 못했습니다." if parts else "")
+        if result.get("stale"):
+            result["message"] += " · 관측 시각이 3시간 이상 지났습니다."
+    else:
+        result["message"] = "날씨 정보를 불러오지 못했습니다. 잠시 후 갱신해 주세요."
+
+    if missing:
+        result["missing"] = missing
     if errors:
         result["errors"] = errors
     return result

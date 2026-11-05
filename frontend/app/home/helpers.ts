@@ -192,6 +192,8 @@ export function getCurrentTimeText() {
 }
 
 export function getWeatherSummary(weather: WeatherInfo) {
+  // 불러오지 못한 상태에서는 기록(Notion 등)에 가짜 날씨가 들어가지 않게 합니다.
+  if (weather.success === false || !weather.temperature) return "날씨 정보 없음";
   return `${weather.condition || "-"} ${weather.temperature || "-"}℃ / 습도 ${weather.humidity || "-"}% / 미세먼지 ${weather.pm10Grade || "-"}`;
 }
 

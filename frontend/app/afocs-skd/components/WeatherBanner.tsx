@@ -1,7 +1,7 @@
 "use client";
 
 export type WeatherBannerProps = {
-  fetchWeather: () => Promise<void>;
+  fetchWeather: (force?: boolean) => Promise<void>;
   weather: any;
   weatherLoading: boolean;
 };
@@ -14,7 +14,42 @@ export function WeatherBanner({
 }: WeatherBannerProps) {
   return (
     <>
-      {weather && (
+      {weather && weather.success === false && (
+        <div
+          role="status"
+          style={{
+            background: "linear-gradient(135deg, #1e293b 0%, #0f172a 100%)",
+            border: "1px solid rgba(147, 197, 253, 0.25)",
+            borderRadius: 18,
+            padding: 16,
+            color: "#94a3b8",
+            fontSize: 13,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          <span>✈️ {weather.message || "날씨 정보를 불러오지 못했습니다."}</span>
+          <button
+            onClick={() => void fetchWeather(true)}
+            disabled={weatherLoading}
+            style={{
+              background: "rgba(59, 130, 246, 0.2)",
+              border: "1px solid rgba(59, 130, 246, 0.4)",
+              color: "#60a5fa",
+              borderRadius: 8,
+              padding: "4px 8px",
+              fontSize: 12,
+              fontWeight: "bold",
+              cursor: "pointer",
+            }}
+          >
+            {weatherLoading ? "조회중" : "🔄 갱신"}
+          </button>
+        </div>
+      )}
+      {weather && weather.success !== false && (
           <div
             style={{
               background: "linear-gradient(135deg, #1e293b 0%, #0f172a 100%)",
@@ -38,7 +73,7 @@ export function WeatherBanner({
                 ✈️ 활주로 실시간 기상 (METAR)
               </span>
               <button
-                onClick={fetchWeather}
+                onClick={() => void fetchWeather(true)}
                 disabled={weatherLoading}
                 style={{
                   background: "rgba(59, 130, 246, 0.2)",
@@ -122,6 +157,7 @@ export function WeatherBanner({
               }}
             >
               인천공항(RKSI) {weather.baseTime || "-"} 기준 · {weather.source === "metar" ? "실시간 METAR" : "KMA 초단기실황"}
+              {weather.stale ? " · ⚠️ 관측 시각이 3시간 이상 지났습니다" : ""}
             </div>
           </div>
         )}

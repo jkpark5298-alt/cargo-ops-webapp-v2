@@ -10,6 +10,9 @@ type HourlyWeather = {
 };
 
 type WeatherInfo = {
+  success?: boolean;
+  missing?: string[];
+  stale?: boolean;
   location?: string;
   temperature?: string;
   feelsLike?: string;
@@ -48,6 +51,32 @@ export function WeatherCard({
       weather.condition!.includes("눈") ||
       weather.condition!.includes("소나기") ||
       weather.condition!.includes("이슬비"));
+
+  // 불러오지 못했거나 아직 불러오는 중이면 숫자를 보여주지 않고 안내만 표시합니다. (예시값을 실제처럼 보이지 않게)
+  if (weather.success === false) {
+    const isLoading = weather.source === "loading" || weatherLoading;
+    return (
+      <section style={weatherCardStyle}>
+        <div style={metarHeaderRowStyle}>
+          <span style={metarTitleStyle}>✈️ 활주로 실시간 기상 (METAR)</span>
+          <button onClick={onRefresh} disabled={weatherLoading} style={metarRefreshButtonStyle}>
+            {weatherLoading ? "조회중" : "🔄 갱신"}
+          </button>
+        </div>
+        <div style={hourlyEmptyStyle} role="status">
+          {isLoading ? "날씨 정보를 불러오는 중입니다…" : weather.message || "날씨 정보를 불러오지 못했습니다."}
+        </div>
+        <div style={weatherUtilityRowStyle}>
+          <button onClick={onOpenNaver} style={weatherSubButtonStyle}>
+            네이버 날씨
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  const hourlyMissing = Boolean(weather.missing?.includes("hourly"));
+  const airMissing = Boolean(weather.missing?.includes("air"));
 
   return (
     <section style={weatherCardStyle}>
@@ -96,6 +125,7 @@ export function WeatherCard({
       <div style={metarFootnoteStyle}>
         인천공항(RKSI) {weather.baseTime || "-"} 기준 ·{" "}
         {weather.source === "metar" ? "실시간 METAR" : "KMA 초단기실황"}
+        {weather.stale ? " · ⚠️ 관측 시각이 3시간 이상 지났습니다" : ""}
       </div>
 
       <div style={weatherUtilityRowStyle}>
@@ -105,8 +135,8 @@ export function WeatherCard({
       </div>
 
       <div style={weatherGridStyle}>
-        <WeatherMetric label="미세먼지" value={weather.pm10Grade || "-"} tone={getAirTone(weather.pm10Grade)} />
-        <WeatherMetric label="초미세먼지" value={weather.pm25Grade || "-"} tone={getAirTone(weather.pm25Grade)} />
+        <WeatherMetric label="미세먼지" value={weather.pm10Grade || (airMissing ? "조회 실패" : "-")} tone={getAirTone(weather.pm10Grade)} />
+        <WeatherMetric label="초미세먼지" value={weather.pm25Grade || (airMissing ? "조회 실패" : "-")} tone={getAirTone(weather.pm25Grade)} />
       </div>
 
       <div style={hourlyBlockStyle}>
@@ -124,14 +154,15 @@ export function WeatherCard({
               </div>
             ))
           ) : (
-            <div style={hourlyEmptyStyle}>시간별 예보를 불러오면 여기에 표시됩니다.</div>
+            <div style={hourlyEmptyStyle}>
+              {hourlyMissing ? "시간별 예보를 불러오지 못했습니다." : "시간별 예보 정보가 없습니다."}
+            </div>
           )}
         </div>
       </div>
 
       <div style={weatherNoteStyle}>
-        {weather.location || "인천시 중구 운서동"} · 체감 {weather.feelsLike || "-"}°
-        {weather.source === "fallback" ? ` · ${weather.message || "예시값 표시 중"}` : ""}
+        {weather.location || "인천시 중구 운서동"} · 체감 {weather.feelsLike ? `${weather.feelsLike}°` : "-"}
       </div>
     </section>
   );

@@ -58,6 +58,7 @@ INCHEON_API_SERVICE_KEY=키 uvicorn app.main:app --reload
 | `NOTION_TOKEN`, `NOTION_DAILY_DATABASE_ID`, `NOTION_ISSUE_DATABASE_ID` | — | Notion 기록 |
 | `NOTION_VERSION`, `NOTION_MAX_IMAGE_BYTES` | `2026-03-11`, 20MB | Notion API 버전, 이미지 최대 크기 |
 | `WEATHER_API_KEY`, `WEATHER_NX`, `WEATHER_NY`, `AIRKOREA_API_KEY`, `AIRKOREA_STATION_NAME`, `WEATHER_CACHE_TTL_SECONDS` | | 날씨 |
+| `WEATHER_HTTP_TIMEOUT_SECONDS`, `WEATHER_HTTP_RETRIES`, `WEATHER_FAILURE_CACHE_TTL_SECONDS` | `8`, `1`, `30` | 날씨 외부 API 제한 시간·재시도, 실패 응답 캐시 시간 |
 | `FLIGHT_SEARCH_CACHE_TTL_SECONDS`, `FLIGHT_SEARCH_CACHE_MAX_ITEMS` | `180`, `60` | 조회 결과 메모리 캐시 |
 | `INCHEON_API_DEPARTURE_DAILY_LIMIT`, `INCHEON_API_ARRIVAL_DAILY_LIMIT`, `INCHEON_API_WARNING_RATE` | `100000`, `100000`, `90` | 인천 API 호출량 경고 기준 |
 | `LATEST_SCHEDULE_FILE`, `SCHEDULE_SLOTS_FILE`, `PUSH_SUBSCRIPTIONS_FILE`, `AUTO_PUSH_STATUS_FILE`, `NOTIFICATION_HISTORY_FILE`, `INCHEON_API_USAGE_FILE`, `AIRCRAFT_REGISTRATION_FILE` | `/tmp/cargo_ops_*.json` | 임시 파일 저장 위치(테스트 시 바꿔서 사용) |
@@ -81,7 +82,8 @@ INCHEON_API_SERVICE_KEY=키 uvicorn app.main:app --reload
 | `GET /flights/health` | 서버 깨우기용. 호출될 때 자동 푸시 시각이 되었으면 함께 실행([CRON_HEALTH_SETUP.md](../CRON_HEALTH_SETUP.md)). `?tick=false`면 실행하지 않고 상태만 반환 |
 | `GET /health/health` | 단순 상태 확인 |
 | `GET /notion/links`, `GET·POST /notion/daily-records`, `PATCH·DELETE …/{page_id}`, `POST /notion/issue-records`, `PATCH·DELETE …/{page_id}` | Notion 기록. `GET /notion/daily-records?date=YYYY-MM-DD`는 그 날짜 기록이 Notion에 있는지 조회 |
-| `GET /weather/current`, `GET /widget/fixed/{room_id}` | 날씨 / 위젯 요약 |
+| `GET /weather/current` | 인천공항 METAR(NOAA → 실패 시 aviationweather.gov)·기상청·에어코리아. 가져오지 못한 항목은 비워 두고 `errors`/`missing`에 이유를 남김(예시값 없음). `?refresh=true`면 캐시를 건너뜀. 성공 10분·실패 30초 캐시 |
+| `GET /widget/fixed/{room_id}` | 위젯 요약 |
 
 ## 등록기호 우선순위
 
@@ -95,6 +97,7 @@ INCHEON_API_SERVICE_KEY=키 uvicorn app.main:app --reload
 ## 테스트
 
 ```bash
-python scripts/api_smoke_test.py result.json
+python scripts/api_smoke_test.py result.json   # /flights API 스모크 테스트
+python scripts/weather_test.py                  # 날씨 서비스(실패·부분 성공·성공·캐시) 테스트
 ```
 임시 파일 저장소와 가짜 인천 API로 `/flights` 주요 API를 호출해 응답을 JSON으로 저장합니다. 코드를 옮기거나 나눈 뒤 변경 전/후 결과를 `diff` 해서 동작 차이를 확인합니다.

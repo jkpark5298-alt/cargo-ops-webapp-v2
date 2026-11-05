@@ -43,26 +43,11 @@ export const APP_VERSION = "v1.0.2";
 
 export const APP_VERSION_DATE = "2026.05.19";
 
+/** 불러오기 전 상태. 예시 숫자는 넣지 않습니다(가짜 값이 실제 날씨처럼 보이지 않도록). */
 export const DEFAULT_WEATHER: WeatherInfo = {
   success: false,
-  location: "인천시 중구 운서동",
-  temperature: "19.6",
-  condition: "맑음",
-  feelsLike: "18.0",
-  humidity: "32",
-  windSpeed: "3.3",
-  pm10Grade: "좋음",
-  pm25Grade: "좋음",
-  hourly: [
-    { time: "18시", condition: "맑음", temperature: "19", icon: "☀️" },
-    { time: "21시", condition: "구름많음", temperature: "17", icon: "⛅" },
-    { time: "00시", condition: "흐림", temperature: "15", icon: "☁️" },
-    { time: "03시", condition: "맑음", temperature: "14", icon: "☀️" },
-  ],
-  baseTime: "14:00",
-  icon: "☀️",
-  source: "fallback",
-  message: "실시간 날씨 정보를 불러오면 자동으로 갱신됩니다.",
+  source: "loading",
+  message: "날씨 정보를 불러오는 중입니다.",
 };
 
 export const DAILY_WORK_DATE_STORAGE_KEY = "cargo_ops_daily_work_date_v1";

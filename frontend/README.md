@@ -47,6 +47,7 @@ import { BACKEND_URL } from "../lib/api-config";
 
 ```bash
 node scripts/test-lib.cjs                                   # 공용 규칙 단위 테스트
+npm i --no-save jsdom && node scripts/weather-ui-test.cjs . out.json   # 날씨 카드(실패/부분/성공) 화면 테스트
 npm i --no-save jsdom && node scripts/render-smoke.cjs . out.json   # 세 화면 렌더링·클릭·API 호출 기록
 ```
 
