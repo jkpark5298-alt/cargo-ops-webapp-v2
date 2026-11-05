@@ -261,32 +261,6 @@ def _format_history_change_line(change: Any) -> str:
     return text
 
 
-def _compact_change_label(change: Any) -> str:
-    text = str(change or "").strip()
-    if not text:
-        return "운항 정보 변경"
-
-    field = text.split(":", 1)[0].strip()
-    normalized = field.replace(" ", "")
-
-    if "운항시각" in normalized or "스케줄" in normalized or "시간" in normalized:
-        return "운항시각 변경"
-    if "도착" in normalized and "예정" in normalized:
-        return "도착예정 변경"
-    if "출발" in normalized and "예정" in normalized:
-        return "출발예정 변경"
-    if "게이트" in normalized:
-        return "게이트 변경"
-    if "터미널" in normalized:
-        return "터미널 변경"
-    if "remark" in normalized.lower() or "상태" in normalized or "운항상태" in normalized:
-        return "상태 변경"
-    if "도착" in normalized:
-        return "도착 변경"
-    if "출발" in normalized:
-        return "출발 변경"
-
-    return field or "운항 정보 변경"
 
 
 def _build_compact_schedule_push(changed_items: List[Dict[str, Any]]) -> Dict[str, str]:
@@ -2080,12 +2054,6 @@ def _get_flight_key(row: Dict[str, Any]) -> str:
     return str(row.get("flightId") or row.get("flightNo") or "").strip().upper()
 
 
-def _get_status_text(row: Dict[str, Any]) -> str:
-    values = [
-        row.get("remark"),
-        row.get("status"),
-    ]
-    return " ".join(str(value or "").strip().upper() for value in values)
 
 
 def _get_refresh_exclude_reason(row: Dict[str, Any]) -> str:

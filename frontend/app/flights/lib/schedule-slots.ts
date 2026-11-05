@@ -241,10 +241,6 @@ export async function swapScheduleSlotsOnServer() {
   return normalizeScheduleSlotsResponse(json);
 }
 
-export function getSlotLabel(slot: ScheduleSlotKey) {
-  return slot === "active" ? "NOW FLT" : "After";
-}
-
 export async function clearAllScheduleSlotsOnServer() {
   const res = await fetch(`${BACKEND_URL}/flights/schedule-slots`, {
     method: "DELETE",

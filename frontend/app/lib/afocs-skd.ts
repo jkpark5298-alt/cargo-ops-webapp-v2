@@ -440,12 +440,6 @@ function parseCompactDatePart(value: string, row?: AfocsSkdFlightRow | null): Da
   return null;
 }
 
-export function formatCompactScheduleDateTime(value?: string | null): string {
-  const parsed = parseScheduleSourceDateTime(value);
-  if (!parsed) return "-";
-  return `${toCompactDateValue(parsed)} ${toCompactTimeValue(parsed)}`;
-}
-
 export function splitAfocsSkdParts(value: string, row?: AfocsSkdFlightRow | null): AfocsSkdParts {
   const parsed =
     (value.trim() ? parseAfocsDateTime(value) : null) ||

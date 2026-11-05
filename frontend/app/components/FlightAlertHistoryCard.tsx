@@ -313,24 +313,6 @@ export function renderAlertDescription(value?: string, checkedAt?: string) {
   );
 }
 
-function formatAlertDescription(value?: string, checkedAt?: string) {
-  return buildAlertDescriptionLines(value, checkedAt)
-    .map((line) => line.text)
-    .join("\n");
-}
-
-function getStatusTimeLabel(statusChange: string, route?: string) {
-  const normalizedRoute = (route || "").replace(/\s+/g, "").toUpperCase();
-  const after = statusChange.split("→").pop()?.trim() || "";
-
-  if (normalizedRoute.startsWith("ICN→")) return "출발 시간";
-  if (normalizedRoute.endsWith("→ICN")) return "도착 시간";
-  if (after.includes("출발")) return "출발 시간";
-  if (after.includes("도착") || after.includes("착륙")) return "도착 시간";
-
-  return "시간";
-}
-
 function buildAlertDescriptionLines(value?: string, checkedAt?: string): AlertDescriptionLine[] {
   const raw = sanitizeLegacyAlertText(value || "운항 정보 변경");
   const route = extractAlertRoute(raw);
@@ -523,12 +505,6 @@ function formatAlertClockOnly(value?: string) {
   return raw.replace(/^'\d{2}\/\d{2}\/\d{2}\s+/, "");
 }
 
-function extractAlertLine(value: string, label: string) {
-  const parts = splitAlertParts(value);
-  const found = parts.find((part) => part.trim().startsWith(`${label} `));
-  return found ? found.replace(/\s+/g, " ").trim() : "";
-}
-
 function splitAlertParts(value: string) {
   return value
     .split(/\n+| · /)
@@ -654,13 +630,6 @@ function compactServerStatus(value: string) {
     .replace("출도착 알림 이력에 자동 표시", "자동 표시")
     .replace("출도착 알림 이력에 자동 반영했습니다.", "자동 반영")
     ;
-}
-
-function compactRoomName(value?: string) {
-  return (value || "서버 알림")
-    .replace("서버에 저장된 알림 이력", "서버 알림")
-    .replace(/^Schedule_.*/, "서버 알림")
-    .slice(0, 18);
 }
 
 

@@ -188,11 +188,6 @@ const successButtonStyle: CSSProperties = {
   background: "#16a34a",
 };
 
-const dangerButtonStyle: CSSProperties = {
-  ...primaryButtonStyle,
-  background: "#dc2626",
-};
-
 const disabledButtonStyle: CSSProperties = {
   ...primaryButtonStyle,
   background: "#334155",

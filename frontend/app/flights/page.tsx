@@ -207,16 +207,6 @@ function patchScheduleRowsWithRegistrationFields(
   });
 }
 
-function formatMonitorRoomName(date: Date) {
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  const hh = String(date.getHours()).padStart(2, "0");
-  const mi = String(date.getMinutes()).padStart(2, "0");
-  const ss = String(date.getSeconds()).padStart(2, "0");
-  return `Monitor_${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
-}
-
 function loadRooms(): MonitorRoom[] {
   if (typeof window === "undefined") return [];
   try {
@@ -336,101 +326,10 @@ async function saveLatestScheduleToServer(room: MonitorRoom) {
   return normalizeScheduleRoomRows((json.room || roomToSave) as MonitorRoom);
 }
 
-async function clearLatestScheduleOnServer(room?: MonitorRoom) {
-  const now = new Date();
-  const emptyRoom: MonitorRoom = {
-    id: room?.id || `${now.getTime()}`,
-    name: room?.name || `Schedule_${now.toLocaleString("ko-KR")}`,
-    flightsInput: "",
-    startDateTime: room?.startDateTime || getDefaultStartDateTime(),
-    endDateTime: room?.endDateTime || getDefaultEndDateTime(),
-    fixed: true,
-    lastFetchedAt: now.toISOString(),
-    rows: [],
-  };
-
-  const res = await fetch(`${BACKEND_URL}/flights/latest-schedule`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ room: emptyRoom }),
-  });
-  const json = await res.json();
-
-  if (!res.ok || json.success === false) {
-    throw new Error(json.detail || json.message || "Schedule Flight 서버 비우기 실패");
-  }
-
-  return json;
-}
-
-function isScheduleFlightRoom(room?: MonitorRoom | null) {
-  if (!room) return false;
-
-  return Boolean(
-    room.fixed ||
-      room.name?.startsWith("Schedule_") ||
-      room.name?.includes("Schedule Flight")
-  );
-}
-
-async function shouldClearLatestScheduleForDeletedRoom(room?: MonitorRoom | null) {
-  if (!room) return false;
-  if (isScheduleFlightRoom(room)) return true;
-
-  try {
-    const latestRoom = await loadLatestScheduleFromServer();
-    return Boolean(latestRoom?.id && latestRoom.id === room.id);
-  } catch {
-    return false;
-  }
-}
-
 function clearFlightAlertBaselineAndHistory() {
   if (typeof window === "undefined") return;
   localStorage.removeItem(FLIGHT_ALERT_SNAPSHOT_KEY);
   localStorage.removeItem(FLIGHT_ALERT_HISTORY_KEY);
-}
-
-function parseFlightTime(row: FlightRow): Date | null {
-  const raw =
-    row.formattedEstimatedTime ||
-    row.formattedScheduleTime ||
-    row.estimatedDateTime ||
-    row.scheduleDateTime;
-
-  if (!raw) return null;
-
-  const normalized = raw
-    .trim()
-    .replace(/\./g, "-")
-    .replace(/\//g, "-")
-    .replace("T", " ");
-
-  const direct = new Date(normalized);
-  if (!Number.isNaN(direct.getTime())) return direct;
-
-  const compactMatch = normalized.match(
-    /^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/
-  );
-  if (compactMatch) {
-    const [, y, m, d, hh, mm, ss] = compactMatch;
-    return new Date(
-      Number(y),
-      Number(m) - 1,
-      Number(d),
-      Number(hh),
-      Number(mm),
-      Number(ss || "0")
-    );
-  }
-
-  return null;
-}
-
-function getRemarkStatus(row: FlightRow): string {
-  return `${row.status || ""} ${row.remark || ""}`.trim().toUpperCase();
 }
 
 function getComputedStatus(row: FlightRow) {
@@ -584,21 +483,6 @@ function getRefreshExcludeReason(row: FlightRow) {
 
 function isFinalCompletedRow(row: FlightRow) {
   return Boolean(getRefreshExcludeReason(row));
-}
-
-function getUniqueFlightInputs(rows: FlightRow[]) {
-  const seen = new Set<string>();
-  const flights: string[] = [];
-
-  rows.forEach((row) => {
-    const flight = getFlightDisplay(row).replace(/\s+/g, "").toUpperCase();
-    if (!flight || flight === "-") return;
-    if (seen.has(flight)) return;
-    seen.add(flight);
-    flights.push(flight);
-  });
-
-  return flights;
 }
 
 function getActiveRefreshFlights(room: MonitorRoom) {
@@ -1709,7 +1593,6 @@ function FixedResultsTable({
             const selectionKey = getSelectionKey(row, idx);
             const expanded = Boolean(expandedKeys[rowKey]);
             const selected = Boolean(selectedKeys[selectionKey]);
-            const finalCompleted = isFinalCompletedRow(row);
             const detailRows = buildFixedDetailRows(row);
             const flightKey = getFlightKeyFromRow(row);
 
@@ -1873,7 +1756,6 @@ export default function FlightsPage() {
   const alertCounts = useMemo(() => getAlertCounts(rows), [rows]);
 
   const hlNumberMap = useMemo(() => parseHlMappingText(hlMappingText), [hlMappingText]);
-  const hlMappingCount = useMemo(() => Object.keys(hlNumberMap).length, [hlNumberMap]);
 
   useEffect(() => {
     aircraftRegistrationRecordsRef.current = aircraftRegistrationRecords;
@@ -2304,11 +2186,6 @@ export default function FlightsPage() {
     saveAircraftRegistrationRecords(nextAircraftRegistrationRecords);
     setHlInlineDrafts({});
   };
-
-  const applyAllRegistrationSourcesToRoom = (room: MonitorRoom): MonitorRoom => ({
-    ...room,
-    rows: applyAllRegistrationSources(room.rows || []),
-  });
 
   const updateSelectedRoomDraft = (updates: Partial<MonitorRoom>) => {
     if (!selectedRoomId) return;
@@ -3710,101 +3587,6 @@ export default function FlightsPage() {
     }
   };
 
-  const handleCreateMonitor = async () => {
-    const trimmedInput = input.trim();
-
-    if (!trimmedInput) {
-      setError("Monitor 방으로 저장할 편명을 먼저 입력하세요.");
-      return;
-    }
-
-    const now = new Date();
-    const normalizedInput = normalizeFlightsInput(trimmedInput).join(", ");
-
-    if (selectedRoom?.fixed) {
-      const updatedScheduleRoom: MonitorRoom = normalizeScheduleRoomRows({
-        ...selectedRoom,
-        flightsInput: normalizedInput,
-        startDateTime,
-        endDateTime,
-        fixed: true,
-        lastFetchedAt: lastFetchedAt || new Date().toISOString(),
-        rows,
-      });
-
-      const nextRooms = mergeLatestScheduleRoom(rooms, updatedScheduleRoom);
-      setRooms(nextRooms);
-      saveRooms(nextRooms);
-      setSelectedRoomId(updatedScheduleRoom.id);
-      setInput(updatedScheduleRoom.flightsInput);
-      clearFlightAlertBaselineAndHistory();
-
-      try {
-        const serverRoom = await saveLatestScheduleToServer(updatedScheduleRoom);
-        const finalRoom: MonitorRoom = normalizeScheduleRoomRows({
-          ...updatedScheduleRoom,
-          ...serverRoom,
-          fixed: true,
-          rows: Array.isArray(serverRoom.rows) ? serverRoom.rows : updatedScheduleRoom.rows,
-          flightsInput: serverRoom.flightsInput || updatedScheduleRoom.flightsInput,
-          startDateTime: serverRoom.startDateTime || updatedScheduleRoom.startDateTime,
-          endDateTime: serverRoom.endDateTime || updatedScheduleRoom.endDateTime,
-          lastFetchedAt: serverRoom.lastFetchedAt || updatedScheduleRoom.lastFetchedAt,
-        });
-
-        const syncedRooms = mergeLatestScheduleRoom(loadRooms(), finalRoom);
-        setRooms(syncedRooms);
-        saveRooms(syncedRooms);
-        setSelectedRoomId(finalRoom.id);
-        setInput(finalRoom.flightsInput);
-        setError("현재 Schedule Flight 기준을 저장하고 초기화면 최근 Schedule Flight에 동기화했습니다.");
-      } catch (syncError) {
-        setError(
-          syncError instanceof Error
-            ? `이 기기에는 저장했습니다. 서버 Schedule Flight 동기화 실패: ${syncError.message}`
-            : "이 기기에는 저장했습니다. 서버 Schedule Flight 동기화 중 오류가 발생했습니다.",
-        );
-      }
-
-      return;
-    }
-
-    const newRoom: MonitorRoom = {
-      id: `${now.getTime()}`,
-      name: formatMonitorRoomName(now),
-      flightsInput: normalizedInput,
-      startDateTime,
-      endDateTime,
-      fixed,
-      lastFetchedAt,
-      rows,
-    };
-
-    const nextRooms = [newRoom, ...rooms];
-    setRooms(nextRooms);
-    saveRooms(nextRooms);
-    setSelectedRoomId(newRoom.id);
-    setInput(normalizedInput);
-  };
-
-  const handleSelectRoom = (room: MonitorRoom) => {
-    setSelectedRoomId(room.id);
-    setInput(room.flightsInput);
-    setStartDateTime(room.startDateTime);
-    setEndDateTime(room.endDateTime);
-    // 등록 조회 기간은 Schedule Flight 카드 기간과 분리 유지
-    setRegistrationStartDateTime((prev) => prev || loadRegistrationQueryRange()?.start || getDefaultStartDateTime());
-    setRegistrationEndDateTime((prev) => prev || loadRegistrationQueryRange()?.end || getDefaultEndDateTime());
-    setFixed(room.fixed);
-    setLastFetchedAt(room.lastFetchedAt);
-    setRows(room.rows);
-    setQueryMode("manual");
-    setSelectedScheduleKeys({});
-    setSelectedScheduleOrder([]);
-    setExpandedDetailKeys({});
-    setError("");
-  };
-
   const refreshSelectedRoom = async () => {
     if (!selectedRoom) {
       setError("다시 조회할 Monitor를 먼저 선택하세요.");
@@ -3828,53 +3610,6 @@ export default function FlightsPage() {
     }
 
     await refreshRoomData(selectedRoom);
-  };
-
-  const handleDeleteRoom = async (roomId: string) => {
-    const targetRoom = rooms.find((room) => room.id === roomId);
-    const confirmed = window.confirm("저장된 조회를 삭제할까요?");
-    if (!confirmed) return;
-
-    const clearLatestSchedule = await shouldClearLatestScheduleForDeletedRoom(targetRoom);
-
-    const nextRooms = rooms.filter((room) => room.id !== roomId);
-    setRooms(nextRooms);
-    saveRooms(nextRooms);
-
-    if (selectedRoomId === roomId) {
-      resetLookupView();
-    }
-
-    if (clearLatestSchedule && targetRoom) {
-      clearFlightAlertBaselineAndHistory();
-
-      try {
-        await clearLatestScheduleOnServer(targetRoom);
-        if (typeof window !== "undefined") {
-          window.localStorage.removeItem(LAST_FIXED_ROOM_KEY);
-          window.localStorage.setItem("cargo_ops_latest_schedule_updated_at", new Date().toISOString());
-        }
-        setError("Schedule Flight 저장방을 삭제하고 서버 기준도 비웠습니다. 초기화면과 AFOCS SKD에도 반영됩니다.");
-      } catch (error) {
-        setError(
-          error instanceof Error
-            ? `저장방은 삭제했지만 서버 Schedule Flight 비우기 실패: ${error.message}`
-            : "저장방은 삭제했지만 서버 Schedule Flight 비우기 중 오류가 발생했습니다.",
-        );
-      }
-    } else {
-      setError("저장된 조회를 삭제했습니다.");
-    }
-  };
-
-  const handleToggleFixed = () => {
-    const nextFixed = !fixed;
-    setFixed(nextFixed);
-    setExpandedDetailKeys({});
-
-    if (selectedRoomId) {
-      persistRoom(selectedRoomId, rows, lastFetchedAt, nextFixed);
-    }
   };
 
   const handleToggleDetail = (rowKey: string) => {
@@ -5123,26 +4858,6 @@ const primaryBtn: CSSProperties = {
   fontWeight: 700,
 };
 
-const fixedOnBtn: CSSProperties = {
-  padding: "10px 18px",
-  background: "#facc15",
-  color: "#111827",
-  border: "none",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontWeight: 800,
-};
-
-const fixedOffBtn: CSSProperties = {
-  padding: "10px 18px",
-  background: "#334155",
-  color: "white",
-  border: "none",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontWeight: 700,
-};
-
 const refreshBtn: CSSProperties = {
   flex: 1,
   minWidth: 180,
@@ -5202,19 +4917,6 @@ const badgeNormal: CSSProperties = {
   ...badgeBase,
   background: "rgba(148, 163, 184, 0.16)",
   color: "#cbd5e1",
-};
-
-
-const clearScheduleButtonStyle: React.CSSProperties = {
-  minHeight: 48,
-  padding: "0 14px",
-  border: "1px solid rgba(248, 113, 113, 0.45)",
-  borderRadius: 8,
-  background: "rgba(127, 29, 29, 0.35)",
-  color: "#fecaca",
-  fontSize: 14,
-  fontWeight: 900,
-  cursor: "pointer",
 };
 
 function getFlightNoColor(dep?: string, arr?: string): string {

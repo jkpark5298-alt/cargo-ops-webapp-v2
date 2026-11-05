@@ -459,11 +459,6 @@ function getDailyWorkDateIso(value: string) {
   return `${value}T00:00:00+09:00`;
 }
 
-function formatDateTime(value?: string) {
-  if (!value) return "-";
-  return value.replace("T", " ");
-}
-
 function urlBase64ToUint8Array(base64String: string) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = `${base64String}${padding}`.replace(/-/g, "+").replace(/_/g, "/");
@@ -480,34 +475,6 @@ function urlBase64ToUint8Array(base64String: string) {
 function getLatestScheduleRoom(rooms: MonitorRoom[]) {
   const scheduleRooms = rooms.filter((room) => room.fixed);
   return scheduleRooms[0] || null;
-}
-
-function getFlightSummary(room: MonitorRoom | null) {
-  if (!room) return "저장된 Schedule Flight가 없습니다.";
-
-  const inputFlights = room.flightsInput
-    .split(",")
-    .map((flight) => flight.trim())
-    .filter(Boolean);
-
-  const rows = Array.isArray(room.rows) ? room.rows : [];
-  const rowFlights = rows.map((row) => getFlightNo(row)).filter(Boolean);
-  const uniqueFlights = Array.from(new Set(inputFlights.length > 0 ? inputFlights : rowFlights));
-
-  if (uniqueFlights.length === 0) return "-";
-
-  return uniqueFlights
-    .map((flight) => {
-      const matchedRow = rows.find((row) => {
-        const rowFlight = getFlightNo(row).replace(/\s+/g, "").toUpperCase();
-        const targetFlight = flight.replace(/\s+/g, "").toUpperCase();
-        return rowFlight === targetFlight || rowFlight.includes(targetFlight);
-      });
-
-      const route = getRouteDisplay(matchedRow);
-      return route ? `${flight} ${route}` : flight;
-    })
-    .join(", ");
 }
 
 function getFlightNo(row?: FlightRow) {
@@ -777,11 +744,6 @@ function getRouteDisplay(row?: FlightRow) {
   if (departure && arrival) return `${departure}→${arrival}`;
   if (departure) return `${departure}→-`;
   return `-→${arrival}`;
-}
-
-function getRoomRowsCount(room: MonitorRoom | null) {
-  if (!room) return 0;
-  return Array.isArray(room.rows) ? room.rows.length : 0;
 }
 
 
@@ -2711,13 +2673,6 @@ export default function HomePage() {
     setImageViewerImage(nextImage);
   };
 
-  const handleSaveNoteLocal = () => {
-    saveNote(note);
-    setNotice(
-      "노트를 임시 저장했습니다. Notion 저장은 다음 단계에서 연결합니다.",
-    );
-  };
-
 
   const saveCurrentDailyDraft = (status: "normal" | "issue" = dailyStatus) => {
     const nextAuthor = normalizeDailyAuthor(author);
@@ -3616,20 +3571,6 @@ export default function HomePage() {
   );
 }
 
-function getAirTone(value?: string): "good" | "normal" | "bad" | "time" {
-  if (!value) return "normal";
-  if (value.includes("좋음")) return "good";
-  if (value.includes("나쁨") || value.includes("매우")) return "bad";
-  return "normal";
-}
-
-function getUvTone(value?: string): "good" | "normal" | "bad" | "time" {
-  if (!value) return "normal";
-  if (value.includes("낮") || value.includes("좋음")) return "good";
-  if (value.includes("높") || value.includes("위험")) return "bad";
-  return "normal";
-}
-
 function ActionCard({
   label,
   title,
@@ -3657,66 +3598,6 @@ function ActionCard({
         {buttonLabel}
       </button>
     </section>
-  );
-}
-
-function ImageSlotCard({
-  slot,
-  image,
-  onCamera,
-  onLibrary,
-  onView,
-  onDelete,
-}: {
-  slot: { key: ImageSlotKey; title: string; description: string };
-  image: SavedImage | null;
-  onCamera: () => void;
-  onLibrary: () => void;
-  onView: (image: SavedImage) => void;
-  onDelete: () => void;
-}) {
-  return (
-    <div style={imageSlotCardStyle}>
-      <div>
-        <div style={imageSlotTitleStyle}>{slot.title}</div>
-        <div style={imageSlotDescStyle}>{slot.description}</div>
-      </div>
-
-      {image ? (
-        <div style={imageSlotSavedStyle}>
-          <button onClick={() => onView(image)} style={imagePreviewButtonStyle}>
-            <img src={image.dataUrl} alt={image.label} style={imagePreviewStyle} />
-            <span style={imageTextStyle}>
-              저장됨
-              <small style={imageDateStyle}>{image.savedAt}</small>
-            </span>
-          </button>
-          <div style={imageSlotActionRowStyle}>
-            <button onClick={() => onView(image)} style={miniButtonStyle}>
-              보기
-            </button>
-            <button onClick={onCamera} style={miniButtonStyle}>
-              촬영 변경
-            </button>
-            <button onClick={onLibrary} style={miniButtonStyle}>
-              사진첩 변경
-            </button>
-            <button onClick={onDelete} style={miniDangerButtonStyle}>
-              삭제
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div style={imageSlotActionRowStyle}>
-          <button onClick={onCamera} style={grayButtonStyle}>
-            사진 촬영
-          </button>
-          <button onClick={onLibrary} style={darkButtonStyle}>
-            사진첩에서 가져오기
-          </button>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -3774,14 +3655,6 @@ const datePillSubStyle: CSSProperties = {
   fontWeight: 850,
   lineHeight: 1.35,
 };
-
-const descriptionStyle: CSSProperties = {
-  margin: "12px 0 0",
-  color: "#b8c5d8",
-  fontSize: 14,
-  lineHeight: 1.5,
-  wordBreak: "keep-all",
-};
 const stackStyle: CSSProperties = {
   width: "100%",
   maxWidth: 520,
@@ -3828,298 +3701,6 @@ const primaryButtonStyle: CSSProperties = {
   minHeight: 46,
   border: "none",
   borderRadius: 14,
-  color: "white",
-  fontSize: 15,
-  fontWeight: 900,
-  cursor: "pointer",
-};
-const secondaryButtonStyle: CSSProperties = {
-  ...primaryButtonStyle,
-  marginTop: 10,
-  background: "#2563eb",
-};
-const greenButtonStyle: CSSProperties = {
-  ...primaryButtonStyle,
-  background: "#16a34a",
-};
-const grayButtonStyle: CSSProperties = {
-  ...primaryButtonStyle,
-  background: "#334155",
-};
-const darkButtonStyle: CSSProperties = {
-  ...primaryButtonStyle,
-  background: "#111827",
-  border: "1px solid rgba(148, 163, 184, 0.22)",
-};
-const buttonStackStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 8,
-};
-const infoListStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 8,
-  marginTop: 10,
-};
-const infoRowStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "86px 1fr",
-  gap: 8,
-  alignItems: "start",
-  padding: "7px 0",
-  borderBottom: "1px solid rgba(148, 163, 184, 0.14)",
-};
-const infoLabelStyle: CSSProperties = {
-  color: "#94a3b8",
-  fontSize: 14,
-  fontWeight: 800,
-};
-const infoValueStyle: CSSProperties = {
-  color: "#f8fafc",
-  fontSize: 15,
-  lineHeight: 1.45,
-  fontWeight: 800,
-  wordBreak: "break-word",
-};
-const imageListStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 8,
-  marginTop: 10,
-};
-const imagePreviewButtonStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "76px 1fr",
-  gap: 10,
-  alignItems: "center",
-  width: "100%",
-  padding: 8,
-  borderRadius: 14,
-  background: "rgba(15, 23, 42, 0.92)",
-  border: "1px solid rgba(148, 163, 184, 0.2)",
-  color: "white",
-  textAlign: "left",
-};
-const imagePreviewStyle: CSSProperties = {
-  width: 64,
-  height: 64,
-  objectFit: "cover",
-  borderRadius: 12,
-  background: "#111827",
-};
-const imageTextStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 5,
-  fontSize: 15,
-  fontWeight: 900,
-};
-const imageDateStyle: CSSProperties = {
-  color: "#94a3b8",
-  fontSize: 12,
-  fontWeight: 700,
-};
-const noteStyle: CSSProperties = {
-  width: "100%",
-  minHeight: 108,
-  boxSizing: "border-box",
-  margin: "10px 0 10px",
-  padding: 12,
-  borderRadius: 14,
-  border: "1px solid rgba(148, 163, 184, 0.28)",
-  background: "#020817",
-  color: "white",
-  fontSize: 16,
-  lineHeight: 1.5,
-  resize: "vertical",
-};
-const imageSlotListStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 8,
-  marginTop: 10,
-};
-
-const imageSlotCardStyle: CSSProperties = {
-  border: "1px solid #26374f",
-  borderRadius: 18,
-  background: "#071426",
-  padding: 12,
-};
-
-const imageSlotTitleStyle: CSSProperties = {
-  color: "#f8fafc",
-  fontSize: 16,
-  fontWeight: 950,
-  marginBottom: 4,
-};
-
-const imageSlotDescStyle: CSSProperties = {
-  color: "#94a3b8",
-  fontSize: 13,
-  lineHeight: 1.45,
-  marginBottom: 12,
-};
-
-const imageSlotSavedStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 8,
-};
-
-const imageSlotActionRowStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 8,
-};
-
-const miniButtonStyle: CSSProperties = {
-  padding: "10px 8px",
-  borderRadius: 12,
-  border: "1px solid #334155",
-  background: "#0f172a",
-  color: "#e5edf7",
-  fontSize: 12,
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const miniDangerButtonStyle: CSSProperties = {
-  ...miniButtonStyle,
-  background: "#450a0a",
-  border: "1px solid #991b1b",
-  color: "#fecaca",
-};
-
-const statusToggleStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 8,
-  margin: "10px 0 12px",
-};
-
-const statusButtonStyle: CSSProperties = {
-  padding: "10px 10px",
-  borderRadius: 14,
-  border: "1px solid #334155",
-  background: "#0f172a",
-  color: "#cbd5e1",
-  fontWeight: 900,
-  fontSize: 14,
-  cursor: "pointer",
-};
-
-const statusActiveButtonStyle: CSSProperties = {
-  ...statusButtonStyle,
-  background: "#14532d",
-  border: "1px solid #22c55e",
-  color: "#dcfce7",
-};
-
-const statusIssueButtonStyle: CSSProperties = {
-  ...statusButtonStyle,
-  background: "#7c2d12",
-  border: "1px solid #fb923c",
-  color: "#ffedd5",
-};
-
-const fieldBlockStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 6,
-  marginTop: 12,
-};
-
-const fieldLabelStyle: CSSProperties = {
-  color: "#cbd5e1",
-  fontSize: 13,
-  fontWeight: 900,
-};
-
-const inputStyle: CSSProperties = {
-  width: "100%",
-  boxSizing: "border-box",
-  padding: "10px 10px",
-  borderRadius: 12,
-  border: "1px solid #334155",
-  background: "#020617",
-  color: "#f8fafc",
-  fontSize: 15,
-  fontWeight: 800,
-};
-
-const selectStyle: CSSProperties = {
-  ...inputStyle,
-  cursor: "pointer",
-};
-
-const formGridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr",
-  gap: 8,
-};
-
-const orangeButtonStyle: CSSProperties = {
-  width: "100%",
-  padding: "11px 12px",
-  borderRadius: 14,
-  border: "none",
-  background: "#f97316",
-  color: "white",
-  fontSize: 15,
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const notionSavedBoxStyle: CSSProperties = {
-  marginTop: 10,
-  border: "1px solid #14532d",
-  background: "#052e16",
-  borderRadius: 14,
-  padding: 12,
-};
-
-const notionSavedTextStyle: CSSProperties = {
-  color: "#bbf7d0",
-  fontSize: 13,
-  fontWeight: 900,
-  marginBottom: 10,
-};
-
-const resetButtonStyle: CSSProperties = {
-  width: "100%",
-  padding: "11px 12px",
-  borderRadius: 14,
-  border: "1px solid #475569",
-  background: "#1e293b",
-  color: "#e2e8f0",
-  fontSize: 15,
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const notionIssueSavedBoxStyle: CSSProperties = {
-  marginTop: 10,
-  border: "1px solid #9a3412",
-  background: "#431407",
-  borderRadius: 14,
-  padding: 12,
-};
-
-const notionIssueSavedTextStyle: CSSProperties = {
-  color: "#fed7aa",
-  fontSize: 13,
-  fontWeight: 900,
-  marginBottom: 10,
-};
-
-const dangerButtonStyle: CSSProperties = {
-  width: "100%",
-  padding: "11px 12px",
-  borderRadius: 14,
-  border: "none",
-  background: "#dc2626",
   color: "white",
   fontSize: 15,
   fontWeight: 900,

@@ -149,14 +149,6 @@ export function saveNote(note: string) {
   localStorage.setItem(NOTE_STORAGE_KEY, note);
 }
 
-export function loadDailyNotionRecord(workDate?: string): NotionRecord | null {
-  if (workDate) {
-    return loadDailyNotionRecordForDate(workDate);
-  }
-
-  return loadNotionRecord(DAILY_NOTION_RECORD_KEY);
-}
-
 export function loadDailyNotionRecordForDate(workDate: string): NotionRecord | null {
   if (!workDate) return null;
   const map = loadDailyNotionRecordMap();
@@ -174,16 +166,6 @@ function dateFromSavedAt(savedAt?: string): string {
   const match = String(savedAt || "").match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
   if (!match) return "";
   return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
-}
-
-export function saveDailyNotionRecord(record: NotionRecord, workDate?: string) {
-  const targetDate = workDate || record.workDate;
-  if (targetDate) {
-    saveDailyNotionRecordForDate(targetDate, record);
-    return;
-  }
-
-  saveNotionRecord(DAILY_NOTION_RECORD_KEY, record);
 }
 
 export function saveDailyNotionRecordForDate(workDate: string, record: NotionRecord) {

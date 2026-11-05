@@ -688,15 +688,6 @@ function FlightRouteRows({
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={infoRowStyle}>
-      <span style={infoLabelStyle}>{label}</span>
-      <span style={infoValueStyle}>{value}</span>
-    </div>
-  );
-}
-
 function formatApiLookupTime(value?: string) {
   if (!value) return "-";
 
@@ -1031,21 +1022,6 @@ function getRouteDisplay(row?: FlightRow) {
   return `-→${arrival}`;
 }
 
-function formatRouteInline(value: string) {
-  return value.replace(/\s*→\s*/g, " → ");
-}
-
-function getDirectionLabel(row?: FlightRow) {
-  if (!row) return "운항";
-  const remark = `${row.remark || ""} ${row.status || ""}`.toLowerCase();
-  const route = getRouteDisplay(row);
-
-  if (remark.includes("arrival") || remark.includes("도착") || route.endsWith("→ICN")) return "도착";
-  if (remark.includes("departure") || remark.includes("출발") || route.startsWith("ICN→")) return "출발";
-
-  return "운항";
-}
-
 function getFlightTimeDisplay(row?: FlightRow) {
   if (!row) return "-";
   const value = row.formattedEstimatedTime || row.estimatedDateTime || row.formattedScheduleTime || row.scheduleDateTime || "";
@@ -1071,15 +1047,6 @@ function formatFlightTimeNoYear(value?: string) {
   return normalized;
 }
 
-function getRoomRowsCount(room: MonitorRoom | null) {
-  return room?.rows?.length || 0;
-}
-
-function formatDateTime(value?: string) {
-  if (!value) return "-";
-  return value.replace("T", " ").slice(0, 16);
-}
-
 function formatCompactDateTime(value?: string) {
   if (!value) return "-";
 
@@ -1092,65 +1059,6 @@ function formatCompactDateTime(value?: string) {
   }
 
   return normalized.slice(0, 16);
-}
-
-function formatCompactSlashDateTime(value?: string) {
-  if (!value) return "-";
-
-  const normalized = value.replace("T", " ").trim();
-  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
-
-  if (match) {
-    const [, yy, mo, dd, hh, mi] = match;
-    return `'${yy.slice(2)}/${mo}/${dd} ${hh}:${mi}`;
-  }
-
-  return normalized.slice(0, 16);
-}
-
-function getStatusTone(status: string) {
-  if (status.includes("도착")) return "arrival";
-  if (status.includes("출발")) return "departure";
-  if (status.includes("지연")) return "delay";
-  if (status.includes("결항") || status.includes("회항")) return "danger";
-  return "normal";
-}
-
-function getFlightRouteMetaStyle(status: string): CSSProperties {
-  const tone = getStatusTone(status);
-
-  return {
-    ...flightRouteMetaStyle,
-    color:
-      tone === "arrival"
-        ? "#86efac"
-        : tone === "departure"
-          ? "#fca5a5"
-          : tone === "delay"
-            ? "#fde68a"
-            : tone === "danger"
-              ? "#fca5a5"
-              : "#cbd5e1",
-  };
-}
-
-function getStatusBadgeStyle(status: string): CSSProperties {
-  const tone = getStatusTone(status);
-
-  return {
-    padding: "2px 6px",
-    borderRadius: 999,
-    background:
-      tone === "arrival"
-        ? "rgba(34, 197, 94, 0.16)"
-        : tone === "departure"
-          ? "rgba(239, 68, 68, 0.18)"
-          : tone === "delay"
-            ? "rgba(245, 158, 11, 0.18)"
-            : tone === "danger"
-              ? "rgba(239, 68, 68, 0.18)"
-              : "rgba(148, 163, 184, 0.14)",
-  };
 }
 
 const apiSyncStatusStyle: CSSProperties = {
@@ -1226,33 +1134,10 @@ const cardStyle: CSSProperties = {
   boxShadow: "0 18px 45px rgba(0,0,0,0.22)",
 };
 
-const cardLabelStyle: CSSProperties = {
-  color: "#94a3b8",
-  fontSize: 13,
-  fontWeight: 900,
-  letterSpacing: 2,
-  textTransform: "uppercase",
-};
-
 const infoListStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   marginTop: 4,
-};
-
-const infoRowStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "86px 1fr",
-  gap: 10,
-  alignItems: "start",
-  padding: "10px 0",
-  borderBottom: "1px solid rgba(148, 163, 184, 0.14)",
-};
-
-const infoLabelStyle: CSSProperties = {
-  color: "#94a3b8",
-  fontSize: 14,
-  fontWeight: 800,
 };
 
 const infoValueStyle: CSSProperties = {
@@ -1261,78 +1146,6 @@ const infoValueStyle: CSSProperties = {
   lineHeight: 1.45,
   fontWeight: 800,
   wordBreak: "break-word",
-};
-
-const flightRouteOnlyBlockStyle: CSSProperties = {
-  display: "grid",
-  gap: 10,
-  padding: "10px 0",
-  borderBottom: "1px solid rgba(148, 163, 184, 0.14)",
-};
-
-const flightRouteRowStyle: CSSProperties = {
-  display: "grid",
-  gap: 5,
-  padding: "4px 0",
-  color: "#f8fafc",
-  fontWeight: 900,
-  lineHeight: 1.32,
-};
-
-const flightRouteRowHeaderStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr auto",
-  alignItems: "center",
-  gap: 8,
-};
-
-const flightRouteTextBlockStyle: CSSProperties = {
-  minWidth: 0,
-};
-
-const flightRoutePrimaryLineStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "baseline",
-  flexWrap: "wrap",
-  columnGap: 10,
-  rowGap: 2,
-  minWidth: 0,
-};
-
-const flightRouteNoStyle: CSSProperties = {
-  color: "#f8fafc",
-  fontSize: 18,
-  fontWeight: 950,
-  letterSpacing: 0.5,
-  whiteSpace: "nowrap",
-};
-
-const flightRouteHlStyle: CSSProperties = {
-  display: "inline-block",
-  color: "#bfdbfe",
-  fontSize: 18,
-  fontWeight: 950,
-  letterSpacing: 0,
-  whiteSpace: "nowrap",
-};
-
-const flightRouteValueStyle: CSSProperties = {
-  color: "#dbeafe",
-  fontSize: 18,
-  fontWeight: 950,
-  wordBreak: "keep-all",
-  whiteSpace: "nowrap",
-};
-
-const flightRouteMetaStyle: CSSProperties = {
-  color: "#fde68a",
-  fontSize: 16,
-  fontWeight: 950,
-  lineHeight: 1.35,
-  whiteSpace: "normal",
-  overflow: "visible",
-  textOverflow: "clip",
-  wordBreak: "keep-all",
 };
 
 const apiGuideStyle: CSSProperties = {

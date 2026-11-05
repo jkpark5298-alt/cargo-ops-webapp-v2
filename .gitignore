@@ -20,3 +20,6 @@ Thumbs.db
 *.log
 
 .vercel
+
+# TypeScript
+*.tsbuildinfo
