@@ -228,9 +228,11 @@ const setValue = async (el, value, eventName = "change") => {
   check("인천 출발편은 노란색 줄", bg[0].includes("255, 245, 157") || bg[0].includes("#fff59d"), bg);
 
   await clickText(container, "C조");
-  check("C조: 23:00 편 포함", JSON.stringify(flightsShown(container)) === JSON.stringify(["KJ967"]), flightsShown(container));
+  check("C조: 23:59까지 (23:00·23:15 편 포함)", JSON.stringify(flightsShown(container)) === JSON.stringify(["KJ967", "KJ795"]), flightsShown(container));
   await clickText(container, "S조");
-  check("S조: 23:00 편도 겹쳐 표시 + 다음 날 00:45 포함", JSON.stringify(flightsShown(container)) === JSON.stringify(["KJ967", "KJ795", "KJ290"]), flightsShown(container));
+  check("S조: 익일 00:00~06:30 편만(C조와 겹치지 않음)", JSON.stringify(flightsShown(container)) === JSON.stringify(["KJ290"]), flightsShown(container));
+  check("조 버튼 범위 표시", text(container).includes("C조 14:01~23:59") && text(container).includes("S조 익일 00:00~06:30"), text(container).slice(0, 300));
+  await clickText(container, "C조");
 
   const nameA = container.querySelector('input[aria-label="담당 A 이름"]');
   await setValue(nameA, "홍길동", "input");
@@ -255,7 +257,7 @@ const setValue = async (el, value, eventName = "change") => {
 
   // 표 글자색·머리글 서식
   await clickText(container, "유형 1");
-  await clickText(container, "S조");
+  await clickText(container, "C조");
   const td0 = container.querySelector("tbody td");
   const th0 = container.querySelector("thead th");
   check("표 안 글자는 검은색", td0.style.color === "rgb(0, 0, 0)" || td0.style.color === "#000000", td0.style.color);

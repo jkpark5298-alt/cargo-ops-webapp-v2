@@ -441,18 +441,25 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
 
   // Monthly Scheduled Flight
   const monthly = require(path.join(outDir, "app/lib/monthly-schedule.js"));
-  test("근무조: A 06:31~14:00, C 14:01~23:00, S 23:00~익일 06:30 (23:00은 C·S 모두)", () => {
+  test("근무조: A 06:31~14:00, C 14:01~23:59, S 익일 00:00~06:30 — 서로 겹치지 않음", () => {
     const D = "2026-11-06";
     const at = (t) => ["A", "C", "S"].filter((sh) => monthly.isInShift(t, D, sh)).join("");
     assert.strictEqual(at("2026-11-06 06:30"), "");
     assert.strictEqual(at("2026-11-06 06:31"), "A");
     assert.strictEqual(at("2026-11-06 14:00"), "A");
     assert.strictEqual(at("2026-11-06 14:01"), "C");
-    assert.strictEqual(at("2026-11-06 23:00"), "CS");
-    assert.strictEqual(at("2026-11-06 23:01"), "S");
+    assert.strictEqual(at("2026-11-06 23:00"), "C");
+    assert.strictEqual(at("2026-11-06 23:30"), "C");
+    assert.strictEqual(at("2026-11-06 23:59"), "C");
+    assert.strictEqual(at("2026-11-07 00:00"), "S");
     assert.strictEqual(at("2026-11-07 06:30"), "S");
     assert.strictEqual(at("2026-11-07 06:31"), "");
-    assert.strictEqual(at("2026-11-06 02:00"), "", "선택 일자의 새벽은 전날 S조");
+    assert.strictEqual(at("2026-11-06 02:00"), "", "선택 일자의 새벽은 전날 업무일자의 S조");
+    // 하루 전체 시각이 근무조 하나에만 속하는지 확인(겹침 없음)
+    for (let h = 0; h < 24; h++) for (const m of [0, 1, 30, 31, 59]) {
+      const t = "2026-11-06 " + String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+      assert.ok(at(t).length <= 1, t + " → " + at(t));
+    }
   });
   test("담당: 근무조 안 시간순 A→B→C→A 자동, 편별 지정 우선, 이름 없으면 글자", () => {
     const f = (k, slot = "") => ({ recordKey: k, assigneeSlot: slot });
@@ -490,14 +497,15 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
     assert.strictEqual(monthly.displayTime({ ...f, apiTime: "" }, 1), "2026-11-06 23:00");
     assert.deepStrictEqual(monthly.type1Dates("2026-11-30"), ["2026-11-30", "2026-12-01", "2026-12-02"]);
   });
-  test("근무조 목록: S조는 다음 날 새벽 편 포함, 시간순 정렬", () => {
+  test("근무조 목록: S조는 다음 날 새벽 편, C조는 23:59까지, 시간순 정렬", () => {
     const rows = [
       { recordKey: "a", flight: "KJ1", skdTime: "2026-11-07 01:00", apiTime: "" },
       { recordKey: "b", flight: "KJ2", skdTime: "2026-11-06 23:30", apiTime: "" },
       { recordKey: "c", flight: "KJ3", skdTime: "2026-11-06 10:00", apiTime: "2026-11-06 23:10" },
     ];
-    assert.deepStrictEqual(monthly.flightsForShift(rows, "2026-11-06", "S", 2).map((r) => r.flight), ["KJ2", "KJ1"]);
-    assert.deepStrictEqual(monthly.flightsForShift(rows, "2026-11-06", "S", 1).map((r) => r.flight), ["KJ3", "KJ2", "KJ1"], "유형 1은 지연된 변경시각으로 근무조 판정");
+    assert.deepStrictEqual(monthly.flightsForShift(rows, "2026-11-06", "S", 2).map((r) => r.flight), ["KJ1"]);
+    assert.deepStrictEqual(monthly.flightsForShift(rows, "2026-11-06", "C", 2).map((r) => r.flight), ["KJ2"]);
+    assert.deepStrictEqual(monthly.flightsForShift(rows, "2026-11-06", "C", 1).map((r) => r.flight), ["KJ3", "KJ2"], "유형 1은 지연된 변경시각으로 근무조 판정");
   });
   test("엑셀 붙여넣기: Daily Job SKD 머리글 양식(담당자·T/O R/I·주기장 열 무시), KJ만, 0 제거", () => {
     const text = [
