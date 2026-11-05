@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "r
 import { MonthlySkdInputPanel } from "../components/MonthlySkdInputPanel";
 import {
   SHIFTS,
-  activeSlots,
+  SLOTS,
+  activeSlotsFromNames,
   addDays,
   arrivalOf,
   assignSlots,
@@ -54,7 +55,6 @@ export default function MonthlyScheduledFlightPage() {
   const [editMode, setEditMode] = useState(false);
   const [showInput, setShowInput] = useState(false);
   const [names, setNames] = useState({ nameA: "", nameB: "", nameC: "" });
-  const [slotCount, setSlotCount] = useState(3);
 
   const load = useCallback(async (refresh: boolean) => {
     setLoading(true);
@@ -96,28 +96,23 @@ export default function MonthlyScheduledFlightPage() {
   );
   useEffect(() => {
     setNames({ nameA: assignee?.nameA || "", nameB: assignee?.nameB || "", nameC: assignee?.nameC || "" });
-    setSlotCount(assignee?.slotCount === 1 || assignee?.slotCount === 2 ? assignee.slotCount : 3);
   }, [assignee, date, shift]);
 
   const list = useMemo(() => (data ? flightsForShift(data.flights, date, shift, viewType) : []), [data, date, shift, viewType]);
-  const slots = useMemo(() => assignSlots(list, slotCount), [list, slotCount]);
-  const usedSlots = useMemo(() => activeSlots(slotCount), [slotCount]);
+  // 이름을 입력한 칸만 사용: A만 입력하면 A만, A·B 입력하면 A·B만, A·B·C 모두 입력하면 A·B·C (입력 즉시 반영)
+  const usedSlots = useMemo(() => activeSlotsFromNames(names), [names]);
+  const slots = useMemo(() => assignSlots(list, usedSlots), [list, usedSlots]);
   const shiftCounts = useMemo(
     () => Object.fromEntries(SHIFTS.map((s) => [s.code, data ? flightsForShift(data.flights, date, s.code, viewType).length : 0])),
     [data, date, viewType],
   );
 
-  const saveNames = async (nextCount: number = slotCount) => {
-    if (
-      (assignee?.nameA || "") === names.nameA &&
-      (assignee?.nameB || "") === names.nameB &&
-      (assignee?.nameC || "") === names.nameC &&
-      (assignee?.slotCount ?? 3) === nextCount
-    ) {
+  const saveNames = async () => {
+    if ((assignee?.nameA || "") === names.nameA && (assignee?.nameB || "") === names.nameB && (assignee?.nameC || "") === names.nameC) {
       return;
     }
     try {
-      await saveMonthlyAssignees({ flightDate: date, shift, ...names, slotCount: nextCount });
+      await saveMonthlyAssignees({ flightDate: date, shift, ...names });
       await load(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "담당 이름 저장 실패");
@@ -198,21 +193,7 @@ export default function MonthlyScheduledFlightPage() {
 
           <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
             <span style={labelStyle}>담당</span>
-            <select
-              value={slotCount}
-              onChange={(e) => {
-                const next = Number(e.target.value);
-                setSlotCount(next);
-                void saveNames(next);
-              }}
-              style={selectStyle}
-              aria-label="담당 인원"
-            >
-              <option value={1}>1명 (A)</option>
-              <option value={2}>2명 (A·B)</option>
-              <option value={3}>3명 (A·B·C)</option>
-            </select>
-            {usedSlots.map((slot) => {
+            {SLOTS.map((slot) => {
               const key = `name${slot}` as "nameA" | "nameB" | "nameC";
               return (
                 <label key={slot} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13 }}>
@@ -220,7 +201,7 @@ export default function MonthlyScheduledFlightPage() {
                   <input
                     value={names[key]}
                     onChange={(e) => setNames({ ...names, [key]: e.target.value })}
-                    onBlur={() => void saveNames(slotCount)}
+                    onBlur={() => void saveNames()}
                     placeholder={slot}
                     style={nameInputStyle}
                     aria-label={`담당 ${slot} 이름`}
@@ -278,9 +259,9 @@ export default function MonthlyScheduledFlightPage() {
                           style={slotSelectStyle}
                           aria-label={`${f.flight} 담당`}
                         >
-                          <option value="">{assigneeName(slot, assignee)}</option>
+                          <option value="">{assigneeName(slot, names)}</option>
                           {usedSlots.map((s) => (
-                            <option key={s} value={s}>{`${s} · ${assigneeName(s, assignee)}`}</option>
+                            <option key={s} value={s}>{`${s} · ${assigneeName(s, names)}`}</option>
                           ))}
                         </select>
                       </td>

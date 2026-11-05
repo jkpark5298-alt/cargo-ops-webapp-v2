@@ -240,9 +240,15 @@ const setValue = async (el, value, eventName = "change") => {
   await settle();
   check("담당 A 이름 저장 후 A 배정 편에 이름 표시", calls.some((c) => c.startsWith("POST /flights/monthly-schedule/assignees")) && rows(container)[0][5].includes("홍길동"), rows(container).map((r) => r[5]));
 
+  const blurInput = async (el) => { await act(async () => { el.dispatchEvent(new w.FocusEvent("blur", { bubbles: true })); el.dispatchEvent(new w.FocusEvent("focusout", { bubbles: true })); }); await settle(); };
+  const nameInput0 = (slot) => container.querySelector('input[aria-label="담당 ' + slot + ' 이름"]');
+  await setValue(nameInput0("B"), "박종규", "input"); await blurInput(nameInput0("B"));
+  await setValue(nameInput0("C"), "김철수", "input"); await blurInput(nameInput0("C"));
   const slotSelect = container.querySelector('select[aria-label="KJ795 담당"]');
   await setValue(slotSelect, "C");
-  check("편별 담당 지정 저장", DATA.flights.find((f) => f.flight === "KJ795").assigneeSlot === "C" && rows(container)[1][5].startsWith("C"), rows(container).map((r) => r[5]));
+  check("편별 담당 지정 저장(A·B·C 사용 중)", DATA.flights.find((f) => f.flight === "KJ795").assigneeSlot === "C" && rows(container)[1][5].includes("김철수") && rows(container)[1][5].startsWith("C"), rows(container).map((r) => r[5]));
+  await setValue(container.querySelector('select[aria-label="KJ795 담당"]'), "");
+  check("편별 지정 해제 → 자동 배정으로 복귀", DATA.flights.find((f) => f.flight === "KJ795").assigneeSlot === "", rows(container).map((r) => r[5]));
 
   const dateSelect = container.querySelector('select[aria-label="일자 선택"]');
   check("유형 1 일자: 오늘·내일·모레 3일", dateSelect.options.length === 3 && dateSelect.options[0].value === "2026-11-06", [...dateSelect.options].map((o) => o.value));
@@ -263,15 +269,24 @@ const setValue = async (el, value, eventName = "change") => {
   check("표 안 글자는 검은색", td0.style.color === "rgb(0, 0, 0)" || td0.style.color === "#000000", td0.style.color);
   check("머리글: 굵게·가운데·회색 배경·검은 글자", th0.style.fontWeight === "900" && th0.style.textAlign === "center" && th0.style.color === "rgb(0, 0, 0)" && /212, 212, 216|#d4d4d8/i.test(th0.style.background), [th0.style.fontWeight, th0.style.textAlign, th0.style.color, th0.style.background]);
 
-  // 담당 인원 1/2명
-  const countSel = container.querySelector('select[aria-label="담당 인원"]');
-  await setValue(countSel, "2");
-  check("인원 2명: 이름 칸이 A·B만 보임", !!container.querySelector('input[aria-label="담당 A 이름"]') && !!container.querySelector('input[aria-label="담당 B 이름"]') && !container.querySelector('input[aria-label="담당 C 이름"]'));
-  check("인원 2명: 배정이 A·B로만 순환", new Set(rows(container).map((r) => r[5].slice(0, 1))).size <= 2 && !rows(container).some((r) => r[5].startsWith("C")), rows(container).map((r) => r[5]));
-  check("인원 저장 요청(slotCount=2)", calls.some((c) => c.startsWith("POST /flights/monthly-schedule/assignees")) && DATA.assignees.some((a) => a.slotCount === 2), DATA.assignees);
-  await setValue(countSel, "1");
-  check("인원 1명: 모든 편이 A", new Set(rows(container).map((r) => r[5])).size === 1 && !container.querySelector('input[aria-label="담당 B 이름"]'), rows(container).map((r) => r[5]));
-  await setValue(countSel, "3");
+  // 담당: 이름을 입력한 칸만 사용 (3편이 있는 S조에서 확인)
+  await clickText(container, "S조");
+  const nameInput = (slot) => container.querySelector('input[aria-label="담당 ' + slot + ' 이름"]');
+  const slotsShown = () => rows(container).map((r) => r[5]);
+  check("S조 3편 표시", rows(container).length === 3, slotsShown());
+  check("담당 인원 선택칸은 없고 이름 칸 A·B·C가 항상 보임", !container.querySelector('select[aria-label="담당 인원"]') && !!nameInput("A") && !!nameInput("B") && !!nameInput("C"));
+  check("이름을 하나도 입력하지 않으면 A·B·C 글자로 순환", slotsShown().join(",") === "A,B,C", slotsShown());
+  await setValue(nameInput("A"), "홍길동", "input");
+  check("A만 입력하면 아래 SKD는 A만 나옴", slotsShown().join(",") === "홍길동,홍길동,홍길동", slotsShown());
+  await setValue(nameInput("B"), "박종규", "input");
+  check("A·B 입력하면 A·B만 번갈아 나옴", slotsShown().join(",") === "홍길동,박종규,홍길동", slotsShown());
+  await setValue(nameInput("C"), "김철수", "input");
+  check("A·B·C 모두 입력하면 A·B·C로 순환", slotsShown().join(",") === "홍길동,박종규,김철수", slotsShown());
+  await setValue(nameInput("B"), "", "input");
+  check("B를 비우면 A·C만 사용", slotsShown().join(",") === "홍길동,김철수,홍길동", slotsShown());
+  const firstSelect = container.querySelector("tbody select");
+  check("편별 담당 목록에도 입력한 칸(A·C)만 표시", [...firstSelect.options].map((o) => o.value).join(",") === ",A,C", [...firstSelect.options].map((o) => o.value));
+  await setValue(nameInput("B"), "박종규", "input");
 
   // 월간 SKD 입력(붙여넣기)
   await clickText(container, "월간 SKD 입력");

@@ -466,23 +466,29 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
   });
   test("담당: 근무조 안 시간순 A→B→C→A 자동, 편별 지정 우선, 이름 없으면 글자", () => {
     const f = (k, slot = "") => ({ recordKey: k, assigneeSlot: slot });
-    const slots = monthly.assignSlots([f("1"), f("2"), f("3", "A"), f("4")]);
+    const slots = monthly.assignSlots([f("1"), f("2"), f("3", "A"), f("4")], ["A", "B", "C"]);
     assert.deepStrictEqual(slots, { 1: "A", 2: "B", 3: "A", 4: "C" }, "지정한 편은 순환에서 건너뛰고 자동 편만 A→B→C 순서로");
     assert.strictEqual(monthly.assigneeName("B", { nameA: "홍길동", nameB: "", nameC: "" }), "B");
     assert.strictEqual(monthly.assigneeName("A", { nameA: "홍길동", nameB: "", nameC: "" }), "홍길동");
     assert.strictEqual(monthly.assigneeName("C", null), "C");
   });
-  test("담당 인원 1명(A)·2명(A,B)·3명(A,B,C): 사용 칸만 돌아가며 배정", () => {
+  test("담당: 이름을 입력한 칸만 사용(A만 / A·B / A·B·C), 하나도 없으면 A·B·C", () => {
     const f = (k, slot = "") => ({ recordKey: k, assigneeSlot: slot });
     const list = [f("1"), f("2"), f("3"), f("4"), f("5")];
-    assert.deepStrictEqual(Object.values(monthly.assignSlots(list, 1)), ["A", "A", "A", "A", "A"]);
-    assert.deepStrictEqual(Object.values(monthly.assignSlots(list, 2)), ["A", "B", "A", "B", "A"]);
-    assert.deepStrictEqual(Object.values(monthly.assignSlots(list, 3)), ["A", "B", "C", "A", "B"]);
-    assert.deepStrictEqual(monthly.activeSlots(2), ["A", "B"]);
-    assert.deepStrictEqual(monthly.activeSlots(undefined), ["A", "B", "C"]);
+    const only = (a, b, c) => monthly.activeSlotsFromNames({ nameA: a, nameB: b, nameC: c });
+    assert.deepStrictEqual(only("홍길동", "", ""), ["A"]);
+    assert.deepStrictEqual(only("홍길동", "박종규", ""), ["A", "B"]);
+    assert.deepStrictEqual(only("홍길동", "박종규", "김철수"), ["A", "B", "C"]);
+    assert.deepStrictEqual(only("홍길동", "", "김철수"), ["A", "C"], "입력한 칸만(B 비움)");
+    assert.deepStrictEqual(only("  ", "", ""), ["A", "B", "C"], "아무도 입력하지 않으면 A·B·C 글자");
+    assert.deepStrictEqual(monthly.activeSlotsFromNames(null), ["A", "B", "C"]);
+    assert.deepStrictEqual(Object.values(monthly.assignSlots(list, ["A"])), ["A", "A", "A", "A", "A"]);
+    assert.deepStrictEqual(Object.values(monthly.assignSlots(list, ["A", "B"])), ["A", "B", "A", "B", "A"]);
+    assert.deepStrictEqual(Object.values(monthly.assignSlots(list, ["A", "B", "C"])), ["A", "B", "C", "A", "B"]);
+    assert.deepStrictEqual(Object.values(monthly.assignSlots(list, ["A", "C"])), ["A", "C", "A", "C", "A"]);
     // 사용하지 않는 칸(C)을 지정했던 편은 자동 배정으로 돌아간다
-    assert.deepStrictEqual(Object.values(monthly.assignSlots([f("1", "C"), f("2"), f("3")], 2)), ["A", "B", "A"]);
-    assert.deepStrictEqual(Object.values(monthly.assignSlots([f("1", "B"), f("2"), f("3")], 2)), ["B", "A", "B"]);
+    assert.deepStrictEqual(Object.values(monthly.assignSlots([f("1", "C"), f("2"), f("3")], ["A", "B"])), ["A", "B", "A"]);
+    assert.deepStrictEqual(Object.values(monthly.assignSlots([f("1", "B"), f("2"), f("3")], ["A", "B"])), ["B", "A", "B"]);
   });
   test("출도착 공항: 한쪽만 있으면 다른 쪽은 ICN, 인천 출발 판정", () => {
     assert.strictEqual(monthly.arrivalOf({ departureCode: "CAN", arrivalCode: "" }), "ICN");

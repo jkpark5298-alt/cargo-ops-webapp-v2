@@ -28,8 +28,6 @@ export type MonthlyAssignee = {
   nameA: string;
   nameB: string;
   nameC: string;
-  /** 그 근무조의 담당 인원 수: 1(A) / 2(A,B) / 3(A,B,C). 없으면 3 */
-  slotCount?: number;
 };
 
 export type MonthlyScheduleData = {
@@ -109,18 +107,22 @@ export function flightsForShift(flights: MonthlyFlight[], date: string, shift: S
     .sort((a, b) => displayTime(a, viewType).localeCompare(displayTime(b, viewType)) || a.flight.localeCompare(b.flight));
 }
 
-/** 담당 인원 수(1/2/3)에 따른 사용 칸: 1명=A, 2명=A·B, 3명=A·B·C */
-export function activeSlots(count?: number): SlotCode[] {
-  const n = count === 1 || count === 2 ? count : 3;
-  return SLOTS.slice(0, n);
+/**
+ * 사용할 담당 칸: 이름을 입력한 칸만 (A만 / A·B / A·B·C …). 하나도 입력하지 않았으면 A·B·C 모두(글자로 표시).
+ */
+export function activeSlotsFromNames(names?: Pick<MonthlyAssignee, "nameA" | "nameB" | "nameC"> | null): SlotCode[] {
+  const filled = SLOTS.filter((slot) => {
+    const name = slot === "A" ? names?.nameA : slot === "B" ? names?.nameB : names?.nameC;
+    return String(name || "").trim() !== "";
+  });
+  return filled.length > 0 ? filled : [...SLOTS];
 }
 
 /**
- * 근무조 안 시간순으로 사용 칸(A→B→C 중 인원 수만큼)을 돌아가며 자동 배정한다.
+ * 근무조 안 시간순으로 사용 칸(active)을 차례로 돌아가며 자동 배정한다.
  * 편별로 지정한 값이 사용 칸에 있으면 그 값을 쓴다.
  */
-export function assignSlots(list: MonthlyFlight[], count: number = 3): Record<string, SlotCode> {
-  const active = activeSlots(count);
+export function assignSlots(list: MonthlyFlight[], active: SlotCode[] = [...SLOTS]): Record<string, SlotCode> {
   const result: Record<string, SlotCode> = {};
   let cursor = 0;
   list.forEach((f) => {
