@@ -210,8 +210,9 @@ function parseDateOnly(value: unknown): string {
 const HEADER_ALIASES: Record<keyof MonthlyInputRecord | "date", string[]> = {
   flight: ["편명", "flight", "flightno", "flightid"],
   registrationNo: ["등록기호", "등록번호", "hl", "hlnbr", "registration", "registrationno"],
-  departureCode: ["dep", "출발", "출발지", "출발지코드", "departure"],
-  arrivalCode: ["arr", "도착", "도착지", "도착지코드", "arrival"],
+  departureCode: ["dep", "출발", "출발지", "출발지코드", "출발공항", "departure", "origin", "from"],
+  // AFOCS 엑셀은 도착지 열 이름이 APR(Airport)인 경우가 있다
+  arrivalCode: ["arr", "apr", "arrcode", "도착", "도착지", "도착지코드", "도착공항", "arrival", "dest", "destination", "to"],
   skdTime: ["etd/eta", "etdeta", "etd", "eta", "skd", "afocsskd", "시간", "시각"],
   date: ["일자", "날짜", "운항일자", "date"],
 };

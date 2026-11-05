@@ -482,6 +482,14 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
     assert.strictEqual(monthly.assigneeLabel("A", null), "A");
     assert.strictEqual(monthly.assigneeLabel("B", { nameA: "", nameB: "  ", nameC: "" }), "B");
   });
+  test("AFOCS 엑셀 머리글 APR(도착지)도 도착지 열로 읽음: ICN 출발편의 ARR 이 비지 않음", () => {
+    const res = monthly.parseSkdMatrix([
+      ["편명", "등록기호", "DEP", "APR", "ETD/ETA", "담당자", "T/O R/I", "주기장"],
+      ["KJ587", "HL7436", "ICN", "BRU", "2026-11-06 16:15", "", "", "621"],
+      ["KJ932", "HL7436", "CAN", "ICN", "2026-11-06 14:20", "", "", "621"],
+    ]);
+    assert.deepStrictEqual(res.records.map((r) => [r.flight, r.departureCode, r.arrivalCode]), [["KJ587", "ICN", "BRU"], ["KJ932", "CAN", "ICN"]]);
+  });
   test("출도착 공항: 한쪽만 있으면 다른 쪽은 ICN, 인천 출발 판정", () => {
     assert.strictEqual(monthly.arrivalOf({ departureCode: "CAN", arrivalCode: "" }), "ICN");
     assert.strictEqual(monthly.arrivalOf({ departureCode: "ICN", arrivalCode: "" }), "");
