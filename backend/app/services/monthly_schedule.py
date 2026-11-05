@@ -316,7 +316,7 @@ def _list_assignees(start: Optional[str] = None, end: Optional[str] = None) -> L
     return [v for v in _read_file()["assignees"].values() if start <= v.get("flight_date", "") <= end]
 
 
-def _save_assignees(flight_date: str, shift: str, name_a: str, name_b: str, name_c: str, slot_count: int = 3) -> Dict[str, Any]:
+def _save_assignees(flight_date: str, shift: str, name_a: str, name_b: str, name_c: str, slot_count: int = 2) -> Dict[str, Any]:
     shift = str(shift or "").strip().upper()
     if shift not in SHIFTS:
         raise ValueError("근무조는 A, C, S 중 하나여야 합니다.")
@@ -330,7 +330,7 @@ def _save_assignees(flight_date: str, shift: str, name_a: str, name_b: str, name
         "name_a": str(name_a or "").strip()[:20],
         "name_b": str(name_b or "").strip()[:20],
         "name_c": str(name_c or "").strip()[:20],
-        "slot_count": slot_count if slot_count in (1, 2, 3) else 3,
+        "slot_count": 3 if slot_count == 3 else 2,
         "updated_at": _ts(),
     }
     if _supabase_usage_enabled():
@@ -361,7 +361,7 @@ def _assignee_to_client(row: Dict[str, Any]) -> Dict[str, Any]:
         "nameA": row.get("name_a", ""),
         "nameB": row.get("name_b", ""),
         "nameC": row.get("name_c", ""),
-        "slotCount": int(row.get("slot_count") or 3),
+        "slotCount": 3 if int(row.get("slot_count") or 2) == 3 else 2,
     }
 
 

@@ -4,12 +4,11 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "r
 import { MonthlySkdInputPanel } from "../components/MonthlySkdInputPanel";
 import {
   SHIFTS,
-  SLOTS,
-  activeSlotsFromNames,
+  activeSlots,
   addDays,
   arrivalOf,
   assignSlots,
-  assigneeName,
+  assigneeLabel,
   datesBetween,
   departureOf,
   deleteMonthlyFlight,
@@ -55,6 +54,7 @@ export default function MonthlyScheduledFlightPage() {
   const [editMode, setEditMode] = useState(false);
   const [showInput, setShowInput] = useState(false);
   const [names, setNames] = useState({ nameA: "", nameB: "", nameC: "" });
+  const [useC, setUseC] = useState(false);
 
   const load = useCallback(async (refresh: boolean) => {
     setLoading(true);
@@ -96,23 +96,29 @@ export default function MonthlyScheduledFlightPage() {
   );
   useEffect(() => {
     setNames({ nameA: assignee?.nameA || "", nameB: assignee?.nameB || "", nameC: assignee?.nameC || "" });
+    setUseC(assignee?.slotCount === 3);
   }, [assignee, date, shift]);
 
   const list = useMemo(() => (data ? flightsForShift(data.flights, date, shift, viewType) : []), [data, date, shift, viewType]);
-  // 이름을 입력한 칸만 사용: A만 입력하면 A만, A·B 입력하면 A·B만, A·B·C 모두 입력하면 A·B·C (입력 즉시 반영)
-  const usedSlots = useMemo(() => activeSlotsFromNames(names), [names]);
+  // 담당 칸: 기본 A·B, '3칸' 선택 시 A·B·C
+  const usedSlots = useMemo(() => activeSlots(useC ? 3 : 2), [useC]);
   const slots = useMemo(() => assignSlots(list, usedSlots), [list, usedSlots]);
   const shiftCounts = useMemo(
     () => Object.fromEntries(SHIFTS.map((s) => [s.code, data ? flightsForShift(data.flights, date, s.code, viewType).length : 0])),
     [data, date, viewType],
   );
 
-  const saveNames = async () => {
-    if ((assignee?.nameA || "") === names.nameA && (assignee?.nameB || "") === names.nameB && (assignee?.nameC || "") === names.nameC) {
+  const saveNames = async (nextUseC: boolean = useC) => {
+    if (
+      (assignee?.nameA || "") === names.nameA &&
+      (assignee?.nameB || "") === names.nameB &&
+      (assignee?.nameC || "") === names.nameC &&
+      (assignee?.slotCount === 3) === nextUseC
+    ) {
       return;
     }
     try {
-      await saveMonthlyAssignees({ flightDate: date, shift, ...names });
+      await saveMonthlyAssignees({ flightDate: date, shift, ...names, slotCount: nextUseC ? 3 : 2 });
       await load(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "담당 이름 저장 실패");
@@ -193,7 +199,7 @@ export default function MonthlyScheduledFlightPage() {
 
           <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
             <span style={labelStyle}>담당</span>
-            {SLOTS.map((slot) => {
+            {usedSlots.map((slot) => {
               const key = `name${slot}` as "nameA" | "nameB" | "nameC";
               return (
                 <label key={slot} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13 }}>
@@ -201,7 +207,7 @@ export default function MonthlyScheduledFlightPage() {
                   <input
                     value={names[key]}
                     onChange={(e) => setNames({ ...names, [key]: e.target.value })}
-                    onBlur={() => void saveNames()}
+                    onBlur={() => void saveNames(useC)}
                     placeholder={slot}
                     style={nameInputStyle}
                     aria-label={`담당 ${slot} 이름`}
@@ -209,6 +215,18 @@ export default function MonthlyScheduledFlightPage() {
                 </label>
               );
             })}
+            <label style={{ fontSize: 12, color: "#bfdbfe" }}>
+              <input
+                type="checkbox"
+                checked={useC}
+                onChange={(e) => {
+                  setUseC(e.target.checked);
+                  void saveNames(e.target.checked);
+                }}
+                aria-label="담당 3칸(A·B·C) 표시"
+              />{" "}
+              3칸(C 추가)
+            </label>
             <label style={{ fontSize: 12, color: "#94a3b8", marginLeft: "auto" }}>
               <input type="checkbox" checked={editMode} onChange={(e) => setEditMode(e.target.checked)} /> 편 삭제
             </label>
@@ -259,9 +277,9 @@ export default function MonthlyScheduledFlightPage() {
                           style={slotSelectStyle}
                           aria-label={`${f.flight} 담당`}
                         >
-                          <option value="">{assigneeName(slot, names)}</option>
+                          <option value="">{assigneeLabel(slot, names)}</option>
                           {usedSlots.map((s) => (
-                            <option key={s} value={s}>{`${s} · ${assigneeName(s, names)}`}</option>
+                            <option key={s} value={s}>{assigneeLabel(s, names)}</option>
                           ))}
                         </select>
                       </td>

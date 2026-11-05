@@ -31,7 +31,7 @@ create table if not exists public.monthly_schedule_assignees (
   name_a text not null default '',
   name_b text not null default '',
   name_c text not null default '',
-  slot_count integer not null default 3,   -- 그 근무조의 담당 인원 수: 1(A) / 2(A,B) / 3(A,B,C)
+  slot_count integer not null default 2,   -- 담당 칸 수: 2(A·B, 기본) / 3(A·B·C)
   updated_at timestamptz not null default now()
 );
 

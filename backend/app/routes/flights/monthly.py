@@ -55,7 +55,7 @@ class AssigneeNamesRequest(BaseModel):
     nameA: str = ""
     nameB: str = ""
     nameC: str = ""
-    slotCount: int = 3
+    slotCount: int = 2
 
 
 def _storage_error(exc: Exception) -> HTTPException:

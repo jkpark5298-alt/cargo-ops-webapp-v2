@@ -28,6 +28,8 @@ export type MonthlyAssignee = {
   nameA: string;
   nameB: string;
   nameC: string;
+  /** 담당 칸 수: 2(A·B, 기본) / 3(A·B·C) */
+  slotCount?: number;
 };
 
 export type MonthlyScheduleData = {
@@ -107,15 +109,9 @@ export function flightsForShift(flights: MonthlyFlight[], date: string, shift: S
     .sort((a, b) => displayTime(a, viewType).localeCompare(displayTime(b, viewType)) || a.flight.localeCompare(b.flight));
 }
 
-/**
- * 사용할 담당 칸: 이름을 입력한 칸만 (A만 / A·B / A·B·C …). 하나도 입력하지 않았으면 A·B·C 모두(글자로 표시).
- */
-export function activeSlotsFromNames(names?: Pick<MonthlyAssignee, "nameA" | "nameB" | "nameC"> | null): SlotCode[] {
-  const filled = SLOTS.filter((slot) => {
-    const name = slot === "A" ? names?.nameA : slot === "B" ? names?.nameB : names?.nameC;
-    return String(name || "").trim() !== "";
-  });
-  return filled.length > 0 ? filled : [...SLOTS];
+/** 사용할 담당 칸: 기본 A·B, 3칸 선택 시 A·B·C */
+export function activeSlots(count?: number): SlotCode[] {
+  return count === 3 ? [...SLOTS] : SLOTS.slice(0, 2);
 }
 
 /**
@@ -150,10 +146,10 @@ export function departureOf(f: Pick<MonthlyFlight, "departureCode" | "arrivalCod
   return dep || (arr && arr !== "ICN" ? "ICN" : "");
 }
 
-/** 담당 이름. 이름을 입력하지 않았으면 'A'/'B'/'C' 글자 그대로 */
-export function assigneeName(slot: SlotCode, names?: Pick<MonthlyAssignee, "nameA" | "nameB" | "nameC"> | null): string {
-  const name = slot === "A" ? names?.nameA : slot === "B" ? names?.nameB : names?.nameC;
-  return String(name || "").trim() || slot;
+/** 담당 표시: 이름이 있으면 'A(홍길동)', 없으면 'A' */
+export function assigneeLabel(slot: SlotCode, names?: Pick<MonthlyAssignee, "nameA" | "nameB" | "nameC"> | null): string {
+  const name = String((slot === "A" ? names?.nameA : slot === "B" ? names?.nameB : names?.nameC) || "").trim();
+  return name ? `${slot}(${name})` : slot;
 }
 
 export function isIcnDeparture(f: Pick<MonthlyFlight, "departureCode" | "arrivalCode">) {
