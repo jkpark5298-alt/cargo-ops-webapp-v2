@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FlightAlertHistoryCard } from "./components/FlightAlertHistoryCard";
 import { WeatherCard } from "./components/WeatherCard";
@@ -19,37 +13,38 @@ import {
   buildFlightAlertSnapshot,
   clearFlightAlertHistory,
   clearFlightAlertSnapshot,
+  type FlightAlertHistoryItem,
+  type FlightAlertSnapshot,
+  getCurrentTimeLabel,
   loadFlightAlertHistory,
   loadFlightAlertSnapshot,
   mergeFlightAlertHistoryItems,
   saveFlightAlertHistory,
   saveFlightAlertSnapshot,
-  type FlightAlertHistoryItem,
-  type FlightAlertSnapshot,
 } from "./lib/flight-alerts";
 import {
   clearDailyDraft,
   clearDailyNotionRecord,
   clearIssueDraft,
   clearIssueNotionRecord,
+  DEFAULT_DAILY_AUTHOR,
+  getLastDailySaveSignature,
+  getLastIssueSaveSignature,
   loadDailyDraft,
   loadDailyNotionRecordForDate,
   loadImages,
   loadIssueDraft,
   loadIssueNotionRecord,
   loadNote,
+  normalizeDailyAuthor,
   saveDailyDraft,
   saveDailyNotionRecordForDate,
   saveImages,
   saveIssueDraft,
   saveIssueNotionRecord,
-  saveNote,
-  getLastDailySaveSignature,
-  getLastIssueSaveSignature,
   saveLastDailySaveSignature,
   saveLastIssueSaveSignature,
-  DEFAULT_DAILY_AUTHOR,
-  normalizeDailyAuthor,
+  saveNote,
 } from "./lib/local-storage";
 import {
   deleteDailyRecord,
@@ -87,606 +82,66 @@ import { type FlightRow, type MonitorRoom } from "./lib/flight-types";
 import { getFlightNo, normalizeFlightKey, normalizeFlightsInput } from "./lib/flight-keys";
 import { BACKEND_URL } from "./lib/api-config";
 import {
+  applyRegistrationToRows,
   fetchAircraftRegistrationRecordsFromServer,
   loadAircraftRegistrationRecords,
 } from "./lib/aircraft-registration";
-import { applyRegistrationToRows } from "./lib/aircraft-registration";
-import { getCurrentTimeLabel, getRouteDisplay } from "./lib/flight-alerts";
-type DailyNotionRecord = {
-  pageId: string;
-  url?: string;
-  savedAt: string;
-  workDate?: string;
-};
-
-type IssueNotionRecord = DailyNotionRecord;
-
-type BackendScheduleChange = {
-  flight?: string;
-  route?: string;
-  changes?: string[];
-  title?: string;
-  description?: string;
-  message?: string;
-  detail?: string;
-  changeText?: string;
-  previous?: string;
-  current?: string;
-  before?: string;
-  after?: string;
-  oldValue?: string;
-  newValue?: string;
-  oldTime?: string;
-  newTime?: string;
-  beforeTime?: string;
-  afterTime?: string;
-  gate?: string;
-  oldGate?: string;
-  newGate?: string;
-  status?: string;
-  oldStatus?: string;
-  newStatus?: string;
-};
-
-type BackendScheduleCheckResult = {
-  changed?: number;
-  sent?: number;
-  failed?: number;
-  checked?: number;
-  changes?: BackendScheduleChange[];
-};
-
-type IncheonApiUsage = {
-  departure: number;
-  arrival: number;
-  total: number;
-  departureRate: number;
-  arrivalRate: number;
-  totalRate: number;
-  warning: boolean;
-  lastCalledAt?: string;
-};
-
-type ImageSlotKey =
-  | "daily-schedule"
-  | "aircraft-check"
-  | "inspection-result"
-  | "issue";
-
-const IMAGE_SLOTS: Array<{
-  key: ImageSlotKey;
-  title: string;
-  description: string;
-}> = [
-  {
-    key: "daily-schedule",
-    title: "1. 업무일정 이미지",
-    description: "당일 업무일정, Cargo Plan, 작업 순서 이미지를 저장합니다.",
-  },
-  {
-    key: "aircraft-check",
-    title: "2. 화물기 CHECK 사항 이미지",
-    description: "화물기 CHECK 대상과 확인 사항 이미지를 저장합니다.",
-  },
-  {
-    key: "inspection-result",
-    title: "3. 점검 대상 결과 이미지",
-    description: "점검 대상 결과, 확인 완료 화면, 결과 이미지를 저장합니다.",
-  },
-];
-
-const ISSUE_IMAGE_SLOT: {
-  key: ImageSlotKey;
-  title: string;
-  description: string;
-} = {
-  key: "issue",
-  title: "4. 특이사항 이미지",
-  description: "특이사항 발생 시 증빙용 현장 이미지 또는 캡처를 저장합니다.",
-};
-
-const IMAGE_SLOT_PROPERTY_NAME: Record<ImageSlotKey, string> = {
-  "daily-schedule": "업무일정 이미지",
-  "aircraft-check": "화물기 CHECK 이미지",
-  "inspection-result": "점검 대상 결과 이미지",
-  issue: "이미지",
-};
-
-const APP_VERSION = "v1.0.2";
-const APP_VERSION_DATE = "2026.05.19";
-
-type HourlyWeather = {
-  time?: string;
-  condition?: string;
-  temperature?: string;
-  icon?: string;
-};
-
-type WeatherInfo = {
-  success?: boolean;
-  location?: string;
-  temperature?: string;
-  condition?: string;
-  feelsLike?: string;
-  humidity?: string;
-  windSpeed?: string;
-  pm10Grade?: string;
-  pm25Grade?: string;
-  hourly?: HourlyWeather[];
-  baseTime?: string;
-  icon?: string;
-  source?: string;
-  message?: string;
-};
-
-const DEFAULT_WEATHER: WeatherInfo = {
-  success: false,
-  location: "인천시 중구 운서동",
-  temperature: "19.6",
-  condition: "맑음",
-  feelsLike: "18.0",
-  humidity: "32",
-  windSpeed: "3.3",
-  pm10Grade: "좋음",
-  pm25Grade: "좋음",
-  hourly: [
-    { time: "18시", condition: "맑음", temperature: "19", icon: "☀️" },
-    { time: "21시", condition: "구름많음", temperature: "17", icon: "⛅" },
-    { time: "00시", condition: "흐림", temperature: "15", icon: "☁️" },
-    { time: "03시", condition: "맑음", temperature: "14", icon: "☀️" },
-  ],
-  baseTime: "14:00",
-  icon: "☀️",
-  source: "fallback",
-  message: "실시간 날씨 정보를 불러오면 자동으로 갱신됩니다.",
-};
-
-
-
-
-
-type SavedImage = {
-  id: string;
-  type: ImageSlotKey;
-  label: string;
-  savedAt: string;
-  dataUrl: string;
-  capturedAt?: string;
-  locationText?: string;
-  memo?: string;
-};
-
-function getLocalLatestScheduleRoom() {
-  return loadRooms().find((room) => room.fixed && isActiveScheduleRoom(room)) || null;
-}
-
-function getCurrentSyncLabel() {
-  return new Intl.DateTimeFormat("ko-KR", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(new Date());
-}
-
-function getImageBySlot(images: SavedImage[], slotKey: ImageSlotKey) {
-  return images.find((image) => image.type === slotKey) || null;
-}
-
-function upsertImageBySlot(
-  images: SavedImage[],
-  nextImage: SavedImage,
-): SavedImage[] {
-  return [nextImage, ...images].slice(0, 20);
-}
-
-function getImagesBySlot(images: SavedImage[], slotKey: ImageSlotKey) {
-  return images.filter((image) => image.type === slotKey);
-}
-
-function removeImageBySlot(images: SavedImage[], slotKey: ImageSlotKey) {
-  return images.filter((image) => image.type !== slotKey);
-}
-
-function formatDateForTitle(date: Date) {
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  const weekdays = [
-    "일요일",
-    "월요일",
-    "화요일",
-    "수요일",
-    "목요일",
-    "금요일",
-    "토요일",
-  ];
-  return `${yyyy}.${mm}.${dd} ${weekdays[date.getDay()]}`;
-}
-
-const DAILY_WORK_DATE_STORAGE_KEY = "cargo_ops_daily_work_date_v1";
-
-function formatHeaderUsageRate(value?: number) {
-  if (typeof value !== "number" || Number.isNaN(value)) return "-";
-  return `${value.toFixed(value >= 10 ? 1 : 2)}%`;
-}
-
-function formatHeaderApiUsageText(usage?: IncheonApiUsage | null) {
-  if (!usage) return "API 사용율 : - (총 -건, 출발 -건, 도착 -건)";
-
-  const total = Number(usage.total || 0);
-  const departure = Number(usage.departure || 0);
-  const arrival = Number(usage.arrival || 0);
-  const totalRate = Number(usage.totalRate || 0);
-
-  return `API 사용율 : ${formatHeaderUsageRate(totalRate)} (총 ${total.toLocaleString()}건, 출발 ${departure.toLocaleString()}건, 도착 ${arrival.toLocaleString()}건)`;
-}
-
-function getTodayDateInputValue() {
-  const now = new Date();
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function getInitialDailyWorkDate() {
-  if (typeof window === "undefined") return getTodayDateInputValue();
-
-  try {
-    const saved = window.localStorage.getItem(DAILY_WORK_DATE_STORAGE_KEY);
-    return saved || getTodayDateInputValue();
-  } catch {
-    return getTodayDateInputValue();
-  }
-}
-
-function saveDailyWorkDate(value: string) {
-  if (typeof window === "undefined") return;
-
-  try {
-    window.localStorage.setItem(DAILY_WORK_DATE_STORAGE_KEY, value);
-  } catch {
-    // 날짜 저장 실패는 화면 동작을 막지 않습니다.
-  }
-}
-
-function formatDailyStatusLabel(status: "normal" | "issue") {
-  return status === "normal" ? "정상" : "비정상";
-}
-
-function getWorkDateMismatchMessage(workDate: string, today = getTodayDateInputValue()) {
-  if (!workDate || workDate === today) return "";
-  return `선택 업무일자는 ${formatDateInputForTitle(workDate)} 이고, 시스템 날짜는 ${formatDateInputForTitle(today)} 입니다. Notion에는 선택 업무일자로 저장됩니다.`;
-}
-
-function formatDateInputForTitle(value: string) {
-  const [yyyy, mm, dd] = value.split("-").map((part) => Number(part));
-  if (!yyyy || !mm || !dd) return formatDateForTitle(new Date());
-
-  return formatDateForTitle(new Date(yyyy, mm - 1, dd));
-}
-
-function getDailyWorkDateIso(value: string) {
-  if (!value) return new Date().toISOString();
-
-  return `${value}T00:00:00+09:00`;
-}
-
-function urlBase64ToUint8Array(base64String: string) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = `${base64String}${padding}`.replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-
-  for (let i = 0; i < rawData.length; i += 1) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-
-  return outputArray;
-}
-
-function getLatestScheduleRoom(rooms: MonitorRoom[]) {
-  const scheduleRooms = rooms.filter((room) => room.fixed);
-  return scheduleRooms[0] || null;
-}
-
-
-function getRouteByFlight(room: MonitorRoom | null, flightInput: string) {
-  if (!room || !flightInput.trim()) return "";
-
-  const targetFlight = flightInput.replace(/\s+/g, "").toUpperCase();
-  const matchedRow = room.rows?.find((row) => {
-    const rowFlight = getFlightNo(row).replace(/\s+/g, "").toUpperCase();
-    return rowFlight === targetFlight || rowFlight.includes(targetFlight);
-  });
-
-  return getRouteDisplay(matchedRow);
-}
-
-function getHlnbrByFlight(room: MonitorRoom | null, flightInput: string) {
-  if (!room || !flightInput.trim()) return "";
-
-  const targetFlight = flightInput.replace(/\s+/g, "").toUpperCase();
-  const matchedRow = room.rows?.find((row) => {
-    const rowFlight = getFlightNo(row).replace(/\s+/g, "").toUpperCase();
-    return rowFlight === targetFlight || rowFlight.includes(targetFlight);
-  });
-
-  const rowWithMaybeHlnbr = matchedRow as FlightRow & {
-    fid?: string;
-    aircraftRegNo?: string;
-    registrationNo?: string;
-    hlnbr?: string;
-  };
-
-  return (
-    rowWithMaybeHlnbr?.hlnbr ||
-    rowWithMaybeHlnbr?.registrationNo ||
-    rowWithMaybeHlnbr?.aircraftRegNo ||
-    rowWithMaybeHlnbr?.fid ||
-    ""
-  );
-}
-
-function getCurrentTimeText() {
-  const now = new Date();
-  const hh = String(now.getHours()).padStart(2, "0");
-  const mm = String(now.getMinutes()).padStart(2, "0");
-  return `${hh}:${mm}`;
-}
-
-function getWeatherSummary(weather: WeatherInfo) {
-  return `${weather.condition || "-"} ${weather.temperature || "-"}℃ / 습도 ${weather.humidity || "-"}% / 미세먼지 ${weather.pm10Grade || "-"}`;
-}
-
-function resizeImageDataUrl(dataUrl: string, maxSize = 1280, quality = 0.72): Promise<string> {
-  if (typeof window === "undefined") return Promise.resolve(dataUrl);
-  if (!dataUrl.startsWith("data:image/")) return Promise.resolve(dataUrl);
-
-  return new Promise((resolve) => {
-    const image = new Image();
-
-    image.onload = () => {
-      try {
-        const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
-        const width = Math.max(1, Math.round(image.width * scale));
-        const height = Math.max(1, Math.round(image.height * scale));
-
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-
-        const context = canvas.getContext("2d");
-
-        if (!context) {
-          resolve(dataUrl);
-          return;
-        }
-
-        context.drawImage(image, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", quality));
-      } catch {
-        resolve(dataUrl);
-      }
-    };
-
-    image.onerror = () => resolve(dataUrl);
-    image.src = dataUrl;
-  });
-}
-
-
-type ImageFileMetadata = {
-  capturedAt?: string;
-  locationText?: string;
-};
-
-async function readImageFileMetadata(file: File): Promise<ImageFileMetadata> {
-  try {
-    const buffer = await file.arrayBuffer();
-    const exif = readExifMetadata(buffer);
-    const capturedAt = exif.capturedAt || formatFileLastModified(file);
-
-    return {
-      capturedAt,
-      locationText: exif.locationText,
-    };
-  } catch {
-    return {
-      capturedAt: formatFileLastModified(file),
-    };
-  }
-}
-
-function formatFileLastModified(file: File) {
-  if (!file.lastModified) return undefined;
-  const date = new Date(file.lastModified);
-  if (Number.isNaN(date.getTime())) return undefined;
-  return `${date.toLocaleString("ko-KR")} · 파일 기준`;
-}
-
-function readExifMetadata(buffer: ArrayBuffer): ImageFileMetadata {
-  const view = new DataView(buffer);
-  const metadata: ImageFileMetadata = {};
-
-  if (view.byteLength < 4 || view.getUint16(0, false) !== 0xffd8) return metadata;
-
-  let offset = 2;
-
-  while (offset + 4 < view.byteLength) {
-    if (view.getUint8(offset) !== 0xff) break;
-
-    const marker = view.getUint8(offset + 1);
-    const length = view.getUint16(offset + 2, false);
-    const segmentStart = offset + 4;
-
-    if (marker === 0xe1 && segmentStart + 6 <= view.byteLength) {
-      const exifHeader = readAscii(view, segmentStart, 6);
-
-      if (exifHeader === "Exif\u0000\u0000") {
-        return parseExifTiff(view, segmentStart + 6);
-      }
-    }
-
-    if (length < 2) break;
-    offset += 2 + length;
-  }
-
-  return metadata;
-}
-
-function parseExifTiff(view: DataView, tiffStart: number): ImageFileMetadata {
-  const metadata: ImageFileMetadata = {};
-  const endian = readAscii(view, tiffStart, 2);
-  const littleEndian = endian === "II";
-
-  if (endian !== "II" && endian !== "MM") return metadata;
-  if (tiffStart + 8 > view.byteLength) return metadata;
-
-  const firstIfdOffset = getUint32Safe(view, tiffStart + 4, littleEndian);
-  const zerothIfd = readIfdEntries(view, tiffStart, tiffStart + firstIfdOffset, littleEndian);
-  const exifIfdOffset = getEntryNumber(zerothIfd.get(0x8769), view, tiffStart, littleEndian);
-  const gpsIfdOffset = getEntryNumber(zerothIfd.get(0x8825), view, tiffStart, littleEndian);
-  const fallbackDate = getEntryString(zerothIfd.get(0x0132), view, tiffStart, littleEndian);
-
-  if (exifIfdOffset) {
-    const exifIfd = readIfdEntries(view, tiffStart, tiffStart + exifIfdOffset, littleEndian);
-    const dateOriginal =
-      getEntryString(exifIfd.get(0x9003), view, tiffStart, littleEndian) ||
-      getEntryString(exifIfd.get(0x9004), view, tiffStart, littleEndian);
-    metadata.capturedAt = formatExifDate(dateOriginal || fallbackDate);
-  } else {
-    metadata.capturedAt = formatExifDate(fallbackDate);
-  }
-
-  if (gpsIfdOffset) {
-    const gpsIfd = readIfdEntries(view, tiffStart, tiffStart + gpsIfdOffset, littleEndian);
-    const latitude = readGpsCoordinate(gpsIfd.get(0x0002), view, tiffStart, littleEndian);
-    const longitude = readGpsCoordinate(gpsIfd.get(0x0004), view, tiffStart, littleEndian);
-    const latRef = getEntryString(gpsIfd.get(0x0001), view, tiffStart, littleEndian);
-    const lonRef = getEntryString(gpsIfd.get(0x0003), view, tiffStart, littleEndian);
-
-    if (latitude !== undefined && longitude !== undefined) {
-      const lat = latRef === "S" ? -latitude : latitude;
-      const lon = lonRef === "W" ? -longitude : longitude;
-      metadata.locationText = `위도 ${lat.toFixed(6)}, 경도 ${lon.toFixed(6)}`;
-    }
-  }
-
-  return metadata;
-}
-
-type IfdEntry = {
-  type: number;
-  count: number;
-  valueOffset: number;
-  valueFieldOffset: number;
-};
-
-function readIfdEntries(view: DataView, tiffStart: number, ifdOffset: number, littleEndian: boolean) {
-  const entries = new Map<number, IfdEntry>();
-  if (ifdOffset <= 0 || ifdOffset + 2 > view.byteLength) return entries;
-
-  const count = getUint16Safe(view, ifdOffset, littleEndian);
-
-  for (let index = 0; index < count; index += 1) {
-    const entryOffset = ifdOffset + 2 + index * 12;
-    if (entryOffset + 12 > view.byteLength) break;
-
-    const tag = getUint16Safe(view, entryOffset, littleEndian);
-    const type = getUint16Safe(view, entryOffset + 2, littleEndian);
-    const entryCount = getUint32Safe(view, entryOffset + 4, littleEndian);
-    const valueOffset = getUint32Safe(view, entryOffset + 8, littleEndian);
-
-    entries.set(tag, {
-      type,
-      count: entryCount,
-      valueOffset,
-      valueFieldOffset: entryOffset + 8,
-    });
-  }
-
-  return entries;
-}
-
-function getEntryNumber(entry: IfdEntry | undefined, view: DataView, tiffStart: number, littleEndian: boolean) {
-  if (!entry) return undefined;
-  if (entry.type === 3 && entry.count === 1) return getUint16Safe(view, entry.valueFieldOffset, littleEndian);
-  if (entry.type === 4 && entry.count === 1) return entry.valueOffset;
-  return entry.valueOffset;
-}
-
-function getEntryString(entry: IfdEntry | undefined, view: DataView, tiffStart: number, littleEndian: boolean) {
-  if (!entry || entry.type !== 2) return undefined;
-
-  const length = Math.max(0, entry.count - 1);
-  const start = entry.count <= 4 ? entry.valueFieldOffset : tiffStart + entry.valueOffset;
-
-  if (start < 0 || start + length > view.byteLength) return undefined;
-  return readAscii(view, start, length).trim().replace(/\u0000/g, "");
-}
-
-function readGpsCoordinate(entry: IfdEntry | undefined, view: DataView, tiffStart: number, littleEndian: boolean) {
-  if (!entry || entry.type !== 5 || entry.count < 3) return undefined;
-
-  const start = tiffStart + entry.valueOffset;
-  if (start < 0 || start + 24 > view.byteLength) return undefined;
-
-  const degrees = readRational(view, start, littleEndian);
-  const minutes = readRational(view, start + 8, littleEndian);
-  const seconds = readRational(view, start + 16, littleEndian);
-
-  if (degrees === undefined || minutes === undefined || seconds === undefined) return undefined;
-  return degrees + minutes / 60 + seconds / 3600;
-}
-
-function readRational(view: DataView, offset: number, littleEndian: boolean) {
-  const numerator = getUint32Safe(view, offset, littleEndian);
-  const denominator = getUint32Safe(view, offset + 4, littleEndian);
-  if (!denominator) return undefined;
-  return numerator / denominator;
-}
-
-function formatExifDate(value?: string) {
-  if (!value) return undefined;
-  const match = value.match(/^(\d{4}):(\d{2}):(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/);
-  if (!match) return value;
-
-  const [, year, month, day, hour, minute, second] = match;
-  const date = new Date(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute),
-    Number(second),
-  );
-
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("ko-KR");
-}
-
-function readAscii(view: DataView, offset: number, length: number) {
-  let text = "";
-  for (let index = 0; index < length && offset + index < view.byteLength; index += 1) {
-    text += String.fromCharCode(view.getUint8(offset + index));
-  }
-  return text;
-}
-
-function getUint16Safe(view: DataView, offset: number, littleEndian: boolean) {
-  if (offset < 0 || offset + 2 > view.byteLength) return 0;
-  return view.getUint16(offset, littleEndian);
-}
-
-function getUint32Safe(view: DataView, offset: number, littleEndian: boolean) {
-  if (offset < 0 || offset + 4 > view.byteLength) return 0;
-  return view.getUint32(offset, littleEndian);
-}
-
+import {
+  BackendScheduleChange,
+  BackendScheduleCheckResult,
+  DailyNotionRecord,
+  ImageSlotKey,
+  IncheonApiUsage,
+  IssueNotionRecord,
+  SavedImage,
+  WeatherInfo,
+} from "./home/types";
+import {
+  APP_VERSION,
+  APP_VERSION_DATE,
+  DEFAULT_WEATHER,
+  IMAGE_SLOT_PROPERTY_NAME,
+  IMAGE_SLOTS,
+  ISSUE_IMAGE_SLOT,
+} from "./home/constants";
+import {
+  formatDailyStatusLabel,
+  formatDateForTitle,
+  formatDateInputForTitle,
+  formatHeaderApiUsageText,
+  getCurrentSyncLabel,
+  getCurrentTimeText,
+  getDailyWorkDateIso,
+  getHlnbrByFlight,
+  getImageBySlot,
+  getImagesBySlot,
+  getInitialDailyWorkDate,
+  getLatestScheduleRoom,
+  getLocalLatestScheduleRoom,
+  getRouteByFlight,
+  getTodayDateInputValue,
+  getWeatherSummary,
+  getWorkDateMismatchMessage,
+  readImageFileMetadata,
+  removeImageBySlot,
+  resizeImageDataUrl,
+  saveDailyWorkDate,
+  upsertImageBySlot,
+  urlBase64ToUint8Array,
+} from "./home/helpers";
+import {
+  datePillStyle,
+  datePillSubStyle,
+  eyebrowStyle,
+  footerStyle,
+  heroStyle,
+  noticeDangerStyle,
+  noticeStyle,
+  pageStyle,
+  stackStyle,
+  titleStyle,
+} from "./home/styles";
+import { ActionCard } from "./home/components/ActionCard";
 
 export default function HomePage() {
   const router = useRouter();
@@ -3211,170 +2666,3 @@ export default function HomePage() {
     </main>
   );
 }
-
-function ActionCard({
-  label,
-  title,
-  description,
-  buttonLabel,
-  onClick,
-  accent,
-}: {
-  label: string;
-  title: string;
-  description: string;
-  buttonLabel: string;
-  onClick: () => void;
-  accent: string;
-}) {
-  return (
-    <section style={{ ...cardStyle, borderColor: `${accent}66` }}>
-      <div style={cardLabelStyle}>{label}</div>
-      <h2 style={cardTitleStyle}>{title}</h2>
-      <p style={cardDescriptionStyle}>{description}</p>
-      <button
-        onClick={onClick}
-        style={{ ...primaryButtonStyle, background: accent }}
-      >
-        {buttonLabel}
-      </button>
-    </section>
-  );
-}
-
-const pageStyle: CSSProperties = {
-  minHeight: "100vh",
-  background:
-    "radial-gradient(circle at top right, rgba(37, 99, 235, 0.26), transparent 32%), linear-gradient(180deg, #061121 0%, #07152b 52%, #020817 100%)",
-  color: "#f8fafc",
-  padding:
-    "max(14px, env(safe-area-inset-top)) 12px max(20px, env(safe-area-inset-bottom))",
-  fontFamily:
-    '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif',
-};
-const heroStyle: CSSProperties = {
-  width: "100%",
-  maxWidth: 520,
-  margin: "0 auto",
-  padding: "12px 0 8px",
-};
-const eyebrowStyle: CSSProperties = {
-  color: "#9fb3c8",
-  fontSize: 13,
-  fontWeight: 900,
-  letterSpacing: "0.22em",
-  marginBottom: 6,
-};
-const titleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "clamp(28px, 8vw, 38px)",
-  lineHeight: 1.08,
-  letterSpacing: "-0.06em",
-  fontWeight: 950,
-  wordBreak: "keep-all",
-};
-const datePillStyle: CSSProperties = {
-  display: "inline-flex",
-  flexDirection: "column",
-  alignItems: "flex-start",
-  gap: 3,
-  marginTop: 10,
-  padding: "9px 16px",
-  borderRadius: 22,
-  background: "rgba(37, 99, 235, 0.18)",
-  border: "1px solid rgba(147, 197, 253, 0.28)",
-  color: "#dbeafe",
-  fontSize: 15,
-  fontWeight: 900,
-  lineHeight: 1.35,
-  whiteSpace: "normal",
-  wordBreak: "keep-all",
-};
-const datePillSubStyle: CSSProperties = {
-  color: "#bfdbfe",
-  fontSize: 14,
-  fontWeight: 850,
-  lineHeight: 1.35,
-};
-const stackStyle: CSSProperties = {
-  width: "100%",
-  maxWidth: 520,
-  margin: "12px auto 0",
-  display: "flex",
-  flexDirection: "column",
-  gap: 8,
-};
-const cardStyle: CSSProperties = {
-  width: "100%",
-  boxSizing: "border-box",
-  padding: 12,
-  borderRadius: 20,
-  background: "rgba(8, 20, 39, 0.84)",
-  border: "1px solid rgba(148, 163, 184, 0.22)",
-  boxShadow: "0 12px 32px rgba(0, 0, 0, 0.22)",
-  overflow: "hidden",
-};
-const cardLabelStyle: CSSProperties = {
-  color: "#9fb3c8",
-  fontSize: 13,
-  letterSpacing: "0.12em",
-  fontWeight: 900,
-  textTransform: "uppercase",
-  marginBottom: 6,
-};
-const cardTitleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: 21,
-  lineHeight: 1.25,
-  letterSpacing: "-0.04em",
-  fontWeight: 900,
-  wordBreak: "keep-all",
-};
-const cardDescriptionStyle: CSSProperties = {
-  margin: "10px 0 12px",
-  color: "#b8c5d8",
-  fontSize: 14,
-  lineHeight: 1.45,
-  wordBreak: "keep-all",
-};
-const primaryButtonStyle: CSSProperties = {
-  width: "100%",
-  minHeight: 46,
-  border: "none",
-  borderRadius: 14,
-  color: "white",
-  fontSize: 15,
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const noticeStyle: CSSProperties = {
-  padding: 12,
-  borderRadius: 18,
-  background: "rgba(250, 204, 21, 0.12)",
-  border: "1px solid rgba(250, 204, 21, 0.26)",
-  color: "#fde68a",
-  fontSize: 14,
-  lineHeight: 1.5,
-};
-
-const noticeDangerStyle: CSSProperties = {
-  padding: 12,
-  borderRadius: 18,
-  background: "rgba(127, 29, 29, 0.45)",
-  border: "1px solid rgba(239, 68, 68, 0.75)",
-  color: "#fecaca",
-  fontSize: 14,
-  lineHeight: 1.5,
-  fontWeight: 750,
-};
-
-const footerStyle: CSSProperties = {
-  maxWidth: 520,
-  margin: "16px auto 0",
-  padding: "8px 0",
-  color: "#64748b",
-  textAlign: "center",
-  fontSize: 13,
-  fontWeight: 800,
-};

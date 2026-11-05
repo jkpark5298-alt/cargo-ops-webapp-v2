@@ -1,20 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import {
-  parseAfocsDateTime,
-  parseAfocsSkdSortValueFromParts,
-  prepareAfocsSkdForSave,
-  resolveAfocsSkdForDisplay,
-  getAfocsSkdPlaceholderFromRow,
-  splitAfocsSkdPartsStoredOnly,
-  splitScheduleCompactParts,
-} from "../lib/afocs-skd";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { getAfocsSkdPlaceholderFromRow, prepareAfocsSkdForSave } from "../lib/afocs-skd";
 import { DEFAULT_DAILY_AUTHOR, normalizeDailyAuthor } from "../lib/local-storage";
-import {
-  getComputedFlightStatus,
-  isFinalCompletedFlightStatus,
-} from "../lib/flight-status";
 import { type FlightRow, type MonitorRoom } from "../lib/flight-types";
 import { getRegistrationNo, normalizeFlightKey, normalizeFlightsInput } from "../lib/flight-keys";
 import { BACKEND_URL } from "../lib/api-config";
@@ -28,253 +16,44 @@ import {
   saveRooms,
 } from "../lib/schedule-store";
 import {
+  applyRegistrationToRows,
   fetchAircraftRegistrationRecordsFromServer,
   loadAircraftRegistrationRecords,
 } from "../lib/aircraft-registration";
-import { applyRegistrationToRows } from "../lib/aircraft-registration";
 import {
-  applyScheduleFlightOrder,
   getScheduleFlightOrderStorageKey,
   loadScheduleFlightOrder,
   normalizeSummaryFlightKey,
   saveScheduleFlightOrder,
 } from "../lib/schedule-order";
 import { getFlightNoColor } from "../lib/flight-status";
-const DAILY_IMAGES_CACHE_KEY = "cargo_ops_daily_images_cache_v1";
-
-const LAST_FIXED_ROOM_KEY = "last_fixed_room_id";
-
-const DEFAULT_REFRESH_MINUTES = 30;
-const FOCUS_REFRESH_MINUTES = 5;
-
-type ImageSlotKey = "daily-schedule" | "aircraft-check" | "inspection-result" | "issue";
-
-type SavedImage = {
-  id: string;
-  type: ImageSlotKey;
-  label: string;
-  savedAt: string;
-  capturedAt?: string;
-  locationText?: string;
-  memo?: string;
-  dataUrl: string;
-};
-
-type WidgetSummaryItem = {
-  flight: string;
-  status: string;
-  departureCode: string;
-  arrivalCode: string;
-  displayTime: string;
-  gate: string;
-  registrationNo?: string;
-  excludeReason?: string;
-  afocsSkd?: string;
-};
-
-type WidgetSummaryResponse = {
-  success: boolean;
-  roomId: string;
-  roomName: string;
-  updatedAt: string;
-  refreshIntervalMinutes: number;
-  items: WidgetSummaryItem[];
-};
-
-function parseDateTime(value?: string | null): Date | null {
-  if (!value || value === "-") return null;
-
-  const parsed = parseAfocsDateTime(value);
-  if (parsed) return parsed;
-
-  const raw = value.trim().replace(/\./g, "-").replace(/\//g, "-").replace("T", " ");
-  const digits = raw.replace(/\D/g, "");
-  if (digits.length === 12) {
-    return new Date(
-      Number(digits.slice(0, 4)),
-      Number(digits.slice(4, 6)) - 1,
-      Number(digits.slice(6, 8)),
-      Number(digits.slice(8, 10)),
-      Number(digits.slice(10, 12))
-    );
-  }
-
-  return null;
-}
-
-function getFlightTimeFromRow(row: FlightRow): Date | null {
-  return (
-    parseDateTime(row.formattedEstimatedTime) ||
-    parseDateTime(row.estimatedDateTime) ||
-    parseDateTime(row.formattedScheduleTime) ||
-    parseDateTime(row.scheduleDateTime)
-  );
-}
-
-function getRefreshExcludeReasonFromRow(row: FlightRow) {
-  const remarkStatus = String(row.remark || "").toUpperCase();
-
-  if (row.canceled || remarkStatus.includes("결항") || remarkStatus.includes("CANCEL")) {
-    return "결항 확정";
-  }
-
-  if (remarkStatus.includes("도착") || remarkStatus.includes("ARRIVED")) {
-    return "도착 확정";
-  }
-
-  return "";
-}
-
-function isFinalCompletedStatus(status: string) {
-  return isFinalCompletedFlightStatus(status);
-}
-
-function getLatestRowsByFlight(rows: FlightRow[]) {
-  const map = new Map<string, { row: FlightRow; time: number }>();
-
-  for (const row of rows) {
-    const flight = row.flightId || row.flightNo || "";
-    if (!flight) continue;
-
-    const dt = getFlightTimeFromRow(row);
-    const time = dt ? dt.getTime() : -1;
-
-    const prev = map.get(flight);
-    if (!prev || time >= prev.time) {
-      map.set(flight, { row, time });
-    }
-  }
-
-  return map;
-}
-
-function getCompletedFlightSetFromRows(rows: FlightRow[]) {
-  const completed = new Set<string>();
-  const latestMap = getLatestRowsByFlight(rows);
-
-  latestMap.forEach(({ row }, flight) => {
-    const reason = getRefreshExcludeReasonFromRow(row);
-    if (reason) completed.add(flight);
-  });
-
-  return completed;
-}
-
-function getRefreshExcludeReasonMapFromRows(rows: FlightRow[]) {
-  const reasonMap = new Map<string, string>();
-  const latestMap = getLatestRowsByFlight(rows);
-
-  latestMap.forEach(({ row }, flight) => {
-    const reason = getRefreshExcludeReasonFromRow(row);
-    if (reason) reasonMap.set(flight, reason);
-  });
-
-  return reasonMap;
-}
-
-function roomButtonStyle(active: boolean): CSSProperties {
-  return {
-    border: active ? "1px solid #60a5fa" : "1px solid #24354f",
-    background: active ? "#0e203d" : "#0a1528",
-    color: "white",
-    borderRadius: 12,
-    padding: "10px 12px",
-    cursor: "pointer",
-    textAlign: "left",
-    minWidth: 0,
-  };
-}
-
-function formatMonthDayTime(value?: string | null) {
-  if (!value) return "-";
-
-  const parsed = parseDateTime(value);
-
-  if (parsed) {
-    return new Intl.DateTimeFormat("ko-KR", {
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).format(parsed);
-  }
-
-  return value;
-}
-
-function formatDisplayItemFromRow(flight: string, row: FlightRow): WidgetSummaryItem {
-  return {
-    flight,
-    status: getComputedFlightStatus(row),
-    departureCode: row.departureCode || "-",
-    arrivalCode: row.arrivalCode || "-",
-    displayTime:
-      formatMonthDayTime(
-        row.formattedEstimatedTime ||
-          row.estimatedDateTime ||
-          row.formattedScheduleTime ||
-          row.scheduleDateTime ||
-          "-"
-      ) || "-",
-    gate: row.gatenumber || "-",
-    registrationNo: getRegistrationNo(row),
-    afocsSkd: resolveAfocsSkdForDisplay(row.afocsSkd || "", row),
-  };
-}
-
-function formatFallbackDisplayItem(flight: string): WidgetSummaryItem {
-  return {
-    flight,
-    status: "-",
-    departureCode: "-",
-    arrivalCode: "-",
-    displayTime: "-",
-    gate: "-",
-    registrationNo: "",
-    afocsSkd: "",
-  };
-}
-
-function getItemDirection(item: WidgetSummaryItem) {
-  const dep = (item.departureCode || "").toUpperCase();
-  const arr = (item.arrivalCode || "").toUpperCase();
-
-  if (dep === "ICN") return "departure";
-  if (arr === "ICN") return "arrival";
-  return "unknown";
-}
-
-function isItemInFocusWindow(item: WidgetSummaryItem) {
-  const dt = parseDateTime(item.displayTime);
-  if (!dt) return false;
-
-  const now = Date.now();
-  const t = dt.getTime();
-  const direction = getItemDirection(item);
-
-  if (direction === "departure") {
-    const start = t - 30 * 60 * 1000;
-    const end = t + 60 * 60 * 1000;
-    return now >= start && now <= end;
-  }
-
-  if (direction === "arrival") {
-    const start = t - 60 * 60 * 1000;
-    const end = t + 30 * 60 * 1000;
-    return now >= start && now <= end;
-  }
-
-  return false;
-}
-
-function getNextRefreshMinutes(activeItems: WidgetSummaryItem[]) {
-  if (activeItems.length === 0) return null;
-
-  const hasFocusItem = activeItems.some((item) => isItemInFocusWindow(item));
-
-  return hasFocusItem ? FOCUS_REFRESH_MINUTES : DEFAULT_REFRESH_MINUTES;
-}
+import { SavedImage, WidgetSummaryItem, WidgetSummaryResponse } from "./types";
+import { DAILY_IMAGES_CACHE_KEY, DEFAULT_REFRESH_MINUTES, LAST_FIXED_ROOM_KEY } from "./constants";
+import {
+  formatDisplayItemFromRow,
+  formatFallbackDisplayItem,
+  formatMonthDayTime,
+  getCompletedFlightSetFromRows,
+  getLatestRowsByFlight,
+  getNextRefreshMinutes,
+  getRefreshExcludeReasonMapFromRows,
+  getSortCircleButtonStyle,
+  isFinalCompletedStatus,
+  isItemInFocusWindow,
+  roomButtonStyle,
+  sortWidgetItemsByMode,
+} from "./helpers";
+import {
+  actionBtnStyle,
+  backBtnStyle,
+  completedBadgeStyle,
+  focusBadgeStyle,
+  homeButtonStyle,
+  infoCardStyle,
+  infoLabelStyle,
+  infoValueStyle,
+  sectionStyle,
+} from "./styles";
 
 export default function FixedLitePage() {
   const [rooms, setRooms] = useState<MonitorRoom[]>([]);
@@ -1869,142 +1648,4 @@ export default function FixedLitePage() {
       </div>
     </div>
   );
-}
-
-const homeButtonStyle: CSSProperties = {
-  padding: "9px 12px",
-  borderRadius: 10,
-  border: "1px solid rgba(147, 197, 253, 0.34)",
-  background: "#0f172a",
-  color: "#dbeafe",
-  fontSize: 13,
-  fontWeight: 800,
-  cursor: "pointer",
-};
-
-const sectionStyle: CSSProperties = {
-  background: "#0a1528",
-  border: "1px solid #22314e",
-  borderRadius: 16,
-  padding: 16,
-};
-
-const actionBtnStyle: CSSProperties = {
-  border: "none",
-  background: "#2563eb",
-  color: "white",
-  borderRadius: 10,
-  padding: "10px 14px",
-  fontWeight: 800,
-  cursor: "pointer",
-  minWidth: 96,
-};
-
-const backBtnStyle: CSSProperties = {
-  border: "none",
-  background: "#0f766e",
-  color: "white",
-  borderRadius: 10,
-  padding: "10px 14px",
-  fontWeight: 800,
-  cursor: "pointer",
-  minWidth: 150,
-};
-
-const infoCardStyle: CSSProperties = {
-  background: "#091326",
-  border: "1px solid #1f2c43",
-  borderRadius: 12,
-  padding: 12,
-};
-
-const infoLabelStyle: CSSProperties = {
-  color: "#92a7c5",
-  fontSize: 11,
-  marginBottom: 4,
-};
-
-const infoValueStyle: CSSProperties = {
-  fontWeight: 800,
-  fontSize: 15,
-};
-
-const focusBadgeStyle: CSSProperties = {
-  color: "#fbbf24",
-  background: "#fbbf2422",
-  border: "1px solid #fbbf2455",
-  borderRadius: 999,
-  padding: "5px 10px",
-  fontSize: 12,
-  fontWeight: 800,
-  whiteSpace: "nowrap",
-};
-
-const completedBadgeStyle: CSSProperties = {
-  color: "#93c5fd",
-  background: "#93c5fd22",
-  border: "1px solid #93c5fd55",
-  borderRadius: 999,
-  padding: "5px 10px",
-  fontSize: 12,
-  fontWeight: 800,
-  whiteSpace: "nowrap",
-};
-
-function parseWidgetAfocsSortValue(item: WidgetSummaryItem) {
-  const stored = splitAfocsSkdPartsStoredOnly(item.afocsSkd || "");
-  // 저장된 AFOCS가 없으면 변경(displayTime)을 화면과 동일하게 fallback
-  if (!stored.date || !stored.time) {
-    const changeParts = splitScheduleCompactParts({
-      formattedEstimatedTime: item.displayTime,
-    });
-    const date = stored.date || changeParts.date;
-    const time = stored.time || changeParts.time;
-    return parseAfocsSkdSortValueFromParts(date, time, item.afocsSkd || item.displayTime);
-  }
-  return parseAfocsSkdSortValueFromParts(stored.date, stored.time, item.afocsSkd);
-}
-
-function parseWidgetChangeSortValue(item: WidgetSummaryItem) {
-  const dt = parseDateTime(item.displayTime);
-  return dt ? dt.getTime() : Number.MAX_SAFE_INTEGER;
-}
-
-function sortWidgetItemsByMode(
-  items: WidgetSummaryItem[],
-  mode: "manual" | "schedule" | "afocs",
-  manualOrder: string[],
-) {
-  if (mode === "manual") {
-    return applyScheduleFlightOrder(items, manualOrder);
-  }
-
-  return [...items].sort((a, b) => {
-    // S(schedule): 변경 시각 / A(afocs): AFOCS SKD
-    if (mode === "schedule") {
-      return parseWidgetChangeSortValue(a) - parseWidgetChangeSortValue(b);
-    }
-
-    const diff = parseWidgetAfocsSortValue(a) - parseWidgetAfocsSortValue(b);
-    if (diff !== 0) return diff;
-    return parseWidgetChangeSortValue(a) - parseWidgetChangeSortValue(b);
-  });
-}
-
-function getSortCircleButtonStyle(active: boolean): CSSProperties {
-  return {
-    width: 28,
-    height: 28,
-    borderRadius: "50%",
-    border: active ? "1px solid #60a5fa" : "1px solid rgba(148, 163, 184, 0.35)",
-    background: active ? "rgba(59, 130, 246, 0.25)" : "rgba(15, 23, 42, 0.85)",
-    color: active ? "#93c5fd" : "#cbd5e1",
-    fontSize: 12,
-    fontWeight: 900,
-    cursor: "pointer",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 0,
-  };
 }
