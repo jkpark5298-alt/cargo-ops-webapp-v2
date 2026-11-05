@@ -249,7 +249,8 @@ def _apply_elapsed_status_to_row(row: Dict[str, Any]) -> Dict[str, Any]:
     is_arrival = source == "arrival" or arr == "ICN"
 
     if is_departure:
-        next_row["status"] = "출발"
+        # 출발 예정 시각이 지났지만 인천 API 가 아직 출발을 알리지 않음 → '출발'이 아니라 '출발 지연'
+        next_row["status"] = "출발 지연"
         next_row["statusInferred"] = True
     elif is_arrival:
         # 도착 예정 시각이 지났지만 인천 API 가 아직 도착을 알리지 않음 → '도착'이 아니라 '도착 지연'

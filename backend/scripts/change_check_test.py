@@ -161,7 +161,8 @@ check("파서: 도착편 remark 도착이면 status 도착", _api._rows_from_ite
 check("파서: 도착편 remark 없고 시각만 지나면 status 도착 지연", _api._rows_from_items(_items(""), "arrival")[0]["status"] == "도착 지연")
 check("파서: 도착편 remark 지연이고 시각이 지나도 status 도착 지연(도착 아님)", _api._rows_from_items(_items("지연"), "arrival")[0]["status"] == "도착 지연")
 check("파서: 결항편은 상태를 추정하지 않음", _api._rows_from_items(_items("결항"), "arrival")[0]["status"] == "")
-check("출발편은 기존처럼 시각이 지나면 출발(추정)", _api._rows_from_items(_items(""), "departure")[0]["status"] == "출발")
+check("파서: 출발편 remark 없고 시각만 지나면 출발 지연(출발 아님)", _api._rows_from_items(_items(""), "departure")[0]["status"] == "출발 지연")
+check("파서: 출발편 remark 출발이면 출발", _api._rows_from_items(_items("출발"), "departure")[0]["status"] == "출발" and _api._rows_from_items(_items("출발"), "departure")[0]["statusInferred"] is False)
 monitor._now_kst = _real_now
 
 print(f"\n{passed}개 통과")

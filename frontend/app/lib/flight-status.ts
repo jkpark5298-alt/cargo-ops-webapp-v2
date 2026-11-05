@@ -80,7 +80,8 @@ function getElapsedStatus(row: FlightStatusRow, delayed: boolean): string | null
   if (!dt || dt.getTime() > Date.now()) return null;
 
   const kind = getDirectionKind(row);
-  if (kind === "departure") return delayed ? "출발(지연)" : "출발";
+  // 출발 예정 시각이 지났지만 인천 API 가 아직 출발을 알리지 않은 상태 → 출발 확정이 아니라 '출발 지연'
+  if (kind === "departure") return "출발 지연";
   // 도착 예정 시각이 지났지만 인천 API 가 아직 도착을 알리지 않은 상태 → 도착 확정이 아니라 '도착 지연'
   if (kind === "arrival") return "도착 지연";
   return null;
@@ -135,7 +136,7 @@ export function getComputedFlightStatus(row?: FlightStatusRow | null): string {
 export function isFinalCompletedFlightStatus(status: string) {
   if (!status || status === "-") return false;
   // 도착 예정 시각이 지났지만 도착이 확인되지 않은 편은 아직 진행 중으로 본다.
-  if (status === "도착 지연") return false;
+  if (status === "도착 지연" || status === "출발 지연") return false;
   const s = status.toLowerCase();
   return (
     s.includes("도착") ||

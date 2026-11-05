@@ -422,11 +422,18 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
     assert.strictEqual(fstatus.getComputedFlightStatus(arrivalRow({ remark: "도착", status: "도착" })), "도착");
     assert.strictEqual(fstatus.getComputedFlightStatus(arrivalRow({ remark: "도착", status: "도착", delay: true })), "도착(지연)");
   });
-  test("출발편은 기존처럼 시각이 지나면 '출발'", () => {
-    assert.strictEqual(fstatus.getComputedFlightStatus({ departureCode: "ICN", arrivalCode: "PVG", sourceType: "departure", formattedEstimatedTime: past, remark: "" }), "출발");
+  test("출발편: 시각이 지났어도 API remark 가 출발이 아니면 '출발 지연', remark 출발이면 '출발'", () => {
+    const dep = (extra) => ({ departureCode: "ICN", arrivalCode: "PVG", sourceType: "departure", formattedEstimatedTime: past, ...extra });
+    assert.strictEqual(fstatus.getComputedFlightStatus(dep({ remark: "" })), "출발 지연");
+    assert.strictEqual(fstatus.getComputedFlightStatus(dep({ remark: "지연", delay: true })), "출발 지연");
+    assert.strictEqual(fstatus.getComputedFlightStatus(dep({ remark: "지연", status: "출발", statusInferred: true })), "출발 지연");
+    assert.strictEqual(fstatus.getComputedFlightStatus(dep({ remark: "출발", status: "출발" })), "출발");
+    assert.strictEqual(fstatus.getComputedFlightStatus(dep({ remark: "출발", status: "출발", delay: true })), "출발(지연)");
   });
   test("'도착 지연'은 진행 중(완료 아님), '도착'·'도착(지연)'은 완료", () => {
     assert.strictEqual(fstatus.isFinalCompletedFlightStatus("도착 지연"), false);
+    assert.strictEqual(fstatus.isFinalCompletedFlightStatus("출발 지연"), false);
+    assert.strictEqual(fstatus.isFinalCompletedFlightStatus("출발"), true);
     assert.strictEqual(fstatus.isFinalCompletedFlightStatus("도착"), true);
     assert.strictEqual(fstatus.isFinalCompletedFlightStatus("도착(지연)"), true);
     assert.strictEqual(fstatus.isFinalCompletedFlightStatus("결항"), true);
