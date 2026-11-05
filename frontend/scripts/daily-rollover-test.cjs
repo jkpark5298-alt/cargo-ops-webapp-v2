@@ -62,11 +62,13 @@ global.Notification = w.Notification = { permission: "default", requestPermissio
 
 // ===== 일일 보고/특이사항 임시저장 시나리오 =====
 const calls = [];
+let notionFound = false;
 global.fetch = w.fetch = async (url, init) => {
   const u = String(url).replace(/^https?:\/\/[^/]+/, "");
   calls.push(((init && init.method) || "GET") + " " + u);
   const j = (o) => ({ ok: true, status: 200, json: async () => o, text: async () => JSON.stringify(o) });
-  if (/notion\/daily-records\?date=/.test(u)) return j({ found: false });
+  if (/notion\/daily-records\?date=/.test(u)) return j(notionFound ? { success: true, found: true, pageId: "np1", url: "https://n" } : { success: true, found: false });
+  if (/notion\/daily-records$/.test(u) && init && init.method === "POST") return j({ success: true, pageId: "n1", url: "https://n/n1" });
   if (/daily-report-text/.test(u)) return j({ success: true, report: null });
   if (/latest-schedule|schedule-slots/.test(u)) return j({ success: true, room: null, active: null, archive: null, linkedSlot: "active" });
   if (/aircraft-registrations/.test(u)) return j({ success: true, records: [] });
@@ -187,36 +189,76 @@ const dailyDraft = (workDate, note, status) => JSON.stringify({ note, status: st
 const stored = (k) => { try { return JSON.parse(w.localStorage.getItem(k)); } catch { return null; } };
 
 (async () => {
-  // 1) 어제 날짜 임시저장(Notion 미저장) + 사진·메모 → 확인 창, 확인하면 오늘 새로 시작
-  confirmAnswer = true;
+  const hasText = (c, t) => c.textContent.includes(t);
+  const dateValue = (c) => (c.querySelector("input[type=date]") || {}).value;
+
+  // 1) 어제 날짜·Notion 미저장·내용 있음 → 오늘로 넘어가지 않고 저장 경고, 오늘 날짜로 맞추기도 막힘
+  notionFound = false;
   let r = await open(() => {
     w.localStorage.setItem(KEYS.daily, dailyDraft("2026-11-05", "어제 메모"));
     w.localStorage.setItem(KEYS.note, "어제 메모");
     w.localStorage.setItem(KEYS.img, JSON.stringify([img("schedule")]));
   });
-  check("어제 미저장 내용이 있으면 확인 창을 띄움", confirms.length === 1 && /2026-11-05/.test(confirms[0]), confirms);
-  check("확인하면 메모가 비워짐", !ta(r.container).some((t) => t.value.includes("어제 메모")));
-  check("저장소의 일일 임시저장이 오늘 날짜·빈 메모로 바뀜", stored(KEYS.daily).workDate === "2026-11-06" && stored(KEYS.daily).note === "", stored(KEYS.daily));
-  check("사진도 비워짐", (stored(KEYS.img) || []).length === 0, stored(KEYS.img));
+  check("미저장 지난 날짜: 어제 날짜·내용 그대로 유지(확인 창 없음)", confirms.length === 0 && dateValue(r.container) === "2026-11-05" && ta(r.container).some((t) => t.value === "어제 메모"), dateValue(r.container));
+  check("Notion에 저장하라는 경고가 보임", hasText(r.container, "Notion에 저장되지 않았습니다") && hasText(r.container, "Notion에 저장해야 오늘 날짜로 넘어갈 수 있습니다"));
+  await click(r.container, "오늘 날짜로 맞추기");
+  check("오늘 날짜로 맞추기: Notion 저장 전에는 막힘", dateValue(r.container) === "2026-11-05" && hasText(r.container, "먼저 Notion에 저장한 뒤"), dateValue(r.container));
+  check("오늘 날짜로 맞추기: Notion 저장 여부를 조회함", calls.some((c) => c.includes("GET ") && c.includes("notion/daily-records?date=2026-11-05")));
+
+  // 1-2) 같은 화면에서 Notion 저장 → 자동으로 오늘 날짜로 새로 시작
+  await click(r.container, "Notion 일일 기록 저장");
+  check("Notion 저장 후 자동으로 오늘 날짜로 새로 시작", dateValue(r.container) === "2026-11-06" && !ta(r.container).some((t) => t.value.includes("어제 메모")), dateValue(r.container));
+  check("저장소에도 오늘 날짜·빈 메모", stored(KEYS.daily).workDate === "2026-11-06" && stored(KEYS.daily).note === "" && (stored(KEYS.img) || []).length === 0, stored(KEYS.daily));
   await act(async () => { r.root.unmount(); });
 
-  // 2) 취소 → 이전 날짜 내용 유지
-  confirmAnswer = false;
+  // 2) 어제 날짜·미저장·내용 전부 비어 있어도 Notion 저장이 필요(저장만으로 통과)
+  notionFound = false;
   r = await open(() => {
-    w.localStorage.setItem(KEYS.daily, dailyDraft("2026-11-05", "어제 메모"));
-    w.localStorage.setItem(KEYS.note, "어제 메모");
+    w.localStorage.setItem(KEYS.daily, dailyDraft("2026-11-05", ""));
   });
-  check("취소하면 어제 내용 그대로 유지", ta(r.container).some((t) => t.value === "어제 메모") && stored(KEYS.daily).workDate === "2026-11-05", stored(KEYS.daily));
+  check("내용이 비어 있어도 Notion 저장 전에는 어제 날짜 유지", dateValue(r.container) === "2026-11-05" && hasText(r.container, "비어 있어도"), dateValue(r.container));
+  await click(r.container, "Notion 일일 기록 저장");
+  check("비어 있어도 Notion 저장만으로 오늘로 넘어감", dateValue(r.container) === "2026-11-06", dateValue(r.container));
   await act(async () => { r.root.unmount(); });
 
-  // 3) 어제 날짜지만 이미 Notion 저장됨 → 확인 없이 새로 시작
-  confirmAnswer = true;
+  // 3) 어제 날짜지만 이 기기에 Notion 저장 기록이 있음 → 자동으로 오늘 새로 시작
   r = await open(() => {
     w.localStorage.setItem(KEYS.daily, dailyDraft("2026-11-05", "저장한 메모"));
     w.localStorage.setItem(KEYS.note, "저장한 메모");
     w.localStorage.setItem(KEYS.dailyRecs, JSON.stringify({ "2026-11-05": { pageId: "p1", savedAt: "2026. 11. 5. 오후 6:00:00", workDate: "2026-11-05" } }));
   });
-  check("Notion 저장 완료된 지난 날짜는 확인 없이 새로 시작", confirms.length === 0 && !ta(r.container).some((t) => t.value.includes("저장한 메모")), confirms);
+  check("Notion 저장 완료된 지난 날짜는 오늘로 자동 전환", dateValue(r.container) === "2026-11-06" && !ta(r.container).some((t) => t.value.includes("저장한 메모")), dateValue(r.container));
+  await act(async () => { r.root.unmount(); });
+
+  // 3-2) 이 기기에는 기록이 없지만 Notion에 있음(다른 기기에서 저장) → 조회 후 자동 전환
+  notionFound = true;
+  r = await open(() => {
+    w.localStorage.setItem(KEYS.daily, dailyDraft("2026-11-05", "다른 기기 저장"));
+    w.localStorage.setItem(KEYS.note, "다른 기기 저장");
+  });
+  check("Notion에 이미 있으면(다른 기기) 오늘로 자동 전환", dateValue(r.container) === "2026-11-06", dateValue(r.container));
+  await act(async () => { r.root.unmount(); });
+
+  // 3-3) 오늘 날짜로 맞추기 버튼: 저장되어 있으면 통과
+  notionFound = false;
+  r = await open(() => {
+    w.localStorage.setItem(KEYS.daily, dailyDraft("2026-11-05", "메모"));
+    w.localStorage.setItem(KEYS.note, "메모");
+  });
+  notionFound = true; // 그 사이 다른 기기에서 저장했다고 가정
+  await click(r.container, "오늘 날짜로 맞추기");
+  check("오늘 날짜로 맞추기: Notion에 저장돼 있으면 오늘로 바뀌고 내용이 비워짐", dateValue(r.container) === "2026-11-06" && !ta(r.container).some((t) => t.value === "메모"), dateValue(r.container));
+  await act(async () => { r.root.unmount(); });
+  notionFound = false;
+
+  // 3-4) 어제 일일은 저장됐지만 특이사항 입력(미저장)이 있으면 특이사항 저장도 필요
+  r = await open(() => {
+    w.localStorage.setItem(KEYS.daily, dailyDraft("2026-11-05", "메모", "issue"));
+    w.localStorage.setItem(KEYS.note, "메모");
+    w.localStorage.setItem(KEYS.issue, JSON.stringify({ flight: "KJ9", route: "", hlnbr: "", text: "미저장 특이사항", status: "issue", author: "jkpark" }));
+    w.localStorage.setItem(KEYS.dailyRecs, JSON.stringify({ "2026-11-05": { pageId: "p1", savedAt: "2026. 11. 5. 오후 6:00:00", workDate: "2026-11-05" } }));
+  });
+  check("특이사항 미저장이면 오늘로 넘어가지 않고 특이사항 저장 경고", dateValue(r.container) === "2026-11-05" && hasText(r.container, "특이사항 기록이 Notion에 저장되지 않았습니다"), r.container.textContent.slice(0, 300));
   await act(async () => { r.root.unmount(); });
 
   // 4) 오늘 날짜 임시저장은 유지

@@ -409,21 +409,24 @@ export function isRecentSameSave(
 }
 
 /**
- * 앱을 열었을 때 임시저장된 일일 보고를 어떻게 할지 정한다.
- * - keep: 오늘 날짜이거나 날짜 정보가 없음 → 그대로 유지
- * - reset: 지난 날짜인데 비었거나 이미 Notion에 저장됨 → 오늘 새로 시작
- * - ask: 지난 날짜인데 Notion에 저장하지 않은 내용이 있음 → 사용자에게 확인
+ * 지난 업무일자에서 오늘로 넘어가기 전에 Notion에 저장해야 하는데 아직 저장하지 않은 부문을 돌려준다.
+ * - 일일 업무: 내용이 비어 있어도 Notion에 저장(기록)해야 한다.
+ * - 특이사항: 입력한 내용이 있을 때만 Notion 저장이 필요하다.
+ * 오늘이거나 미래 날짜면 빈 배열(검사 안 함).
  */
-export function planDailyDraftRollover(input: {
-  draftWorkDate: string;
+export function getCarryOverMissing(input: {
+  workDate: string;
   today: string;
-  hasDailyContent: boolean;
-  dailySavedToNotion: boolean;
-}): "keep" | "reset" | "ask" {
-  const { draftWorkDate, today, hasDailyContent, dailySavedToNotion } = input;
-  if (!draftWorkDate || draftWorkDate >= today) return "keep";
-  if (!hasDailyContent || dailySavedToNotion) return "reset";
-  return "ask";
+  dailySaved: boolean;
+  issueText: string;
+  issueSaved: boolean;
+}): string[] {
+  const { workDate, today, dailySaved, issueText, issueSaved } = input;
+  if (!workDate || workDate >= today) return [];
+  const missing: string[] = [];
+  if (!dailySaved) missing.push("일일 업무");
+  if (issueText.trim() && !issueSaved) missing.push("특이사항");
+  return missing;
 }
 
 /** 특이사항 Notion 기록이 지난 날짜에 저장된 것이면 true (새 날에는 입력칸을 비운다). */

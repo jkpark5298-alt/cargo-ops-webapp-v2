@@ -35,7 +35,7 @@ import {
   saveIssueDraft,
   saveNote,
 } from "./lib/local-storage";
-import { getNotionLinks } from "./lib/notion-api";
+import { findDailyRecordByDate, getNotionLinks } from "./lib/notion-api";
 import {
   loadScheduleSlotsFromServer,
   saveScheduleSlotToServer,
@@ -89,7 +89,7 @@ import {
   getRouteByFlight,
   getTodayDateInputValue,
   isIssueRecordFromPastDay,
-  planDailyDraftRollover,
+  getCarryOverMissing,
   getWeatherSummary,
   getWorkDateMismatchMessage,
   saveDailyWorkDate,
@@ -144,6 +144,8 @@ export default function HomePage() {
   const noteRef = useRef("");
   const imagesRef = useRef<SavedImage[]>([]);
   const dailyWorkDateRef = useRef("");
+  /** 앱을 열 때 지난 날짜로 남아 있던 임시저장의 날짜(Notion 저장 후 오늘로 자동 전환) */
+  const carryOverDateRef = useRef("");
 
   const [issueFlight, setIssueFlight] = useState("");
   const [issueRoute, setIssueRoute] = useState("");
@@ -244,35 +246,94 @@ export default function HomePage() {
   };
 
   const systemTodayDate = getTodayDateInputValue();
-  const workDateMismatchWarning = getWorkDateMismatchMessage(dailyWorkDate, systemTodayDate);
+  const dailySavedForDate = Boolean(
+    dailyNotionRecord && (!dailyNotionRecord.workDate || dailyNotionRecord.workDate === dailyWorkDate),
+  );
+  const carryOverMissing = getCarryOverMissing({
+    workDate: dailyWorkDate,
+    today: systemTodayDate,
+    dailySaved: dailySavedForDate,
+    issueText,
+    issueSaved: Boolean(issueNotionRecord),
+  });
+  const workDateMismatchWarning =
+    carryOverMissing.length > 0
+      ? `${formatDateInputForTitle(dailyWorkDate)} ${carryOverMissing.join("·")} 기록이 Notion에 저장되지 않았습니다. Notion에 저장해야 오늘 날짜로 넘어갈 수 있습니다(내용이 비어 있어도 Notion 저장이 필요합니다).`
+      : getWorkDateMismatchMessage(dailyWorkDate, systemTodayDate);
 
   const handleDailyWorkDateChange = (value: string) => {
     setDailyWorkDate(value || getTodayDateInputValue());
   };
 
-  const resetDailyWorkDateToToday = () => {
+  // 저장이 끝난 지난 날짜의 사진·메모·특이사항 입력칸을 비우고 오늘 날짜로 새로 시작한다.
+  const startNewDayFresh = (today: string) => {
+    carryOverDateRef.current = "";
+    setNote("");
+    setImages([]);
+    setDailyStatus("normal");
+    setIssueFlight("");
+    setIssueRoute("");
+    setIssueHlnbr("");
+    setIssueText("");
+    setIssueNotionRecord(null);
+    clearIssueDraft();
+    clearIssueNotionRecord();
+    setDailyWorkDate(today);
+    setNotice("지난 업무 기록이 Notion에 저장되어 있어 오늘 날짜로 새로 시작했습니다.");
+  };
+
+  // 오늘 날짜로 맞추기: 지난 날짜의 기록이 Notion에 저장된 것을 확인한 경우에만 넘어간다.
+  const resetDailyWorkDateToToday = async () => {
     const today = getTodayDateInputValue();
     if (dailyWorkDate === today) return;
 
-    // 날짜만 바꾸면 이전 날짜의 사진·메모가 오늘 기록으로 저장될 수 있어 내용도 함께 비운다.
-    const hasContent =
-      note.trim().length > 0 || images.some((image) => image.type !== ISSUE_IMAGE_SLOT.key);
-    const alreadySaved = Boolean(loadDailyNotionRecordForDate(dailyWorkDate));
-    if (hasContent && !alreadySaved) {
-      const ok = window.confirm(
-        `${dailyWorkDate} 업무 기록이 Notion에 저장되지 않았습니다.
+    let dailySaved = dailySavedForDate;
+    if (!dailySaved) {
+      try {
+        const lookup = await findDailyRecordByDate(dailyWorkDate);
+        dailySaved = Boolean(lookup.found && lookup.pageId);
+      } catch {
+        setNotice("업무일자의 Notion 저장 여부를 확인하지 못했습니다. 잠시 후 다시 시도하세요.");
+        return;
+      }
+    }
 
-오늘(${today})로 바꾸면서 현재 사진·메모를 비웁니다. 계속할까요?`,
+    const missing = getCarryOverMissing({
+      workDate: dailyWorkDate,
+      today,
+      dailySaved,
+      issueText,
+      issueSaved: Boolean(issueNotionRecord),
+    });
+    if (missing.length > 0) {
+      setNotice(
+        `업무일자 ${dailyWorkDate} ${missing.join("·")} 기록이 Notion에 저장되지 않았습니다. 먼저 Notion에 저장한 뒤 오늘 날짜로 맞출 수 있습니다.`,
       );
-      if (!ok) return;
+      return;
     }
-    if (hasContent) {
-      setNote("");
-      setImages((prev) => prev.filter((image) => image.type === ISSUE_IMAGE_SLOT.key));
-      setDailyStatus("normal");
-    }
-    setDailyWorkDate(today);
+
+    startNewDayFresh(today);
   };
+
+  // 지난 날짜 기록이 Notion에 저장되면(이 기기·다른 기기 모두) 자동으로 오늘 날짜로 넘어간다.
+  useEffect(() => {
+    if (!draftHydrated) return;
+    const carry = carryOverDateRef.current;
+    if (!carry || carry !== dailyWorkDate) return;
+
+    const today = getTodayDateInputValue();
+    const missing = getCarryOverMissing({
+      workDate: dailyWorkDate,
+      today,
+      dailySaved: dailySavedForDate,
+      issueText,
+      issueSaved: Boolean(issueNotionRecord),
+    });
+    if (missing.length > 0) return;
+
+    startNewDayFresh(today);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftHydrated, dailyWorkDate, dailySavedForDate, issueText, issueNotionRecord]);
 
   useEffect(() => {
     setRooms(
@@ -283,50 +344,26 @@ export default function HomePage() {
     const savedDailyDraft = loadDailyDraft();
     const savedIssueDraft = loadIssueDraft();
 
-    // 날짜가 바뀐 뒤 앱을 열면 어제 사진·메모가 오늘 기록으로 저장되지 않도록 새로 시작한다.
+    // 지난 날짜의 임시저장은 Notion에 저장해야 오늘로 넘어간다(아래 자동 전환 효과 참고).
     const today = getTodayDateInputValue();
     const loadedImages = loadImages();
     const loadedNote = savedDailyDraft?.note ?? loadNote();
     const draftWorkDate = savedDailyDraft?.workDate || "";
-    const dailyPlan = planDailyDraftRollover({
-      draftWorkDate,
-      today,
-      hasDailyContent:
-        loadedNote.trim().length > 0 ||
-        loadedImages.some((image) => image.type !== ISSUE_IMAGE_SLOT.key),
-      dailySavedToNotion: Boolean(draftWorkDate && loadDailyNotionRecordForDate(draftWorkDate)),
-    });
-    const rollDaily =
-      dailyPlan === "reset" ||
-      (dailyPlan === "ask" &&
-        window.confirm(
-          `${draftWorkDate} 일일 업무 기록이 Notion에 저장되지 않았습니다.
-
-[확인] 이 내용을 버리고 오늘(${today}) 새로 시작
-[취소] 이전 날짜 내용을 그대로 유지`,
-        ));
+    if (draftWorkDate && draftWorkDate < today) {
+      carryOverDateRef.current = draftWorkDate;
+    }
 
     const savedIssueRecord = loadIssueNotionRecord();
     const rollIssue = isIssueRecordFromPastDay(savedIssueRecord, today);
-    setImages(
-      rollDaily || rollIssue
-        ? loadedImages.filter((image) => {
-            if (image.type === ISSUE_IMAGE_SLOT.key) return !rollIssue;
-            return !rollDaily;
-          })
-        : loadedImages,
-    );
-    setNote(rollDaily ? "" : loadedNote);
+    setImages(rollIssue ? loadedImages.filter((image) => image.type !== ISSUE_IMAGE_SLOT.key) : loadedImages);
+    setNote(loadedNote);
     setIssueNotionRecord(rollIssue ? null : savedIssueRecord);
     if (rollIssue) {
       clearIssueNotionRecord();
       clearIssueDraft();
     }
 
-    if (rollDaily) {
-      setDailyStatus("normal");
-      setDailyWorkDate(today);
-    } else if (savedDailyDraft?.status) {
+    if (savedDailyDraft?.status) {
       setDailyStatus(savedDailyDraft.status);
     }
     if (savedDailyDraft?.author) {
@@ -334,13 +371,12 @@ export default function HomePage() {
     } else {
       setAuthor(DEFAULT_DAILY_AUTHOR);
     }
-    if (savedDailyDraft?.workDate && !rollDaily) {
+    if (savedDailyDraft?.workDate) {
       setDailyWorkDate(savedDailyDraft.workDate);
     }
 
-    const initialWorkDate = rollDaily
-      ? today
-      : savedDailyDraft?.workDate || dailyWorkDateRef.current || getTodayDateInputValue();
+    const initialWorkDate =
+      savedDailyDraft?.workDate || dailyWorkDateRef.current || getTodayDateInputValue();
     setDailyNotionRecord(loadDailyNotionRecordForDate(initialWorkDate));
 
     if (savedIssueDraft && !rollIssue) {
@@ -1051,7 +1087,8 @@ export default function HomePage() {
     setIssueHlnbr("");
     setIssueText("");
     setDailyStatus("normal");
-    resetDailyWorkDateToToday();
+    carryOverDateRef.current = "";
+    setDailyWorkDate(getTodayDateInputValue());
     setDailyNotionRecord(null);
     setIssueNotionRecord(null);
 
