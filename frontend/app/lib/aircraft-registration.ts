@@ -178,6 +178,30 @@ export function mergeAircraftRegistrationRecords(
   });
 }
 
+/**
+ * 이미 같은 키(일자·편명·노선)에 같은 값으로 저장된 기록은 제외합니다.
+ * 저장할 때 고치지 않은 행까지 새 시각으로 다시 쓰면, 다른 기기에서 나중에 고친 값을 이 화면의 오래된 값이 덮어쓰게 됩니다.
+ */
+export function excludeUnchangedRegistrationRecords(
+  incomingRecords: AircraftRegistrationRecord[],
+  existingRecords: AircraftRegistrationRecord[],
+) {
+  const current = new Map<string, string>();
+  existingRecords.forEach((record) => {
+    current.set(
+      buildAircraftRegistrationKey(record.date, record.flight, record.departureCode, record.arrivalCode),
+      normalizeHlNumber(record.registrationNo),
+    );
+  });
+
+  return incomingRecords.filter(
+    (record) =>
+      current.get(
+        buildAircraftRegistrationKey(record.date, record.flight, record.departureCode, record.arrivalCode),
+      ) !== normalizeHlNumber(record.registrationNo),
+  );
+}
+
 /* ───────── 우선순위 규칙 ───────── */
 
 type StampedRegistration = { registrationNo: string; updatedAt: string };

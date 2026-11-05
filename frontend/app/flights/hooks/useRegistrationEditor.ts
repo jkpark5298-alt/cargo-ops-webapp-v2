@@ -12,6 +12,7 @@ import {
   fetchAircraftRegistrationRecordsFromServer,
   getAircraftRegistrationDateFromRow,
   loadAircraftRegistrationRecords,
+  excludeUnchangedRegistrationRecords,
   mergeAircraftRegistrationRecords,
   saveAircraftRegistrationRecords,
   saveAircraftRegistrationRecordsToServer,
@@ -118,7 +119,7 @@ export function useRegistrationEditor({
 
   const persistRegistrationDraftsForRows = async (targetRows: FlightRow[]) => {
     const nextMap: Record<string, string> = { ...hlNumberMap };
-    const incomingRecords = targetRows
+    const changedRecords = targetRows
       .map((row) => {
         const flight = getFlightKeyFromRow(row);
         if (!flight || flight === "-") return null;
@@ -142,13 +143,17 @@ export function useRegistrationEditor({
       })
       .filter((record): record is AircraftRegistrationRecord => Boolean(record));
 
-    if (incomingRecords.length === 0) return;
-
     const normalizedText = serializeHlMapping(nextMap);
     setHlMappingText(normalizedText);
     saveHlMappingText(normalizedText);
 
     const latestRecords = loadAircraftRegistrationRecords();
+    const incomingRecords = excludeUnchangedRegistrationRecords(changedRecords, latestRecords);
+    if (incomingRecords.length === 0) {
+      setHlInlineDrafts({});
+      return;
+    }
+
     let nextAircraftRegistrationRecords = mergeAircraftRegistrationRecords(
       latestRecords,
       incomingRecords,
@@ -436,7 +441,7 @@ export function useRegistrationEditor({
     setHlMappingText(normalizedText);
     saveHlMappingText(normalizedText);
 
-    const incomingRecords = rows
+    const allRecords = rows
       .map((row) => {
         const flight = getFlightKeyFromRow(row);
         if (!flight || flight === "-") return null;
@@ -458,7 +463,9 @@ export function useRegistrationEditor({
       })
       .filter((record): record is AircraftRegistrationRecord => Boolean(record));
 
+    // 고치지 않은 행은 다시 쓰지 않습니다. (다른 기기의 최신 수정값을 덮어쓰지 않기 위해)
     const latestRecords = loadAircraftRegistrationRecords();
+    const incomingRecords = excludeUnchangedRegistrationRecords(allRecords, latestRecords);
     let nextAircraftRegistrationRecords = mergeAircraftRegistrationRecords(
       latestRecords,
       incomingRecords,

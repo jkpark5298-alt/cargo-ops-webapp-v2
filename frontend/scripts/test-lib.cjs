@@ -146,6 +146,18 @@ test("기록 병합: 같은 키는 최근 값, 정렬", () => {
   assert.strictEqual(merged.find((r) => r.flight === "KJ2").registrationNo, "HL1111"); // 더 최근(2) 유지
 });
 
+test("저장 시 이미 같은 값으로 저장된 기록은 제외(다른 기기의 최신 수정을 덮지 않음)", () => {
+  const existing = [rec("2026-10-31", "KJ951", "ICN", "HAN", "HL7999", "2026-11-01T05:00:00Z"), rec("2026-10-31", "KJ247", "ATL", "ICN", "HL8000", "t1")];
+  const incoming = [
+    rec("2026-10-31", "KJ951", "ICN", "HAN", "HL7999", "NEW"),   // 같은 값 → 제외
+    rec("2026-10-31", "KJ247", "ATL", "ICN", "HL8100", "NEW"),   // 값이 바뀜 → 포함
+    rec("2026-10-31", "KJ111", "ICN", "HKG", "HL7000", "NEW"),   // 새 기록 → 포함
+  ];
+  const out = reg.excludeUnchangedRegistrationRecords(incoming, existing);
+  assert.deepStrictEqual(out.map((r) => r.flight), ["KJ247", "KJ111"]);
+  assert.deepStrictEqual(reg.excludeUnchangedRegistrationRecords(incoming, []).length, 3);
+});
+
 /* ───────── 스케줄 저장소 ───────── */
 const room = (over = {}) => ({
   id: "r1", name: "n", flightsInput: "KJ247, KJ972", startDateTime: "", endDateTime: "", fixed: true, lastFetchedAt: "",
