@@ -25,13 +25,14 @@ import {
   type ViewType,
 } from "../lib/monthly-schedule";
 
-/** 지금(한국 시각)의 근무조와 그 근무조의 기준 일자. 00:00~06:30 새벽은 전날 업무일자의 S조. */
+/** 지금(한국 시각)의 근무조와 그 근무조의 기준 일자. 22:01 이후는 S조, 00:00~06:30 새벽은 전날 업무일자의 S조. */
 function currentShift(nowMs: number = Date.now()): { date: string; shift: ShiftCode } {
   const kst = new Date(nowMs + 9 * 3600_000).toISOString();
   const today = kst.slice(0, 10);
   const hm = kst.slice(11, 16);
   if (hm >= "06:31" && hm <= "14:00") return { date: today, shift: "A" };
-  if (hm >= "14:01") return { date: today, shift: "C" };
+  if (hm >= "14:01" && hm <= "22:00") return { date: today, shift: "C" };
+  if (hm >= "22:01") return { date: today, shift: "S" };
   return { date: addDays(today, -1), shift: "S" };
 }
 

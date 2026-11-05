@@ -25,7 +25,7 @@ create index if not exists monthly_schedule_flights_flight_date_idx
 
 -- 일자·근무조별 담당 A/B/C 이름 (비어 있으면 화면에 'A', 'B', 'C'로 표시)
 create table if not exists public.monthly_schedule_assignees (
-  assignee_key text primary key,          -- 일자|근무조 (예: 2026-11-06|A)  근무조: A(06:31~14:00) C(14:01~23:59) S(익일 00:00~06:30)
+  assignee_key text primary key,          -- 일자|근무조 (예: 2026-11-06|A)  근무조: A(06:31~14:00) C(14:01~23:59) S(22:01~익일 06:30)
   flight_date text not null,
   shift text not null,
   name_a text not null default '',

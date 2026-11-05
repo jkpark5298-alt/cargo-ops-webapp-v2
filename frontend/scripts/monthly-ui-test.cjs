@@ -230,8 +230,8 @@ const setValue = async (el, value, eventName = "change") => {
   await clickText(container, "C조");
   check("C조: 23:59까지 (23:00·23:15 편 포함)", JSON.stringify(flightsShown(container)) === JSON.stringify(["KJ967", "KJ795"]), flightsShown(container));
   await clickText(container, "S조");
-  check("S조: 익일 00:00~06:30 편만(C조와 겹치지 않음)", JSON.stringify(flightsShown(container)) === JSON.stringify(["KJ290"]), flightsShown(container));
-  check("조 버튼 범위 표시", text(container).includes("C조 14:01~23:59") && text(container).includes("S조 익일 00:00~06:30"), text(container).slice(0, 300));
+  check("S조: 22:01부터 익일 06:30까지(23:00·23:15·익일 00:45)", JSON.stringify(flightsShown(container)) === JSON.stringify(["KJ967", "KJ795", "KJ290"]), flightsShown(container));
+  check("조 버튼 범위 표시", text(container).includes("C조 14:01~23:59") && text(container).includes("S조 22:01~익일 06:30"), text(container).slice(0, 300));
   await clickText(container, "C조");
 
   const nameA = container.querySelector('input[aria-label="담당 A 이름"]');

@@ -48,7 +48,7 @@ export type ViewType = 1 | 2;
 export const SHIFTS: { code: ShiftCode; label: string; range: string }[] = [
   { code: "A", label: "A조", range: "06:31~14:00" },
   { code: "C", label: "C조", range: "14:01~23:59" },
-  { code: "S", label: "S조", range: "익일 00:00~06:30" },
+  { code: "S", label: "S조", range: "22:01~익일 06:30" },
 ];
 export const SLOTS: SlotCode[] = ["A", "B", "C"];
 
@@ -91,7 +91,8 @@ export function displayTime(flight: MonthlyFlight, viewType: ViewType): string {
 
 /**
  * 근무조에 속하는지. 선택 일자 D 기준
- * 업무일자 D 기준 A조 D 06:31~14:00 / C조 D 14:01~23:59 / S조 D+1 00:00~06:30 (근무조끼리 겹치지 않음)
+ * 업무일자 D 기준 A조 D 06:31~14:00 / C조 D 14:01~23:59 / S조 D 22:01 ~ D+1 06:30
+ * (조를 먼저 고르므로 22:01~23:59 편은 C조·S조 어느 쪽을 골라도 표시된다)
  */
 export function isInShift(time: string, date: string, shift: ShiftCode): boolean {
   if (!time || time.length < 16) return false;
@@ -99,7 +100,7 @@ export function isInShift(time: string, date: string, shift: ShiftCode): boolean
   const hm = time.slice(11, 16);
   if (shift === "A") return day === date && hm >= "06:31" && hm <= "14:00";
   if (shift === "C") return day === date && hm >= "14:01" && hm <= "23:59";
-  return day === addDays(date, 1) && hm <= "06:30";
+  return (day === date && hm >= "22:01") || (day === addDays(date, 1) && hm <= "06:30");
 }
 
 export function flightsForShift(flights: MonthlyFlight[], date: string, shift: ShiftCode, viewType: ViewType) {
