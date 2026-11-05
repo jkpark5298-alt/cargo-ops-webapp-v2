@@ -21,6 +21,7 @@ from app.services.aircraft_registration import (
 from app.services.flight_alerts import (
     _build_changed_item,
     _build_compact_schedule_push,
+    _extract_clock_text,
     _format_alert_time,
     _get_alert_time_value,
     _parse_kst_iso,
@@ -62,7 +63,23 @@ from app.services.schedule_store import (
     _write_latest_schedule,
     _write_schedule_slot_entry,
 )
+_ARRIVED_STATUSES = {"도착", "도착(지연)", "착륙"}
+
+
+def _without_inferred_status(row: Dict[str, Any]) -> Dict[str, Any]:
+    """시간이 지나 앱이 추정해 붙인 상태(출발/도착)는 인천 API 의 실제 값이 아니므로 비교에서 뺀다."""
+    if not row.get("statusInferred"):
+        return row
+    cleaned = dict(row)
+    cleaned["status"] = ""
+    cleaned.pop("statusInferred", None)
+    return cleaned
+
+
 def _row_changed_fields(previous: Optional[Dict[str, Any]], current: Dict[str, Any]) -> List[str]:
+    if previous is not None:
+        previous = _without_inferred_status(previous)
+
     if previous is None:
         current_status = _row_operational_status(current)
         current_time = _format_alert_time(_get_alert_time_value(current))
@@ -94,6 +111,21 @@ def _row_changed_fields(previous: Optional[Dict[str, Any]], current: Dict[str, A
             seen.add(text)
             changes.append(text)
 
+    # 인천 API 가 실제로 '도착'을 알려 준 경우: 추정이 아닌 실제 도착임을 문구로 표시하고 맨 앞에 둔다(푸시는 첫 줄을 사용).
+    if (
+        _is_arrival_row(current)
+        and _row_operational_status(current) in _ARRIVED_STATUSES
+        and _row_operational_status(previous) not in _ARRIVED_STATUSES
+    ):
+        after_status = _row_operational_status(current)
+        before_status = _row_operational_status(previous)
+        confirm = (
+            f"상태 {after_status} (도착 확인)"
+            if before_status in ("-", "")
+            else f"상태 {before_status} → {after_status} (도착 확인)"
+        )
+        changes = [confirm] + [c for c in changes if not c.startswith("상태 ")]
+
     return changes
 
 
@@ -107,6 +139,10 @@ def _get_arrival_prealert_changes(
     status: Dict[str, Any],
 ) -> Optional[Dict[str, Any]]:
     if not _is_arrival_row(row):
+        return None
+
+    # 이미 도착이 확인됐거나 결항·회항인 편에는 '도착 예정' 사전 알림을 보내지 않는다.
+    if _is_refresh_excluded(row) or _row_operational_status(row) in (_ARRIVED_STATUSES | {"결항", "회항"}):
         return None
 
     target_dt = _get_row_datetime(row)
@@ -128,9 +164,10 @@ def _get_arrival_prealert_changes(
 
     return {
         "key": key,
+        # 시각만 보고 보내는 안내이며 실제 도착을 확인한 것이 아니다.
         "changes": [
-            f"도착 예정 {_format_alert_time(_get_alert_time_value(row))}",
-            f"상태 {_row_operational_status(row)}",
+            f"도착 예정 {_extract_clock_text(_get_alert_time_value(row))} (아직 도착 미확인)",
+            f"상태 {_row_operational_status(row)} (도착 미확인)",
         ],
     }
 
@@ -205,8 +242,10 @@ def _apply_elapsed_status_to_row(row: Dict[str, Any]) -> Dict[str, Any]:
 
     if is_departure:
         next_row["status"] = "출발"
+        next_row["statusInferred"] = True
     elif is_arrival:
         next_row["status"] = "도착"
+        next_row["statusInferred"] = True
 
     return next_row
 
