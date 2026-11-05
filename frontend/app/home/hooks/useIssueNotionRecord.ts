@@ -11,6 +11,7 @@ import { IMAGE_SLOT_PROPERTY_NAME, ISSUE_IMAGE_SLOT } from "../constants";
 import {
   getCurrentTimeText,
   getImageBySlot,
+  getTodayDateInputValue,
   getWeatherSummary,
   isRecentSameSave,
   makeSaveSignature,
@@ -94,7 +95,7 @@ export function useIssueNotionRecord({
     }
 
     if (issueNotionRecord?.pageId) {
-      setNotice("이미 저장된 특이사항 기록이 있습니다. 새로 만들지 않고 수정 버튼을 사용하세요.");
+      setNotice("이미 저장된 특이사항 기록이 있습니다. 내용을 바꾸려면 수정 버튼을, 새 특이사항은 '새 특이사항 작성'을 사용하세요.");
       return;
     }
 
@@ -118,6 +119,7 @@ export function useIssueNotionRecord({
         pageId: result.pageId,
         url: result.url,
         savedAt: new Date().toLocaleString("ko-KR"),
+        workDate: getTodayDateInputValue(),
       };
 
       setIssueNotionRecord(record);

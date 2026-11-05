@@ -407,3 +407,33 @@ export function isRecentSameSave(
   const elapsedMs = Date.now() - previous.savedAt;
   return previous.signature === signature && elapsedMs < 10 * 60 * 1000;
 }
+
+/**
+ * 앱을 열었을 때 임시저장된 일일 보고를 어떻게 할지 정한다.
+ * - keep: 오늘 날짜이거나 날짜 정보가 없음 → 그대로 유지
+ * - reset: 지난 날짜인데 비었거나 이미 Notion에 저장됨 → 오늘 새로 시작
+ * - ask: 지난 날짜인데 Notion에 저장하지 않은 내용이 있음 → 사용자에게 확인
+ */
+export function planDailyDraftRollover(input: {
+  draftWorkDate: string;
+  today: string;
+  hasDailyContent: boolean;
+  dailySavedToNotion: boolean;
+}): "keep" | "reset" | "ask" {
+  const { draftWorkDate, today, hasDailyContent, dailySavedToNotion } = input;
+  if (!draftWorkDate || draftWorkDate >= today) return "keep";
+  if (!hasDailyContent || dailySavedToNotion) return "reset";
+  return "ask";
+}
+
+/** 특이사항 Notion 기록이 지난 날짜에 저장된 것이면 true (새 날에는 입력칸을 비운다). */
+export function isIssueRecordFromPastDay(record: { workDate?: string; savedAt?: string } | null, today: string): boolean {
+  if (!record) return false;
+  const date = record.workDate || dateFromKoSavedAt(record.savedAt);
+  return Boolean(date) && date < today;
+}
+
+function dateFromKoSavedAt(savedAt?: string): string {
+  const match = String(savedAt || "").match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+  return match ? `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}` : "";
+}

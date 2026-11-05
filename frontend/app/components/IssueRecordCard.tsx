@@ -53,6 +53,7 @@ export function IssueRecordCard({
   setIssueText,
   issueNotionRecord,
   isIssueSaving,
+  handleStartNewIssue,
   handleSaveIssueDraft,
   handleSaveIssueToNotion,
   handleUpdateIssueToNotion,
@@ -220,6 +221,9 @@ export function IssueRecordCard({
             Notion 특이사항 저장 완료 · {issueNotionRecord.savedAt}
           </div>
           <div style={buttonStackStyle}>
+            <button onClick={handleStartNewIssue} style={orangeButtonStyle}>
+              새 특이사항 작성 (입력칸 비우기)
+            </button>
             <button onClick={handleSaveIssueDraft} style={darkButtonStyle}>
               특이사항 임시 저장
             </button>

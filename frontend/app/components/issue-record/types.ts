@@ -34,6 +34,8 @@ export type IssueRecordCardProps = {
   handleSaveIssueDraft: () => void;
   handleSaveIssueToNotion: () => void;
   handleUpdateIssueToNotion: () => void;
+  /** 저장한 특이사항은 두고, 다음 특이사항을 쓰려고 입력칸과 저장 연결만 비운다 */
+  handleStartNewIssue: () => void;
   handleDeleteIssueFromNotion: () => void;
   openIssueNotionPage: () => void;
   openNotionDatabase: (kind: "daily" | "issue") => void;

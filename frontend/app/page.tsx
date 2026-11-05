@@ -88,6 +88,8 @@ import {
   getLocalLatestScheduleRoom,
   getRouteByFlight,
   getTodayDateInputValue,
+  isIssueRecordFromPastDay,
+  planDailyDraftRollover,
   getWeatherSummary,
   getWorkDateMismatchMessage,
   saveDailyWorkDate,
@@ -249,7 +251,27 @@ export default function HomePage() {
   };
 
   const resetDailyWorkDateToToday = () => {
-    setDailyWorkDate(getTodayDateInputValue());
+    const today = getTodayDateInputValue();
+    if (dailyWorkDate === today) return;
+
+    // 날짜만 바꾸면 이전 날짜의 사진·메모가 오늘 기록으로 저장될 수 있어 내용도 함께 비운다.
+    const hasContent =
+      note.trim().length > 0 || images.some((image) => image.type !== ISSUE_IMAGE_SLOT.key);
+    const alreadySaved = Boolean(loadDailyNotionRecordForDate(dailyWorkDate));
+    if (hasContent && !alreadySaved) {
+      const ok = window.confirm(
+        `${dailyWorkDate} 업무 기록이 Notion에 저장되지 않았습니다.
+
+오늘(${today})로 바꾸면서 현재 사진·메모를 비웁니다. 계속할까요?`,
+      );
+      if (!ok) return;
+    }
+    if (hasContent) {
+      setNote("");
+      setImages((prev) => prev.filter((image) => image.type === ISSUE_IMAGE_SLOT.key));
+      setDailyStatus("normal");
+    }
+    setDailyWorkDate(today);
   };
 
   useEffect(() => {
@@ -261,11 +283,50 @@ export default function HomePage() {
     const savedDailyDraft = loadDailyDraft();
     const savedIssueDraft = loadIssueDraft();
 
-    setImages(loadImages());
-    setNote(savedDailyDraft?.note ?? loadNote());
-    setIssueNotionRecord(loadIssueNotionRecord());
+    // 날짜가 바뀐 뒤 앱을 열면 어제 사진·메모가 오늘 기록으로 저장되지 않도록 새로 시작한다.
+    const today = getTodayDateInputValue();
+    const loadedImages = loadImages();
+    const loadedNote = savedDailyDraft?.note ?? loadNote();
+    const draftWorkDate = savedDailyDraft?.workDate || "";
+    const dailyPlan = planDailyDraftRollover({
+      draftWorkDate,
+      today,
+      hasDailyContent:
+        loadedNote.trim().length > 0 ||
+        loadedImages.some((image) => image.type !== ISSUE_IMAGE_SLOT.key),
+      dailySavedToNotion: Boolean(draftWorkDate && loadDailyNotionRecordForDate(draftWorkDate)),
+    });
+    const rollDaily =
+      dailyPlan === "reset" ||
+      (dailyPlan === "ask" &&
+        window.confirm(
+          `${draftWorkDate} 일일 업무 기록이 Notion에 저장되지 않았습니다.
 
-    if (savedDailyDraft?.status) {
+[확인] 이 내용을 버리고 오늘(${today}) 새로 시작
+[취소] 이전 날짜 내용을 그대로 유지`,
+        ));
+
+    const savedIssueRecord = loadIssueNotionRecord();
+    const rollIssue = isIssueRecordFromPastDay(savedIssueRecord, today);
+    setImages(
+      rollDaily || rollIssue
+        ? loadedImages.filter((image) => {
+            if (image.type === ISSUE_IMAGE_SLOT.key) return !rollIssue;
+            return !rollDaily;
+          })
+        : loadedImages,
+    );
+    setNote(rollDaily ? "" : loadedNote);
+    setIssueNotionRecord(rollIssue ? null : savedIssueRecord);
+    if (rollIssue) {
+      clearIssueNotionRecord();
+      clearIssueDraft();
+    }
+
+    if (rollDaily) {
+      setDailyStatus("normal");
+      setDailyWorkDate(today);
+    } else if (savedDailyDraft?.status) {
       setDailyStatus(savedDailyDraft.status);
     }
     if (savedDailyDraft?.author) {
@@ -273,15 +334,16 @@ export default function HomePage() {
     } else {
       setAuthor(DEFAULT_DAILY_AUTHOR);
     }
-    if (savedDailyDraft?.workDate) {
+    if (savedDailyDraft?.workDate && !rollDaily) {
       setDailyWorkDate(savedDailyDraft.workDate);
     }
 
-    const initialWorkDate =
-      savedDailyDraft?.workDate || dailyWorkDateRef.current || getTodayDateInputValue();
+    const initialWorkDate = rollDaily
+      ? today
+      : savedDailyDraft?.workDate || dailyWorkDateRef.current || getTodayDateInputValue();
     setDailyNotionRecord(loadDailyNotionRecordForDate(initialWorkDate));
 
-    if (savedIssueDraft) {
+    if (savedIssueDraft && !rollIssue) {
       setIssueFlight(savedIssueDraft.flight);
       setIssueRoute(savedIssueDraft.route);
       setIssueHlnbr(savedIssueDraft.hlnbr);
@@ -289,7 +351,8 @@ export default function HomePage() {
       if (savedIssueDraft.author) {
         setAuthor(normalizeDailyAuthor(savedIssueDraft.author));
       }
-      if (savedIssueDraft.status === "issue" || savedIssueDraft.text.trim()) {
+      // 일일 임시저장이 없을 때만 특이사항 내용으로 상태를 정한다(열 때마다 "특이사항 있음"으로 바뀌지 않게).
+      if (!savedDailyDraft && (savedIssueDraft.status === "issue" || savedIssueDraft.text.trim())) {
         setDailyStatus("issue");
       }
     }
@@ -957,6 +1020,23 @@ export default function HomePage() {
     return () => clearTimeout(timer);
   }, [dailyStatus, author, note, images, dailyWorkDate, draftHydrated]);
 
+  // 특이사항 하나를 Notion에 저장한 뒤 다음 특이사항을 쓰려고 입력칸과 저장 연결만 비운다(일일 보고는 그대로).
+  const handleStartNewIssue = () => {
+    if (!issueNotionRecord && (issueText.trim() || issueFlight.trim())) {
+      const ok = window.confirm("Notion에 저장하지 않은 특이사항 입력 내용이 있습니다. 비우고 새로 작성할까요?");
+      if (!ok) return;
+    }
+    setIssueFlight("");
+    setIssueRoute("");
+    setIssueHlnbr("");
+    setIssueText("");
+    setIssueNotionRecord(null);
+    setImages((prev) => prev.filter((image) => image.type !== ISSUE_IMAGE_SLOT.key));
+    clearIssueDraft();
+    clearIssueNotionRecord();
+    setNotice("새 특이사항을 작성할 수 있게 입력칸을 비웠습니다. 일일 보고 내용은 그대로입니다.");
+  };
+
   const handleResetLocalDraft = () => {
     const confirmed = window.confirm(
       "앱 화면에 남아 있는 사진, 메모, Notion 저장 연결 상태를 초기화합니다.\n\nNotion DB에 이미 저장된 기록은 삭제되지 않습니다.\n초기화 후에는 이 화면에서 해당 Notion 기록을 수정/삭제할 수 없습니다.\n\n계속할까요?",
@@ -1147,6 +1227,7 @@ export default function HomePage() {
             setIssueText={setIssueText}
             issueNotionRecord={issueNotionRecord}
             isIssueSaving={isIssueSaving}
+            handleStartNewIssue={handleStartNewIssue}
             handleSaveIssueDraft={handleSaveIssueDraft}
             handleSaveIssueToNotion={handleSaveIssueToNotion}
             handleUpdateIssueToNotion={handleUpdateIssueToNotion}
