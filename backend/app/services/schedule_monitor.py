@@ -63,7 +63,6 @@ from app.services.schedule_store import (
     _write_latest_schedule,
     _write_schedule_slot_entry,
 )
-_ARRIVED_STATUSES = {"도착", "도착(지연)", "착륙"}
 
 
 def _without_inferred_status(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -76,7 +75,15 @@ def _without_inferred_status(row: Dict[str, Any]) -> Dict[str, Any]:
     return cleaned
 
 
+def _remark_says_arrived(row: Optional[Dict[str, Any]]) -> bool:
+    """인천 API remark 가 실제로 도착(착륙)을 알리는지. 시간이 지나 붙인 추정 상태는 포함하지 않는다."""
+    remark = str((row or {}).get("remark") or "").upper()
+    return any(token in remark for token in ("도착", "ARRIV", "착륙", "LAND"))
+
+
 def _row_changed_fields(previous: Optional[Dict[str, Any]], current: Dict[str, Any]) -> List[str]:
+    # 알림은 인천 API 가 실제로 알려 준 값의 변화만 본다(시간이 지나 추정한 출발/도착은 제외).
+    current = _without_inferred_status(current)
     if previous is not None:
         previous = _without_inferred_status(previous)
 
@@ -114,8 +121,8 @@ def _row_changed_fields(previous: Optional[Dict[str, Any]], current: Dict[str, A
     # 인천 API 가 실제로 '도착'을 알려 준 경우: 추정이 아닌 실제 도착임을 문구로 표시하고 맨 앞에 둔다(푸시는 첫 줄을 사용).
     if (
         _is_arrival_row(current)
-        and _row_operational_status(current) in _ARRIVED_STATUSES
-        and _row_operational_status(previous) not in _ARRIVED_STATUSES
+        and _remark_says_arrived(current)
+        and not _remark_says_arrived(previous)
     ):
         after_status = _row_operational_status(current)
         before_status = _row_operational_status(previous)
@@ -142,7 +149,8 @@ def _get_arrival_prealert_changes(
         return None
 
     # 이미 도착이 확인됐거나 결항·회항인 편에는 '도착 예정' 사전 알림을 보내지 않는다.
-    if _is_refresh_excluded(row) or _row_operational_status(row) in (_ARRIVED_STATUSES | {"결항", "회항"}):
+    row = _without_inferred_status(row)
+    if _is_refresh_excluded(row) or _remark_says_arrived(row) or _row_operational_status(row) in ({"결항", "회항"}):
         return None
 
     target_dt = _get_row_datetime(row)

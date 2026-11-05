@@ -135,6 +135,28 @@ pre = monitor._get_arrival_prealert_changes("KJ970", dict(INBOUND, remark="지�
 check("사전 알림 문구: 도착 미확인 표시", pre and pre["changes"][0] == "도착 예정 14:00 (아직 도착 미확인)" and "도착 미확인" in pre["changes"][1], pre)
 check("실제 도착이 확인된 편에는 사전 알림 없음", monitor._get_arrival_prealert_changes("KJ970", dict(INBOUND, remark="도착"), {}) is None)
 check("결항 편에는 사전 알림 없음", monitor._get_arrival_prealert_changes("KJ970", dict(INBOUND, remark="결항"), {}) is None)
+# API 파서가 ETA 지난 뒤 붙인 추정 '도착'(remark 는 아직 '지연')은 실제 도착으로 취급하지 않음
+parser_inferred = dict(INBOUND, remark="지연", status="도착", statusInferred=True)
+check("ETA 가 지나 추정된 '도착'만으로는 알림·'도착 확인'이 나가지 않음",
+      monitor._row_changed_fields(dict(INBOUND, remark="지연"), parser_inferred) == [],
+      monitor._row_changed_fields(dict(INBOUND, remark="지연"), parser_inferred))
+pre2 = monitor._get_arrival_prealert_changes("KJ970", parser_inferred, {})
+check("추정 '도착'이 붙어도 API 가 도착을 알리기 전까지는 사전 알림 대상", pre2 is not None and "도착 미확인" in pre2["changes"][0], pre2)
+
+# 인천 API 파서: remark 가 도착을 말하면 실제, 비어 있는데 시각만 지났으면 추정 표시
+import xml.etree.ElementTree as _ET  # noqa: E402
+from app.services import incheon_api as _api  # noqa: E402
+
+
+def _items(remark):
+    xml = (f"<items><item><airline>KJ</airline><flightId>KJ970</flightId><airport>홍콩</airport><airportCode>HKG</airportCode>"
+           f"<scheduleDateTime>200001010000</scheduleDateTime><estimatedDateTime>200001010000</estimatedDateTime>"
+           f"<remark>{remark}</remark></item></items>")
+    return list(_ET.fromstring(xml))
+
+
+check("파서: remark 도착이면 추정 아님", _api._rows_from_items(_items("도착"), "arrival")[0]["statusInferred"] is False)
+check("파서: remark 비어 있고 시각만 지났으면 추정 표시", _api._rows_from_items(_items(""), "arrival")[0]["statusInferred"] is True)
 monitor._now_kst = _real_now
 
 print(f"\n{passed}개 통과")
