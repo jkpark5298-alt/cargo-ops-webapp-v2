@@ -359,6 +359,7 @@ export default function FixedLitePage() {
             flights: activeFlights,
             start: room.startDateTime,
             end: room.endDateTime,
+            includeScheduled: true,
           }),
         });
 

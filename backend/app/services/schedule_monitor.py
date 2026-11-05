@@ -38,7 +38,7 @@ from app.services.flight_rows import (
     _normalize_alert_value,
     _normalize_flights,
     _row_alert_time,
-    _row_matches_time_range,
+    _row_matches_schedule_or_estimate_range,
     _row_operational_status,
     _validate_range,
 )
@@ -115,7 +115,7 @@ def _get_arrival_prealert_changes(
     if target_dt is None:
         return None
 
-    now = datetime.now()
+    now = _now_kst()  # 서버 시간대(UTC 등)와 무관하게 한국 시각으로 비교
     alert_start = target_dt - timedelta(minutes=10)
     alert_end = target_dt + timedelta(minutes=30)
 
@@ -393,7 +393,7 @@ async def _run_schedule_change_check(push_on_change: bool = True) -> Dict[str, A
             filtered_rows = [
                 row
                 for row in rows
-                if _row_matches_time_range(row, start_dt, end_dt)
+                if _row_matches_schedule_or_estimate_range(row, start_dt, end_dt)
             ]
 
             _record_incheon_api_usage_for_rows(filtered_rows)
@@ -501,7 +501,7 @@ def _is_row_in_focus_window(row: Dict[str, Any], now: Optional[datetime] = None)
     if target_dt is None:
         return False
 
-    now = now or datetime.now()
+    now = now or _now_kst()  # 서버 시간대와 무관하게 한국 시각
 
     if _is_departure_row(row):
         return target_dt - timedelta(minutes=30) <= now <= target_dt + timedelta(hours=1)
@@ -522,7 +522,7 @@ def _get_auto_interval_minutes_for_room(room: Optional[Dict[str, Any]]) -> int:
 
     latest = _latest_rows_by_flight(rows)
     requested_flights = _normalize_flights([str(room.get("flightsInput") or "")])
-    now = datetime.now()
+    now = _now_kst()
 
     for flight in requested_flights:
         row = latest.get(flight)

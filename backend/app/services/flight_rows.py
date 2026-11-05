@@ -138,6 +138,35 @@ def _row_matches_time_range(
     return True
 
 
+def _row_matches_schedule_or_estimate_range(
+    row: Dict[str, Any],
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+) -> bool:
+    """변경 감지·카드 자동 갱신용 기간 필터: 예정시각 또는 변경시각 중 하나라도 기간 안이면 포함한다.
+
+    변경시각만 보면 지연으로 기간 밖(예: 23:59 이후)으로 밀린 편이 조회 결과에서 빠져
+    지연·결항 알림이 가지 않고 예전 시각이 그대로 남는다. (조회 화면의 필터는 기존 그대로 변경시각 기준)"""
+    if start_dt is None and end_dt is None:
+        return True
+
+    candidates = [
+        _parse_row_datetime(row.get("formattedScheduleTime") or row.get("scheduleDateTime")),
+        _parse_row_datetime(row.get("formattedEstimatedTime") or row.get("estimatedDateTime")),
+    ]
+    candidates = [candidate for candidate in candidates if candidate is not None]
+    if not candidates:
+        return True
+
+    for candidate in candidates:
+        if start_dt is not None and candidate < start_dt:
+            continue
+        if end_dt is not None and candidate > end_dt:
+            continue
+        return True
+    return False
+
+
 def _get_row_sort_key(row: Dict[str, Any]):
     dt = _get_row_datetime(row)
     flight = str(row.get("flightId") or row.get("flightNo") or "")

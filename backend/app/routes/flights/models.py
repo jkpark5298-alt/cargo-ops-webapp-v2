@@ -64,6 +64,8 @@ class FlightQueryRequest(BaseModel):
     flights: List[str] = Field(default_factory=list)
     start: str
     end: str
+    # True 이면 예정시각 또는 변경시각 중 하나라도 기간 안인 편을 포함한다. (Schedule Flight 카드 자동 갱신용)
+    includeScheduled: bool = False
 
 
 class FlightRangeRequest(BaseModel):

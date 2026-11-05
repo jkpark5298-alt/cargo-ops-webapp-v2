@@ -129,6 +129,7 @@ export function useFlightLookup({
             flights: activeFlights,
             start: queryStart,
             end: queryEnd,
+            includeScheduled: true,
           }),
         });
 

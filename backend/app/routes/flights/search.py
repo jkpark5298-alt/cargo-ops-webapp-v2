@@ -19,6 +19,7 @@ from app.services.flight_common import _flight_search_cache_get, _flight_search_
 from app.services.flight_rows import (
     _get_row_sort_key,
     _normalize_flights,
+    _row_matches_schedule_or_estimate_range,
     _row_matches_time_range,
     _validate_range,
 )
@@ -99,7 +100,8 @@ async def search_flights(payload: FlightQueryRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="조회할 편명이 없습니다.")
 
     start_dt, end_dt, start_date, end_date = _validate_range(payload.start, payload.end)
-    cache_key = f"manual|{','.join(normalized_flights)}|{payload.start}|{payload.end}|{start_date}|{end_date}"
+    cache_key = f"manual|{','.join(normalized_flights)}|{payload.start}|{payload.end}|{start_date}|{end_date}|{int(payload.includeScheduled)}"
+    row_in_range = _row_matches_schedule_or_estimate_range if payload.includeScheduled else _row_matches_time_range
     cached = _flight_search_cache_get(cache_key)
     if cached:
         cached["cached"] = True
@@ -124,7 +126,7 @@ async def search_flights(payload: FlightQueryRequest) -> Dict[str, Any]:
             filtered_rows = [
                 row
                 for row in rows
-                if _row_matches_time_range(row, start_dt, end_dt)
+                if row_in_range(row, start_dt, end_dt)
             ]
 
             _record_incheon_api_usage_for_rows(filtered_rows)
