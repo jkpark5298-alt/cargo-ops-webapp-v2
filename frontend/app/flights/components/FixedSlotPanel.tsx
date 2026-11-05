@@ -77,7 +77,7 @@ export function FixedSlotPanel({
                     cursor: "pointer",
                   }}
                 >
-                  AFOCS SKD 열기
+                  Monthly SKD 열기
                 </button>
                 <button
                   type="button"

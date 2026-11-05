@@ -186,9 +186,9 @@ export function ScheduleRoomEditor({
                   <button
                     onClick={openAfocsSkd}
                     style={afocsSkdLinkBtn}
-                    title="아이폰용 AFOCS SKD 화면 열기"
+                    title="Monthly Scheduled Flight 화면 열기"
                   >
-                    AFOCS SKD 열기
+                    Monthly SKD 열기
                   </button>
                 </div>
               </div>

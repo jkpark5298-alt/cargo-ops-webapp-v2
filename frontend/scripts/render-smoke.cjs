@@ -1,4 +1,4 @@
-// jsdom 에서 세 화면(홈 / 편명조회 / AFOCS SKD)을 실제로 렌더링(효과 포함)하고 화면·fetch 호출을 기록한다.
+// jsdom 에서 두 화면(홈 / 편명조회)을 실제로 렌더링(효과 포함)하고 화면·fetch 호출을 기록한다.
 // 사용 (frontend 폴더에서): npm i --no-save jsdom && node scripts/render-smoke.cjs . result.json
 // 리팩터링 전/후 코드로 각각 실행해 결과 JSON을 diff 하면 화면·API 호출·저장 데이터 차이를 확인할 수 있다.
 const path = require("path");
@@ -172,10 +172,8 @@ async function renderPage(name, file, setup, steps) {
   const seedRooms = () => w.localStorage.setItem("cargo_ops_monitor_rooms_v6", JSON.stringify([room]));
   const HOME = [["click", "API 즉시 확인"], ["click", "변경 즉시 확인"], ["click", "자동 상태 새로고침"], ["click", "알림 이력 보기"], ["click", "S"], ["click", "A"], ["click", "특이사항 있음"], ["type", "textarea", { value: "테스트 메모" }], ["click", "일일 업무 임시 저장"], ["click", "텍스트 공유 저장"], ["click", "Notion 일일 기록 저장"], ["click", "알림 허용"], ["click", "테스트 알림"], ["click", "편 삭제"], ["click", "앱 화면만 초기화"]];
   const FLIGHTS = [["click", "③ 등록번호 / AFOCS"], ["click", "① 편명 조회 및 저장"], ["click", "편명 직접 조회"], ["type", "input:not([type=file]):not([type=date]), textarea", { value: "247, 951" }], ["click", "편명 조회"], ["click", "KJ 전체 조회"], ["click", "② 편명 수정"], ["click", "③ 등록번호 / AFOCS"], ["click", "편명 직접 조회"], ["type", "input:not([type=file]):not([type=date]), textarea", { value: "247, 951" }], ["click", "편명 조회"], ["click", "등록기호 저장"], ["click", "초기화면"]];
-  const FIXED = [["click", "A"], ["click", "S"], ["click", "🔴 특이사항 있음"], ["type", "textarea", { value: "메모 입력" }], ["click", "💾 Supabase에 저장 및 동기화"], ["click", "다시 조회"], ["click", "🔄 갱신"], ["click", "편명조회로"]];
   results.home = await renderPage("home", "app/page.js", seedRooms, HOME);
   results.flights = await renderPage("flights", "app/flights/page.js", seedRooms, FLIGHTS);
-  results.afocsSkd = await renderPage("afocs-skd", "app/afocs-skd/page.js", seedRooms, FIXED);
   // 편명조회 모드 전환 동작 (탭 클릭) 도 확인
   fs.writeFileSync(outFile, JSON.stringify(results, null, 1));
   const summary = Object.fromEntries(Object.entries(results).map(([k, v]) => [k, { 글자수: v.textLength, 버튼: v.buttons.length, 입력: v.inputs.length, fetch: v.fetchCalls.length, 오류: v.errors.length }]));

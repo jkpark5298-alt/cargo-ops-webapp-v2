@@ -538,11 +538,7 @@ export default function HomePage() {
   const openFlights = () => router.push("/flights");
 
   const openScheduleFlight = () => {
-    if (latestRoom) {
-      router.push("/afocs-skd");
-      return;
-    }
-    router.push("/flights");
+    router.push("/afocs-skd");
   };
 
   const handleUpdateAfocsSkd = async (flight: string, date: string, time: string) => {

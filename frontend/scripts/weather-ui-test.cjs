@@ -1,4 +1,4 @@
-// 날씨 카드 UI 테스트: 서버 실패/부분 성공/성공 응답을 가짜로 주고 홈·AFOCS SKD 화면을 jsdom에서 렌더링해 확인한다.
+// 날씨 카드 UI 테스트: 서버 실패/부분 성공/성공 응답을 가짜로 주고 홈 화면을 jsdom에서 렌더링해 확인한다.
 // 사용 (frontend 폴더에서): npm i --no-save jsdom && node scripts/weather-ui-test.cjs . out.json
 // jsdom 에서 세 화면(홈 / 편명조회 / AFOCS SKD)을 실제로 렌더링(효과 포함)하고 화면·fetch 호출을 기록한다.
 // 사용 (frontend 폴더에서): npm i --no-save jsdom && node scripts/render-smoke.cjs . result.json
@@ -229,18 +229,6 @@ async function renderPage(name, file, setup, steps) {
   global.__weather = () => FULL;
   ({ container, root } = await mountPage("app/page.js"));
   check("[홈] 처음 열 때는 캐시를 쓰는 일반 조회", calls.some((c) => c === "GET /weather/current"), calls);
-  await act(async () => { root.unmount(); });
-
-  // 5) AFOCS SKD 화면
-  global.__weather = () => FAIL;
-  ({ container, root } = await mountPage("app/afocs-skd/page.js"));
-  const t5 = text(container);
-  check("[AFOCS SKD] 날씨 실패: 안내 표시, 예시 숫자 없음", t5.includes("불러오지 못했습니다") && !/19\.6|3\.3m\/s/.test(t5), t5.slice(0, 300));
-  global.__weather = () => PARTIAL;
-  calls.length = 0;
-  await clickFirst(container, "갱신");
-  const t6 = text(container);
-  check("[AFOCS SKD] 갱신은 refresh=true, 실제 값 표시", calls.some((c) => c.includes("/weather/current?refresh=true")) && t6.includes("16.0°C") && t6.includes("서 5.1m/s"), calls.concat(t6.slice(0, 200)));
   await act(async () => { root.unmount(); });
 
   log("\n" + ok + "개 통과");

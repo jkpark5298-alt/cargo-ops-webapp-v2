@@ -473,11 +473,6 @@ export default function FlightsPage() {
   };
 
   const openAfocsSkd = () => {
-    if (!selectedRoom) {
-      setError("선택된 Schedule Flight가 없습니다.");
-      return;
-    }
-
     router.push("/afocs-skd");
   };
 

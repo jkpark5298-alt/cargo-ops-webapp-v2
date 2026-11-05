@@ -1,5 +1,6 @@
 "use client";
 
+import { MonthlySkdInputPanel } from "../../components/MonthlySkdInputPanel";
 import { type useRouter } from "next/navigation";
 import { getDatePart, getTimePart } from "../lib/helpers";
 import {
@@ -76,7 +77,7 @@ export function RegistrationPanel({
               </div>
               <div style={{ display: "flex", gap: 10 }}>
                 <button type="button" onClick={openAfocsSkd} style={homeButtonStyle}>
-                  AFOCS SKD 열기
+                  Monthly SKD 열기
                 </button>
                 <button type="button" onClick={() => router.push("/")} style={homeButtonStyle}>
                   초기화면
@@ -212,6 +213,11 @@ export function RegistrationPanel({
                   ② 이 기간으로 KJ 전체 조회
                 </button>
               )}
+            </div>
+
+            {/* 월간 SKD 입력: Monthly Scheduled Flight 와 등록기호 기록에 함께 저장 */}
+            <div style={{ marginTop: 20 }}>
+              <MonthlySkdInputPanel compact />
             </div>
           </>
         )}

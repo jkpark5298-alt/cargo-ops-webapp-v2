@@ -61,7 +61,7 @@ export function ScheduleSummaryCard({
           {apiSyncLoading ? "API 즉시 확인 중..." : "API 즉시 확인"}
         </button>
         <button onClick={onOpenScheduleFlight} style={secondaryButtonStyle} disabled={flightDeleting}>
-          AFOCS SKD 열기
+          Monthly SKD 열기
         </button>
       </div>
     </section>

@@ -18,7 +18,7 @@ const compile = (rel) => {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.writeFileSync(dest, js);
 };
-["lib/flight-types", "lib/flight-keys", "lib/flight-status", "lib/aircraft-registration", "lib/schedule-store", "lib/api-config", "lib/afocs-skd", "lib/csm-checklist", "lib/flight-status", "lib/flight-alerts", "home/helpers", "home/constants", "home/types",
+["lib/flight-types", "lib/flight-keys", "lib/flight-status", "lib/aircraft-registration", "lib/schedule-store", "lib/api-config", "lib/afocs-skd", "lib/csm-checklist", "lib/monthly-schedule", "lib/flight-status", "lib/flight-alerts", "home/helpers", "home/constants", "home/types",
   "flights/lib/helpers", "flights/lib/types", "flights/lib/constants"].forEach(compile);
 
 // 브라우저 환경 흉내
@@ -437,6 +437,71 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
     assert.strictEqual(fstatus.isFinalCompletedFlightStatus("도착"), true);
     assert.strictEqual(fstatus.isFinalCompletedFlightStatus("도착(지연)"), true);
     assert.strictEqual(fstatus.isFinalCompletedFlightStatus("결항"), true);
+  });
+
+  // Monthly Scheduled Flight
+  const monthly = require(path.join(outDir, "app/lib/monthly-schedule.js"));
+  test("근무조: A 06:31~14:00, C 14:01~23:00, S 23:00~익일 06:30 (23:00은 C·S 모두)", () => {
+    const D = "2026-11-06";
+    const at = (t) => ["A", "C", "S"].filter((sh) => monthly.isInShift(t, D, sh)).join("");
+    assert.strictEqual(at("2026-11-06 06:30"), "");
+    assert.strictEqual(at("2026-11-06 06:31"), "A");
+    assert.strictEqual(at("2026-11-06 14:00"), "A");
+    assert.strictEqual(at("2026-11-06 14:01"), "C");
+    assert.strictEqual(at("2026-11-06 23:00"), "CS");
+    assert.strictEqual(at("2026-11-06 23:01"), "S");
+    assert.strictEqual(at("2026-11-07 06:30"), "S");
+    assert.strictEqual(at("2026-11-07 06:31"), "");
+    assert.strictEqual(at("2026-11-06 02:00"), "", "선택 일자의 새벽은 전날 S조");
+  });
+  test("담당: 근무조 안 시간순 A→B→C→A 자동, 편별 지정 우선, 이름 없으면 글자", () => {
+    const f = (k, slot = "") => ({ recordKey: k, assigneeSlot: slot });
+    const slots = monthly.assignSlots([f("1"), f("2"), f("3", "A"), f("4")]);
+    assert.deepStrictEqual(slots, { 1: "A", 2: "B", 3: "A", 4: "A" });
+    assert.strictEqual(monthly.assigneeName("B", { nameA: "홍길동", nameB: "", nameC: "" }), "B");
+    assert.strictEqual(monthly.assigneeName("A", { nameA: "홍길동", nameB: "", nameC: "" }), "홍길동");
+    assert.strictEqual(monthly.assigneeName("C", null), "C");
+  });
+  test("유형 1은 API 변경시각 우선, 유형 2는 SKD 시각", () => {
+    const f = { skdTime: "2026-11-06 23:00", apiTime: "2026-11-06 23:40" };
+    assert.strictEqual(monthly.displayTime(f, 1), "2026-11-06 23:40");
+    assert.strictEqual(monthly.displayTime(f, 2), "2026-11-06 23:00");
+    assert.strictEqual(monthly.displayTime({ ...f, apiTime: "" }, 1), "2026-11-06 23:00");
+    assert.deepStrictEqual(monthly.type1Dates("2026-11-30"), ["2026-11-30", "2026-12-01", "2026-12-02"]);
+  });
+  test("근무조 목록: S조는 다음 날 새벽 편 포함, 시간순 정렬", () => {
+    const rows = [
+      { recordKey: "a", flight: "KJ1", skdTime: "2026-11-07 01:00", apiTime: "" },
+      { recordKey: "b", flight: "KJ2", skdTime: "2026-11-06 23:30", apiTime: "" },
+      { recordKey: "c", flight: "KJ3", skdTime: "2026-11-06 10:00", apiTime: "2026-11-06 23:10" },
+    ];
+    assert.deepStrictEqual(monthly.flightsForShift(rows, "2026-11-06", "S", 2).map((r) => r.flight), ["KJ2", "KJ1"]);
+    assert.deepStrictEqual(monthly.flightsForShift(rows, "2026-11-06", "S", 1).map((r) => r.flight), ["KJ3", "KJ2", "KJ1"], "유형 1은 지연된 변경시각으로 근무조 판정");
+  });
+  test("엑셀 붙여넣기: Daily Job SKD 머리글 양식(담당자·T/O R/I·주기장 열 무시), KJ만, 0 제거", () => {
+    const text = [
+      "Daily Job SKD (2026-11-06)",
+      "편명\t등록기호\tDEP\tARR\tETD ETA\t담당자\tT/O R/I\t주기장",
+      "KJ0795\tHL7423\tICN\tFRA\t2026-11-06 23:15\t홍길동\t\t625",
+      "OZ0790\tHL7419\tMXP\tICN\t2026-11-06 9:00\t김철수\t\t623",
+      "KJ2911\t7417\tORD\tICN\t2026/11/07 0:45\t\t\t623",
+      "KJ948\tHL8001\tPVG\tICN\t시각없음",
+    ].join("\n");
+    const res = monthly.parseSkdMatrix(monthly.textToMatrix(text));
+    assert.deepStrictEqual(res.records, [
+      { flight: "KJ795", skdTime: "2026-11-06 23:15", departureCode: "ICN", arrivalCode: "FRA", registrationNo: "HL7423" },
+      { flight: "KJ2911", skdTime: "2026-11-07 00:45", departureCode: "ORD", arrivalCode: "ICN", registrationNo: "HL7417" },
+    ]);
+    assert.strictEqual(res.skipped.length, 2);
+  });
+  test("엑셀 파일 값: 날짜 일련번호, 머리글 없는 순서(편명·등록기호·DEP·ARR·ETD/ETA), 일자+시각 분리 열", () => {
+    // 2026-11-06 23:15 = 46332 + 23.25/24
+    const serial = 46332 + (23 * 60 + 15) / 1440;
+    assert.strictEqual(monthly.parseSkdDateTime(serial), "2026-11-06 23:15");
+    const noHeader = monthly.parseSkdMatrix([["KJ970", "HL7620", "HKG", "ICN", serial]]);
+    assert.strictEqual(noHeader.records[0].skdTime, "2026-11-06 23:15");
+    const split = monthly.parseSkdMatrix([["편명", "일자", "ETD/ETA", "DEP", "ARR"], ["KJ970", "2026-11-06", "07:05", "HKG", "ICN"], ["KJ971", 46332, 0.5, "ICN", "HKG"]]);
+    assert.deepStrictEqual(split.records.map((r) => r.skdTime), ["2026-11-06 07:05", "2026-11-06 12:00"]);
   });
 
   console.log(`\n${passed}개 통과${process.exitCode ? " · 실패 있음" : ""}`);

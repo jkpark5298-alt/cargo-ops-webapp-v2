@@ -23,7 +23,7 @@ app/
   page.tsx                  초기화면 (화면 조립)
   home/                     초기화면 전용: types / constants / helpers / styles / hooks / components
   flights/                  편명조회: page.tsx + hooks/ components/ lib/ styles.ts
-  afocs-skd/                AFOCS SKD 화면: page.tsx + hooks/ components/ …
+  afocs-skd/                Monthly Scheduled Flight 화면(page.tsx 하나)
   components/               초기화면 카드 컴포넌트
   lib/                      세 화면 공용 규칙 (docs/architecture.md 참고)
   api/health/               헬스 라우트
