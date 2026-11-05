@@ -59,6 +59,11 @@
 
 Render의 `/tmp`는 재시작하면 사라지므로 운영에서는 Supabase 설정이 필수입니다.
 
+### 등록 기록 저장 계층
+- 서버: Supabase `aircraft_registration_records`(기준) + `/tmp` 파일(읽기 캐시·대체). 서버를 재시작해도 기록이 유지됩니다.
+- 브라우저: `localStorage`(`cargo_ops_aircraft_registration_records_v1`)는 **서버 목록으로 덮어쓰지 않고 합칩니다**(같은 운항은 나중에 저장한 값이 이김). 서버가 비어 있거나 장애여도 브라우저 기록은 지워지지 않고, 서버에 없는 기록은 다시 올려 복구합니다.
+- 저장 시각은 UTC(`…Z`)로 통일해 비교합니다.
+
 ### Notion 일일 기록
 업무일자별로 저장 기록을 관리하고(`local-storage.ts`), 화면의 "Notion 입력 여부"는 `GET /notion/daily-records?date=`로 Notion에 실제 기록이 있는지 확인합니다. 저장 전에도 같은 날짜 기록이 있으면 새로 만들지 않고 연결합니다.
 

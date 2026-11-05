@@ -24,7 +24,7 @@ app/services/
   flight_common.py           환경설정·파일 경로·KST·검색 캐시·Supabase 요청
   flight_rows.py             편 행 파싱·시간 범위·상태 판정(순수 함수)
   flight_alerts.py           알림/푸시 문구
-  aircraft_registration.py   등록기호 기록 정규화·저장·행 적용
+  aircraft_registration.py   등록기호 기록 정규화·저장(Supabase + 파일 대체)·행 적용
   schedule_store.py          최신 스케줄과 슬롯 저장·동기화 (파일 + Supabase)
   schedule_monitor.py        변경 감지, 자동 푸시 루프
   notification_store.py      알림 기록·푸시 구독·자동 푸시 상태, 웹푸시 발송
@@ -72,7 +72,7 @@ INCHEON_API_SERVICE_KEY=키 uvicorn app.main:app --reload
 | `GET·POST /flights/latest-schedule` | 초기화면 기준 Schedule Flight(고정 방) 조회·저장 |
 | `POST /flights/latest-schedule/check-push-and-save` | 변경 확인 + 푸시 + 저장 |
 | `GET·DELETE /flights/schedule-slots`, `POST …/save`, `…/link/{slot}`, `…/swap`, `DELETE …/{slot}` | Schedule Flight 카드 2장(active/archive) 관리, 초기화면 연동 |
-| `GET·POST /flights/aircraft-registrations` | 등록기호 기록 조회·저장(`mode`: merge/replace) |
+| `GET·POST /flights/aircraft-registrations` | 등록기호 기록 조회·저장. **Supabase(`aircraft_registration_records`)에 저장**되어 서버를 재시작해도 유지됨(미설정 시 `/tmp` 파일 대체). 같은 운항은 나중에 저장한 값이 이기고 오래된 값은 무시. `mode: replace`도 기록을 지우지 않고 병합. 저장소 장애 시 GET 503 / POST 502(빈 목록으로 응답하지 않음) |
 | `GET·POST /flights/daily-report-text` | Daily 업무보고 텍스트 공유 |
 | `POST /flights/check-schedule`, `…/check-schedule-and-push` | 변경 확인 / 확인 후 푸시 |
 | `GET /flights/auto-push/status`, `POST …/config` | 자동 푸시 상태·설정 |
@@ -99,5 +99,6 @@ INCHEON_API_SERVICE_KEY=키 uvicorn app.main:app --reload
 ```bash
 python scripts/api_smoke_test.py result.json   # /flights API 스모크 테스트
 python scripts/weather_test.py                  # 날씨 서비스(실패·부분 성공·성공·캐시) 테스트
+python scripts/registration_store_test.py       # 등록기호 저장소(Supabase·재시작 복구·최신 우선·장애) 테스트
 ```
 임시 파일 저장소와 가짜 인천 API로 `/flights` 주요 API를 호출해 응답을 JSON으로 저장합니다. 코드를 옮기거나 나눈 뒤 변경 전/후 결과를 `diff` 해서 동작 차이를 확인합니다.

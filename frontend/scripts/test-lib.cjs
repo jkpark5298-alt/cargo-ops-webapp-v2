@@ -214,6 +214,71 @@ test("엑셀 업로드 점검: 문제가 없으면 빈 문자열, 많으면 일�
   assert.ok(text.includes("미반영 9건") && text.includes("외 3건"), text);
 });
 
+/* ───────── 서버 기록과 브라우저 기록 동기화 ───────── */
+const setLocal = (records) => store["cargo_ops_aircraft_registration_records_v1"] = JSON.stringify(records);
+const getLocal = () => JSON.parse(store["cargo_ops_aircraft_registration_records_v1"] || "[]");
+function fakeServer(initial, opts = {}) {
+  const server = { records: [...initial], posts: [] };
+  global.fetch = async (url, init) => {
+    if (opts.failGet && (!init || !init.method)) return { ok: false, json: async () => ({ success: false, detail: "503" }) };
+    if (init && init.method === "POST") {
+      const body = JSON.parse(init.body);
+      if (opts.failPost) return { ok: false, json: async () => ({ success: false, detail: "502" }) };
+      server.posts.push(body);
+      const map = new Map(server.records.map((r) => [[r.date, r.flight, r.departureCode, r.arrivalCode].join("|"), r]));
+      body.records.forEach((r) => { const k = [r.date, r.flight, r.departureCode, r.arrivalCode].join("|"); const old = map.get(k); if (!old || Date.parse(r.updatedAt) >= Date.parse(old.updatedAt)) map.set(k, r); });
+      server.records = [...map.values()];
+    }
+    return { ok: true, json: async () => ({ success: true, records: server.records }) };
+  };
+  return server;
+}
+const L3 = [
+  rec("2026-11-06", "KJ977", "ICN", "TSN", "HL8355", "2026-11-05T06:00:00.000Z"),
+  rec("2026-11-06", "KJ918", "TAO", "ICN", "HL8319", "2026-11-05T06:00:00.000Z"),
+  rec("2026-11-06", "KJ978", "TSN", "ICN", "HL8355", "2026-11-05T06:00:00.000Z"),
+];
+async function syncTests() {
+  await atest("★ 서버가 비어도 브라우저 기록을 지우지 않고 서버로 복구(홈·AFOCS 화면 포함)", async () => {
+    setLocal(L3); const server = fakeServer([]);
+    const out = await reg.fetchAircraftRegistrationRecordsFromServer();
+    assert.strictEqual(out.length, 3);
+    assert.strictEqual(getLocal().length, 3, "브라우저 기록이 유지되어야 함");
+    assert.strictEqual(server.records.length, 3, "서버로 다시 올라가야 함");
+  });
+  await atest("서버에만 있는 기록은 브라우저로 가져오고, 브라우저가 비어 있어도 정상", async () => {
+    setLocal([]); fakeServer(L3);
+    const out = await reg.fetchAircraftRegistrationRecordsFromServer();
+    assert.strictEqual(out.length, 3); assert.strictEqual(getLocal().length, 3);
+  });
+  await atest("같은 운항은 나중에 저장한 값이 이김: 서버가 최신이면 서버 값, 브라우저가 최신이면 서버로 올림", async () => {
+    setLocal(L3); fakeServer([rec("2026-11-06", "KJ977", "ICN", "TSN", "HL9999", "2026-11-05T08:00:00.000Z")]);
+    let out = await reg.fetchAircraftRegistrationRecordsFromServer();
+    assert.strictEqual(out.find((r) => r.flight === "KJ977").registrationNo, "HL9999");
+    setLocal([rec("2026-11-06", "KJ977", "ICN", "TSN", "HL7777", "2026-11-05T09:00:00.000Z")]);
+    const server = fakeServer([rec("2026-11-06", "KJ977", "ICN", "TSN", "HL9999", "2026-11-05T08:00:00.000Z")]);
+    out = await reg.fetchAircraftRegistrationRecordsFromServer();
+    assert.strictEqual(out.find((r) => r.flight === "KJ977").registrationNo, "HL7777");
+    assert.strictEqual(server.records[0].registrationNo, "HL7777");
+  });
+  await atest("시각 형식이 섞여도 정확히 비교(+09:00 15:00 = 06:00Z, 서버 07:00Z가 더 최근)", async () => {
+    setLocal([rec("2026-11-06", "KJ977", "ICN", "TSN", "HL1111", "2026-11-05T15:00:00+09:00")]);
+    fakeServer([rec("2026-11-06", "KJ977", "ICN", "TSN", "HL2222", "2026-11-05T07:00:00.000Z")]);
+    const out = await reg.fetchAircraftRegistrationRecordsFromServer();
+    assert.strictEqual(out[0].registrationNo, "HL2222");
+  });
+  await atest("서버 조회 실패 시 예외를 던지고 브라우저 기록은 그대로", async () => {
+    setLocal(L3); fakeServer([], { failGet: true });
+    await assert.rejects(() => reg.fetchAircraftRegistrationRecordsFromServer());
+    assert.strictEqual(getLocal().length, 3);
+  });
+  await atest("서버로 올리는 데 실패해도 브라우저 기록은 보존(다음에 다시 시도)", async () => {
+    setLocal(L3); fakeServer([], { failPost: true });
+    const out = await reg.fetchAircraftRegistrationRecordsFromServer();
+    assert.strictEqual(out.length, 3); assert.strictEqual(getLocal().length, 3);
+  });
+}
+
 /* ───────── 스케줄 저장소 ───────── */
 const room = (over = {}) => ({
   id: "r1", name: "n", flightsInput: "KJ247, KJ972", startDateTime: "", endDateTime: "", fixed: true, lastFetchedAt: "",
@@ -257,6 +322,7 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
 });
 
 (async () => {
+  await syncTests();
   await atest("saveLatestScheduleToServer: 정규화한 방을 보내고 응답에 등록번호를 합침", async () => {
     let sent = null;
     global.fetch = async (url, init) => {

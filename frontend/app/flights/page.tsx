@@ -11,8 +11,6 @@ import {
   applyRegistrationToRows,
   fetchAircraftRegistrationRecordsFromServer,
   loadAircraftRegistrationRecords,
-  saveAircraftRegistrationRecords,
-  saveAircraftRegistrationRecordsToServer,
 } from "../lib/aircraft-registration";
 import {
   isActiveScheduleRoom,
@@ -115,18 +113,8 @@ export default function FlightsPage() {
     aircraftRegistrationRecordsRef.current = localRecords;
 
     void fetchAircraftRegistrationRecordsFromServer()
-      .then(async (serverRecords) => {
-        let finalRecords = serverRecords;
-        if (serverRecords.length === 0 && localRecords.length > 0) {
-          try {
-            finalRecords = await saveAircraftRegistrationRecordsToServer(localRecords, "replace");
-            saveAircraftRegistrationRecords(finalRecords);
-          } catch (restoreError) {
-            console.error("Failed to restore records to server:", restoreError);
-            finalRecords = localRecords;
-          }
-        }
-
+      .then((finalRecords) => {
+        // 서버 기록과 브라우저 기록을 합친 결과입니다. (서버가 비어 있으면 브라우저 기록이 서버로 복구됩니다)
         setAircraftRegistrationRecords(finalRecords);
         aircraftRegistrationRecordsRef.current = finalRecords;
         setRows((prevRows) => applyRegistrationToRows(prevRows, finalRecords));

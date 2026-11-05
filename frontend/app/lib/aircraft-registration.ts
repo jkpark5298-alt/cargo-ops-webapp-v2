@@ -115,6 +115,48 @@ export function saveAircraftRegistrationRecords(records: AircraftRegistrationRec
   window.localStorage.setItem(AIRCRAFT_REGISTRATION_STORAGE_KEY, JSON.stringify(records));
 }
 
+/** 저장 시각을 시간값(ms)으로. 형식(+09:00 / Z)이 섞여 있어도 정확히 비교하기 위함 */
+export function registrationTime(record: { updatedAt?: string }) {
+  const time = Date.parse(record.updatedAt || "");
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function registrationRecordKey(record: AircraftRegistrationRecord) {
+  return buildAircraftRegistrationKey(record.date, record.flight, record.departureCode, record.arrivalCode);
+}
+
+/**
+ * 서버 목록과 브라우저 목록을 합칩니다(같은 운항은 나중에 저장한 값이 이김).
+ * 서버가 재시작으로 비어 있거나 브라우저가 비어 있어도 서로의 기록을 지우지 않습니다.
+ */
+export function mergeServerAndLocalRegistrationRecords(
+  serverRecords: AircraftRegistrationRecord[],
+  localRecords: AircraftRegistrationRecord[],
+) {
+  return mergeAircraftRegistrationRecords(serverRecords, localRecords);
+}
+
+/** 서버에 없거나, 서버 값과 다르면서 더 최근인 브라우저 기록 → 서버로 올릴 대상 */
+export function recordsMissingOnServer(
+  serverRecords: AircraftRegistrationRecord[],
+  localRecords: AircraftRegistrationRecord[],
+) {
+  const serverByKey = new Map(serverRecords.map((record) => [registrationRecordKey(record), record]));
+  return localRecords.filter((record) => {
+    const onServer = serverByKey.get(registrationRecordKey(record));
+    if (!onServer) return true;
+    return (
+      normalizeHlNumber(onServer.registrationNo) !== normalizeHlNumber(record.registrationNo) &&
+      registrationTime(record) > registrationTime(onServer)
+    );
+  });
+}
+
+/**
+ * 서버의 등록 기록을 받아 브라우저 기록과 합칩니다. (기존에는 서버 목록으로 브라우저 기록을 통째로 덮어썼습니다)
+ * 서버가 비어 있거나 오래된 상태면 브라우저에만 있는 기록을 서버로 다시 올려 복구합니다.
+ * 서버 조회가 실패하면 예외를 던지며, 이 경우 브라우저 기록은 그대로 둡니다.
+ */
 export async function fetchAircraftRegistrationRecordsFromServer(): Promise<AircraftRegistrationRecord[]> {
   const res = await fetch(`${BACKEND_URL}/flights/aircraft-registrations`, {
     cache: "no-store",
@@ -125,9 +167,23 @@ export async function fetchAircraftRegistrationRecordsFromServer(): Promise<Airc
     throw new Error(json.detail || json.message || "등록기호 서버 조회 실패");
   }
 
-  const records = Array.isArray(json.records) ? (json.records as AircraftRegistrationRecord[]) : [];
-  saveAircraftRegistrationRecords(records);
-  return records;
+  const serverRecords = Array.isArray(json.records) ? (json.records as AircraftRegistrationRecord[]) : [];
+  const localRecords = loadAircraftRegistrationRecords();
+  const merged = mergeServerAndLocalRegistrationRecords(serverRecords, localRecords);
+
+  const toPush = recordsMissingOnServer(serverRecords, localRecords);
+  if (toPush.length > 0) {
+    try {
+      // 서버 쪽 병합 결과(서버 기록 + 올린 기록)를 받아 다시 한 번 브라우저 기록과 합칩니다.
+      const afterPush = await saveAircraftRegistrationRecordsToServer(toPush, "merge");
+      return afterPush;
+    } catch {
+      // 서버 저장에 실패해도 브라우저 기록은 보존합니다. 다음 접속 때 다시 시도합니다.
+    }
+  }
+
+  saveAircraftRegistrationRecords(merged);
+  return merged;
 }
 
 export async function saveAircraftRegistrationRecordsToServer(
@@ -147,7 +203,9 @@ export async function saveAircraftRegistrationRecordsToServer(
     throw new Error(json.detail || json.message || "등록기호 서버 저장 실패");
   }
 
-  const nextRecords = Array.isArray(json.records) ? (json.records as AircraftRegistrationRecord[]) : records;
+  const serverRecords = Array.isArray(json.records) ? (json.records as AircraftRegistrationRecord[]) : records;
+  // 서버가 돌려준 전체 목록과 브라우저 기록을 합쳐 저장합니다(브라우저에만 있는 기록을 잃지 않도록).
+  const nextRecords = mergeServerAndLocalRegistrationRecords(serverRecords, loadAircraftRegistrationRecords());
   saveAircraftRegistrationRecords(nextRecords);
   return nextRecords;
 }
@@ -166,7 +224,7 @@ export function mergeAircraftRegistrationRecords(
     const key = buildAircraftRegistrationKey(record.date, record.flight, record.departureCode, record.arrivalCode);
     const existing = map.get(key);
 
-    if (!existing || (record.updatedAt || "") >= (existing.updatedAt || "")) {
+    if (!existing || registrationTime(record) >= registrationTime(existing)) {
       map.set(key, record);
     }
   });
@@ -204,14 +262,14 @@ export function excludeUnchangedRegistrationRecords(
 
 /* ───────── 우선순위 규칙 ───────── */
 
-type StampedRegistration = { registrationNo: string; updatedAt: string };
+type StampedRegistration = { registrationNo: string; updatedAt: number };
 
 /** 기록을 "일자(+노선) 키 → 가장 최근 값"과 "편명 단독 값(HL이 하나뿐일 때)"으로 색인합니다. */
 export function buildAircraftRegistrationIndex(records: AircraftRegistrationRecord[]) {
   const dated = new Map<string, StampedRegistration>();
   const hlByFlight = new Map<string, Set<string>>();
 
-  const setIfNewer = (key: string, registrationNo: string, updatedAt: string) => {
+  const setIfNewer = (key: string, registrationNo: string, updatedAt: number) => {
     if (!key) return;
     const existing = dated.get(key);
     if (!existing || updatedAt >= existing.updatedAt) {
@@ -224,7 +282,7 @@ export function buildAircraftRegistrationIndex(records: AircraftRegistrationReco
     const registrationNo = normalizeHlNumber(record.registrationNo);
     if (!/^HL\d{3,5}$/i.test(registrationNo)) return;
 
-    const updatedAt = record.updatedAt || "";
+    const updatedAt = registrationTime(record);
     const flightKey = normalizeFlightKey(record.flight);
 
     if (record.date) {

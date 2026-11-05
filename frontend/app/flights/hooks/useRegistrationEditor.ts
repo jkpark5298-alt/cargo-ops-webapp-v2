@@ -102,15 +102,8 @@ export function useRegistrationEditor({
         : loadAircraftRegistrationRecords();
 
     try {
-      const serverRecords = await fetchAircraftRegistrationRecordsFromServer();
-      let finalRecords = serverRecords;
-      if (serverRecords.length === 0 && seed.length > 0) {
-        try {
-          finalRecords = await saveAircraftRegistrationRecordsToServer(seed, "replace");
-        } catch {
-          finalRecords = seed;
-        }
-      }
+      // 서버 기록과 브라우저 기록을 합친 결과(서버가 비어 있으면 브라우저 기록이 서버로 복구됨)
+      const finalRecords = await fetchAircraftRegistrationRecordsFromServer();
       aircraftRegistrationRecordsRef.current = finalRecords;
       setAircraftRegistrationRecords(finalRecords);
       return finalRecords;
