@@ -340,8 +340,10 @@ const writeInit = (method: string, body?: unknown): RequestInit => ({
   body: body === undefined ? undefined : JSON.stringify(body),
 });
 
-export function fetchMonthlySchedule(refresh = false) {
-  return request<MonthlyScheduleData & { success: boolean }>(`/flights/monthly-schedule${refresh ? "?refresh=true" : ""}`);
+/** refresh: 인천 API 최신값 반영 요청(서버가 3분 이내 재요청은 생략) / force: 새로고침 버튼 — 간격과 관계없이 즉시 다시 조회 */
+export function fetchMonthlySchedule(refresh = false, force = false) {
+  const query = refresh ? `?refresh=true${force ? "&force=true" : ""}` : "";
+  return request<MonthlyScheduleData & { success: boolean }>(`/flights/monthly-schedule${query}`);
 }
 
 export function saveMonthlyRecords(records: MonthlyInputRecord[], options: { replaceDates?: boolean; source?: string } = {}) {

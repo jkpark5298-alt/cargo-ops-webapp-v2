@@ -58,10 +58,10 @@ export default function MonthlyScheduledFlightPage() {
   const [names, setNames] = useState({ nameA: "", nameB: "", nameC: "" });
   const [useC, setUseC] = useState(false);
 
-  const load = useCallback(async (refresh: boolean) => {
+  const load = useCallback(async (refresh: boolean, force = false) => {
     setLoading(true);
     try {
-      const json = await fetchMonthlySchedule(refresh);
+      const json = await fetchMonthlySchedule(refresh, force);
       setData(json);
       setError("");
     } catch (e) {
@@ -73,7 +73,7 @@ export default function MonthlyScheduledFlightPage() {
 
   useEffect(() => {
     void load(true);
-    // 화면을 열어 둔 동안 5분마다 다시 읽는다(인천 API 갱신은 서버가 10분 간격으로만 수행)
+    // 화면을 열어 둔 동안 5분마다 다시 읽는다(인천 API 갱신은 서버가 3분 간격으로만 수행, 새로고침 버튼은 즉시 갱신)
     const timer = window.setInterval(() => void load(true), 5 * 60_000);
     return () => window.clearInterval(timer);
   }, [load]);
@@ -162,7 +162,7 @@ export default function MonthlyScheduledFlightPage() {
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
             <button type="button" onClick={() => (window.location.href = "/")} style={navButtonStyle}>초기화면으로</button>
             <button type="button" onClick={() => (window.location.href = "/flights")} style={navButtonStyle}>편명조회로</button>
-            <button type="button" onClick={() => void load(true)} disabled={loading} style={navButtonStyle}>
+            <button type="button" onClick={() => void load(true, true)} disabled={loading} style={navButtonStyle}>
               {loading ? "불러오는 중..." : "새로고침"}
             </button>
             <button type="button" onClick={() => setShowInput((v) => !v)} style={navButtonStyle}>

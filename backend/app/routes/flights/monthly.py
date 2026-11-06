@@ -63,14 +63,20 @@ def _storage_error(exc: Exception) -> HTTPException:
 
 
 @router.get("/monthly-schedule")
-async def get_monthly_schedule(start: Optional[str] = None, end: Optional[str] = None, refresh: bool = False) -> Dict[str, Any]:
+async def get_monthly_schedule(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    refresh: bool = False,
+    force: bool = False,
+) -> Dict[str, Any]:
     window_start, window_end, month_last = _retention_window()
     refresh_result = None
     try:
         _purge_outside_window()
         if refresh:
-            # 화면을 열 때 오늘~3일 뒤 편을 인천 API 최신값으로 갱신(10분 안에 다시 열면 생략)
-            refresh_result = await _maybe_refresh_monthly_api(10)
+            # 화면을 열 때 오늘~3일 뒤 편을 인천 API 최신값으로 갱신(3분 안에 다시 열면 생략).
+            # force(새로고침 버튼)면 간격과 관계없이 바로 다시 조회한다.
+            refresh_result = await _maybe_refresh_monthly_api(0 if force else 3)
         flights = _list_flights(start, end)
         assignees = _list_assignees(start, end)
     except RuntimeError as exc:

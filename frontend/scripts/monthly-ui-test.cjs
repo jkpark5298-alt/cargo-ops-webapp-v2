@@ -221,6 +221,9 @@ const setValue = async (el, value, eventName = "change") => {
 
   check("제목 표시", text(container).includes("Monthly Scheduled Flight('26.11.1~11.30)"));
   check("열 때 서버에 API 갱신 요청(refresh=true)", calls.some((c) => c.includes("/flights/monthly-schedule?refresh=true")), calls);
+  calls.length = 0;
+  await clickText(container, "새로고침");
+  check("새로고침 버튼은 force=true 로 즉시 갱신 요청", calls.some((c) => c.includes("/flights/monthly-schedule?refresh=true&force=true")), calls);
   check("지금(09:00) 기준 A조·11/06 자동 선택", text(container).includes("Daily Job SKD (2026-11-06) · A조"), text(container).slice(0, 400));
   check("A조: 유형 1은 API 변경시각 순(KJ248 07:10, KJ911 09:40, KJ970 12:00)", JSON.stringify(flightsShown(container)) === JSON.stringify(["KJ248", "KJ911", "KJ970"]), flightsShown(container));
   const r911 = rows(container).find((r) => r[0] === "KJ911");

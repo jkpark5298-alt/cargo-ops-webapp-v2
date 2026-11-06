@@ -180,6 +180,20 @@ api_calls.clear()
 asyncio.run(ms._maybe_refresh_monthly_api(10, fetch_all_kj=fake_all_kj))
 check("10분 안 재요청은 인천 API 호출 생략", api_calls == [], api_calls)
 
+# 7-2) 화면 새로고침: 일반 열기는 3분 간격 생략, 새로고침 버튼(force)은 즉시 인천 API 재조회
+import app.services.incheon_api as _incheon  # noqa: E402
+
+api_calls.clear()
+_incheon.get_all_kj_flight_data = fake_all_kj
+client.get("/flights/monthly-schedule?refresh=true&force=true")
+check("force=true: 방금 갱신했어도 인천 API 를 다시 조회", len(api_calls) == 4, api_calls)
+api_calls.clear()
+client.get("/flights/monthly-schedule?refresh=true")
+check("force 없이 열면 3분 안 재요청은 생략", api_calls == [], api_calls)
+ms._last_api_refresh["at"] = _now_kst() - timedelta(minutes=4)
+client.get("/flights/monthly-schedule?refresh=true")
+check("3분이 지나면 일반 열기도 다시 조회", len(api_calls) == 4, api_calls)
+
 # 8) 토큰 보호
 os.environ["API_ACCESS_TOKEN"] = "t"
 check("토큰 설정 시 저장은 토큰 필요", client.post("/flights/monthly-schedule", json={"records": []}).status_code == 401)

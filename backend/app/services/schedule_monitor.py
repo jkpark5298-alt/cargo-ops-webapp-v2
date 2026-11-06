@@ -646,11 +646,11 @@ async def _auto_push_loop() -> None:
             except Exception:
                 pass
 
-        # Monthly Scheduled Flight: 오늘~3일 뒤 편의 변경시각·상태·게이트를 30분마다 인천 API 로 갱신
+        # Monthly Scheduled Flight: 오늘~3일 뒤 편의 변경시각·상태·게이트를 10분마다 인천 API 로 갱신
         try:
             from app.services.monthly_schedule import _maybe_refresh_monthly_api
 
-            await _maybe_refresh_monthly_api(30)
+            await _maybe_refresh_monthly_api(10)
         except Exception:
             pass
 
