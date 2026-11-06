@@ -13,6 +13,7 @@ create table if not exists public.monthly_schedule_flights (
   registration_no text not null default '',
   assignee_slot text not null default '', -- 담당 A/B/C 수동 지정 (비어 있으면 시간순 자동 배정)
   api_time text not null default '',      -- 인천 API 변경시각 (오늘~모레 편만)
+  api_sched_time text not null default '', -- 인천 API 예정시각 (API 변경 표시용)
   api_remark text not null default '',    -- 인천 API 상태(remark)
   api_gate text not null default '',      -- 인천 API 게이트(주기장)
   api_updated_at timestamptz,

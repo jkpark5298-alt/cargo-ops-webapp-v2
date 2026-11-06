@@ -109,6 +109,7 @@ def _normalize_record(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "registration_no": _norm_hl(raw.get("registrationNo") or raw.get("registration_no")),
         "assignee_slot": str(raw.get("assigneeSlot") or raw.get("assignee_slot") or "").strip().upper()[:1],
         "api_time": str(raw.get("api_time") or ""),
+        "api_sched_time": str(raw.get("api_sched_time") or ""),
         "api_remark": str(raw.get("api_remark") or ""),
         "api_gate": str(raw.get("api_gate") or ""),
         "api_updated_at": raw.get("api_updated_at"),
@@ -128,6 +129,7 @@ def _to_client(row: Dict[str, Any]) -> Dict[str, Any]:
         "registrationNo": row.get("registration_no", ""),
         "assigneeSlot": row.get("assignee_slot", ""),
         "apiTime": row.get("api_time", ""),
+        "apiSchedTime": row.get("api_sched_time", ""),
         "apiRemark": row.get("api_remark", ""),
         "apiGate": row.get("api_gate", ""),
         "apiUpdatedAt": row.get("api_updated_at") or "",
@@ -248,7 +250,7 @@ def _save_monthly_flights(raw_records: List[Dict[str, Any]], replace_dates: bool
     for key, rec in normalized.items():
         old = existing.get(key) or {}
         merged = dict(rec)
-        for field in ("api_time", "api_remark", "api_gate", "api_updated_at"):
+        for field in ("api_time", "api_sched_time", "api_remark", "api_gate", "api_updated_at"):
             if not merged.get(field) and old.get(field):
                 merged[field] = old[field]
         if not merged.get("assignee_slot"):
@@ -434,6 +436,7 @@ async def _refresh_monthly_api(fetch_all_kj=None, today: Optional[date] = None) 
         gate = str(match.get("gatenumber") or "").strip()
         new_values = {
             "api_time": _api_row_time(match),
+            "api_sched_time": _api_row_schedule(match),
             "api_remark": str(match.get("remark") or "").strip(),
             "api_gate": "" if gate in ("-", "") else gate,
         }

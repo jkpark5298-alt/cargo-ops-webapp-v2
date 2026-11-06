@@ -153,6 +153,7 @@ result = asyncio.run(ms._refresh_monthly_api(fetch_all_kj=fake_all_kj))
 check("API 갱신: 오늘~3일 뒤(4일) 조회", len(api_calls) == 4 and api_calls[0] == d0, api_calls)
 flights = {f["flight"]: f for f in client.get("/flights/monthly-schedule").json()["flights"]}
 check("API 변경시각·상태·게이트 반영", flights["KJ967"]["apiTime"] == f"{d0} 23:40" and flights["KJ967"]["apiRemark"] == "지연" and flights["KJ967"]["apiGate"] == "623", flights["KJ967"])
+check("API 예정시각도 저장(API 변경 표시용)", flights["KJ967"]["apiSchedTime"] == f"{d0} 23:00" and flights["KJ795"]["apiSchedTime"] == f"{d0} 23:20", flights["KJ967"])
 check("게이트 '-'는 빈칸, SKD 시각은 그대로", flights["KJ795"]["apiGate"] == "" and flights["KJ795"]["skdTime"].endswith("23:20"), flights["KJ795"])
 check("API 에 없는 편은 API 값 없음", flights["KJ911"]["apiTime"] == "", flights["KJ911"])
 

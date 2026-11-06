@@ -65,7 +65,7 @@ const calls = [];
 const posts = [];
 const F = (flight, skdTime, dep, arr, extra = {}) => ({
   recordKey: `${skdTime.slice(0, 10)}|${flight}|${dep}|${arr}`, flightDate: skdTime.slice(0, 10), flight, departureCode: dep, arrivalCode: arr,
-  skdTime, registrationNo: "HL7423", assigneeSlot: "", apiTime: "", apiRemark: "", apiGate: "", apiUpdatedAt: "", source: "excel", ...extra,
+  skdTime, registrationNo: "HL7423", assigneeSlot: "", apiTime: "", apiSchedTime: "", apiRemark: "", apiGate: "", apiUpdatedAt: "", source: "excel", ...extra,
 });
 let DATA = {
   success: true,
@@ -73,7 +73,9 @@ let DATA = {
   window: { start: "2026-11-01", end: "2026-12-02", monthLast: "2026-11-30" },
   flights: [
     F("KJ248", "2026-11-06 07:10", "ICN", "ATL"),
-    F("KJ911", "2026-11-06 09:00", "MXP", "ICN", { apiTime: "2026-11-06 09:40", apiRemark: "지연", apiGate: "623" }),
+    F("KJ911", "2026-11-06 09:00", "MXP", "ICN", { apiTime: "2026-11-06 09:40", apiSchedTime: "2026-11-06 09:00", apiRemark: "지연", apiGate: "623" }),
+    F("KJ390", "2026-11-06 18:25", "HAN", "ICN", { apiTime: "2026-11-07 08:05", apiSchedTime: "2026-11-06 12:10", apiRemark: "지연", apiGate: "624" }),
+    F("KJ957", "2026-11-07 12:10", "ICN", "PVG", { apiTime: "2026-11-07 09:35", apiSchedTime: "2026-11-07 09:35" }),
     F("KJ970", "2026-11-06 12:00", "HKG", "ICN"),
     F("KJ967", "2026-11-06 23:00", "ICN", "HKG"),
     F("KJ795", "2026-11-06 23:15", "ICN", "FRA"),
@@ -222,7 +224,7 @@ const setValue = async (el, value, eventName = "change") => {
   check("지금(09:00) 기준 A조·11/06 자동 선택", text(container).includes("Daily Job SKD (2026-11-06) · A조"), text(container).slice(0, 400));
   check("A조: 유형 1은 API 변경시각 순(KJ248 07:10, KJ911 09:40, KJ970 12:00)", JSON.stringify(flightsShown(container)) === JSON.stringify(["KJ248", "KJ911", "KJ970"]), flightsShown(container));
   const r911 = rows(container).find((r) => r[0] === "KJ911");
-  check("유형 1: 변경시각·SKD·상태·주기장 표시", r911[4].includes("11-06 09:40") && r911[4].includes("SKD 09:00") && r911[4].includes("지연") && r911[7] === "623", r911);
+  check("유형 1: 변경시각·API 변경·SKD 변경·상태·주기장 표시", r911[4].includes("11-06 09:40") && r911[4].includes("API 변경 09:00 → 09:40") && r911[4].includes("SKD 변경 09:00 → 09:40") && r911[4].includes("지연") && r911[7] === "623", r911);
   check("담당 기본 두 칸: A→B→A (이름 없으면 A·B 글자만)", rows(container).map((r) => r[5]).join(",") === "A,B,A", rows(container).map((r) => r[5]));
   const bg = [...container.querySelectorAll("tbody tr")].map((tr) => tr.style.background);
   check("인천 출발편은 노란색 줄", bg[0].includes("255, 245, 157") || bg[0].includes("#fff59d"), bg);
@@ -257,6 +259,19 @@ const setValue = async (el, value, eventName = "change") => {
   check("유형 2: SKD 시각만, 주기장 비움", r911b[4] === "11-06 09:00" && r911b[7] === "", r911b);
   await setValue(dateSelect2, "2026-11-20");
   check("유형 2: 11/20 A조 KJ500", JSON.stringify(flightsShown(container)) === JSON.stringify(["KJ500"]), flightsShown(container));
+
+  // 다른 일자로 지연된 편(KJ390)과 SKD 만 다른 편(KJ957): API 변경 / SKD 변경을 각각 표시
+  await clickText(container, "유형 1");
+  await setValue(container.querySelector('select[aria-label="일자 선택"]'), "2026-11-07");
+  await clickText(container, "A조");
+  const r390 = rows(container).find((r) => r[0] === "KJ390");
+  check("KJ390: API 변경 11-06 12:10 → 08:05 / SKD 변경 11-06 18:25 → 08:05 각각 표시", r390 && r390[4].includes("API 변경 11-06 12:10 → 08:05") && r390[4].includes("SKD 변경 11-06 18:25 → 08:05") && r390[4].includes("지연"), r390);
+  const r957 = rows(container).find((r) => r[0] === "KJ957");
+  check("KJ957: API 는 그대로, SKD 변경 12:10 → 09:35 만 표시", r957 && !r957[4].includes("API 변경") && r957[4].includes("SKD 변경 12:10 → 09:35"), r957);
+  await setValue(container.querySelector('select[aria-label="일자 선택"]'), "2026-11-06");
+  await clickText(container, "A조");
+  const dataChange = [...container.querySelectorAll("[data-change]")].length;
+  check("변경 표시 줄이 라벨(API 변경/SKD 변경)로 구분됨", dataChange >= 2, dataChange);
 
   // 표 글자색·머리글 서식
   await clickText(container, "유형 1");

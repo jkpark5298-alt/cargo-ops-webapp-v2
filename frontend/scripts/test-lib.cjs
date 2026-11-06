@@ -499,6 +499,27 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
     assert.strictEqual(monthly.isHighlightedAssignee("A", { nameA: " 박종규 ", nameB: "", nameC: "" }), true, "앞뒤 공백 무시");
     assert.strictEqual(monthly.isHighlightedAssignee("A", { nameA: "박종규철", nameB: "", nameC: "" }), false, "이름이 정확히 같을 때만");
   });
+  test("시각 변경 안내: API 변경(예정→변경)·SKD 변경(SKD→현재), 날짜는 선택 일자와 다를 때만", () => {
+    const f = { apiSchedTime: "2026-11-06 12:10", apiTime: "2026-11-07 08:05", skdTime: "2026-11-06 18:25" };
+    assert.deepStrictEqual(monthly.timeChangeLines(f, "2026-11-07"), [
+      { label: "API 변경", text: "11-06 12:10 → 08:05" },
+      { label: "SKD 변경", text: "11-06 18:25 → 08:05" },
+    ]);
+    // 같은 날 변경: 시각만
+    const g = { apiSchedTime: "2026-11-06 14:20", apiTime: "2026-11-06 14:35", skdTime: "2026-11-06 14:20" };
+    assert.deepStrictEqual(monthly.timeChangeLines(g, "2026-11-06"), [
+      { label: "API 변경", text: "14:20 → 14:35" },
+      { label: "SKD 변경", text: "14:20 → 14:35" },
+    ]);
+    // API 는 그대로(예정=변경)인데 SKD 와만 다른 경우(KJ957)
+    const h = { apiSchedTime: "2026-11-07 09:35", apiTime: "2026-11-07 09:35", skdTime: "2026-11-07 12:10" };
+    assert.deepStrictEqual(monthly.timeChangeLines(h, "2026-11-07"), [{ label: "SKD 변경", text: "12:10 → 09:35" }]);
+    // 변동 없음 / API 값 없음
+    assert.deepStrictEqual(monthly.timeChangeLines({ apiSchedTime: "2026-11-07 09:35", apiTime: "2026-11-07 09:35", skdTime: "2026-11-07 09:35" }, "2026-11-07"), []);
+    assert.deepStrictEqual(monthly.timeChangeLines({ apiSchedTime: "", apiTime: "", skdTime: "2026-11-07 09:35" }, "2026-11-07"), []);
+    // 예전 데이터(API 예정시각 없음): SKD 변경만
+    assert.deepStrictEqual(monthly.timeChangeLines({ apiSchedTime: "", apiTime: "2026-11-07 10:00", skdTime: "2026-11-07 09:35" }, "2026-11-07"), [{ label: "SKD 변경", text: "09:35 → 10:00" }]);
+  });
   test("출도착 공항: 한쪽만 있으면 다른 쪽은 ICN, 인천 출발 판정", () => {
     assert.strictEqual(monthly.arrivalOf({ departureCode: "CAN", arrivalCode: "" }), "ICN");
     assert.strictEqual(monthly.arrivalOf({ departureCode: "ICN", arrivalCode: "" }), "");

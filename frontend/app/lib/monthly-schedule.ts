@@ -16,6 +16,8 @@ export type MonthlyFlight = {
   assigneeSlot: string;
   /** 인천 API 변경시각(오늘~3일 뒤 편만) */
   apiTime: string;
+  /** 인천 API 예정시각(변경 전). 'API 변경 예정 → 변경' 표시에 사용 */
+  apiSchedTime: string;
   apiRemark: string;
   apiGate: string;
   apiUpdatedAt: string;
@@ -166,6 +168,30 @@ export function assigneeLabel(slot: SlotCode, names?: Pick<MonthlyAssignee, "nam
 
 export function isIcnDeparture(f: Pick<MonthlyFlight, "departureCode" | "arrivalCode">) {
   return departureOf(f) === "ICN";
+}
+
+/** 변경 표시용 시각: 선택한 일자와 날짜가 같으면 'HH:MM', 다르면 'MM-DD HH:MM' */
+export function formatChangeTime(value: string, date: string): string {
+  if (!value || value.length < 16) return value || "";
+  return value.slice(0, 10) === date ? value.slice(11, 16) : value.slice(5, 16);
+}
+
+/**
+ * 유형 1 시각 변경 안내(없으면 빈 배열).
+ * - API 변경: 인천 API 예정시각 → 변경시각 (둘이 다를 때만)
+ * - SKD 변경: 월간 SKD 시각 → 현재 표시 시각 (둘이 다를 때만)
+ */
+export function timeChangeLines(f: MonthlyFlight, date: string): { label: "API 변경" | "SKD 변경"; text: string }[] {
+  const lines: { label: "API 변경" | "SKD 변경"; text: string }[] = [];
+  const current = f.apiTime || "";
+  if (!current) return lines;
+  if (f.apiSchedTime && f.apiSchedTime !== current) {
+    lines.push({ label: "API 변경", text: `${formatChangeTime(f.apiSchedTime, date)} → ${formatChangeTime(current, date)}` });
+  }
+  if (f.skdTime && f.skdTime !== current) {
+    lines.push({ label: "SKD 변경", text: `${formatChangeTime(f.skdTime, date)} → ${formatChangeTime(current, date)}` });
+  }
+  return lines;
 }
 
 /** '2026-11-06 23:15' → '11-06 23:15' */

@@ -20,6 +20,7 @@ import {
   saveMonthlyAssignees,
   setMonthlyAssigneeSlot,
   shortDateTime,
+  timeChangeLines,
   todayKst,
   type MonthlyScheduleData,
   type ShiftCode,
@@ -258,7 +259,7 @@ export default function MonthlyScheduledFlightPage() {
               ) : (
                 list.map((f) => {
                   const time = displayTime(f, viewType);
-                  const changed = viewType === 1 && f.apiTime && f.apiTime !== f.skdTime;
+                  const changeLines = viewType === 1 ? timeChangeLines(f, date) : [];
                   const slot = slots[f.recordKey];
                   const hi = isHighlightedAssignee(slot, names); // 박종규 담당: 행 전체 굵게 + 굵은 노란 테두리
                   const cell = (i: number) => cellStyle(hi, i, editMode ? 9 : 8);
@@ -270,7 +271,11 @@ export default function MonthlyScheduledFlightPage() {
                       <td style={cell(3)}>{arrivalOf(f)}</td>
                       <td style={cell(4)}>
                         {shortDateTime(time)}
-                        {changed ? <div style={subTextStyle}>SKD {f.skdTime.slice(11, 16)}</div> : null}
+                        {changeLines.map((line) => (
+                          <div key={line.label} style={line.label === "API 변경" ? apiChangeStyle : skdChangeStyle} data-change={line.label}>
+                            {line.label} {line.text}
+                          </div>
+                        ))}
                         {viewType === 1 && f.apiRemark ? <div style={remarkStyle}>{f.apiRemark}</div> : null}
                       </td>
                       <td style={cell(5)}>
@@ -346,7 +351,8 @@ const thStyle: CSSProperties = {
   whiteSpace: "nowrap",
 };
 const tdStyle: CSSProperties = { border: "1px solid #9ca3af", padding: "6px 6px", color: "#000000", textAlign: "center", verticalAlign: "middle", whiteSpace: "nowrap" };
-const subTextStyle: CSSProperties = { fontSize: 11, color: "#475569" };
+const apiChangeStyle: CSSProperties = { fontSize: 11, color: "#b45309", fontWeight: 700 };
+const skdChangeStyle: CSSProperties = { fontSize: 11, color: "#1d4ed8", fontWeight: 700 };
 const remarkStyle: CSSProperties = { fontSize: 11, color: "#b45309", fontWeight: 700 };
 /** 강조 행: 글자 굵게 + 모든 칸의 아래쪽 테두리만 굵은 노란색. 강조가 아니면 기본 셀 서식 */
 const HIGHLIGHT_BORDER = "4px solid #facc15";
