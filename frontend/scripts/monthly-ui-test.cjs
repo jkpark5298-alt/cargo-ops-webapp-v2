@@ -301,11 +301,10 @@ const setValue = async (el, value, eventName = "change") => {
   check("박종규(B) 담당 행만 강조(2번째 편)", trs().map((tr) => tr.getAttribute("data-highlight")).join(",") === ",1,", trs().map((tr) => tr.getAttribute("data-highlight")));
   const hiCells = [...trs()[1].querySelectorAll("td")];
   check("강조 행: 모든 칸 글자 굵게(900)", hiCells.every((td) => td.style.fontWeight === "900"), hiCells.map((td) => td.style.fontWeight));
-  check("강조 행: 굵은 노란 테두리(위·아래 전 칸, 왼쪽 첫 칸, 오른쪽 마지막 칸)",
-    hiCells.every((td) => td.style.borderTop.includes("4px") && td.style.borderBottom.includes("4px"))
-      && hiCells[0].style.borderLeft.includes("4px") && hiCells[hiCells.length - 1].style.borderRight.includes("4px")
-      && /250, 204, 21|#facc15/i.test(hiCells[0].style.borderTop),
-    [hiCells[0].style.borderTop, hiCells[0].style.borderLeft, hiCells[hiCells.length - 1].style.borderRight]);
+  check("강조 행: 모든 칸의 아래쪽 테두리만 굵은 노란색",
+    hiCells.every((td) => td.style.borderBottom.includes("4px") && /250, 204, 21|#facc15/i.test(td.style.borderBottom))
+      && hiCells.every((td) => !td.style.borderTop.includes("4px") && !td.style.borderLeft.includes("4px") && !td.style.borderRight.includes("4px")),
+    hiCells.map((td) => [td.style.borderTop, td.style.borderBottom, td.style.borderLeft, td.style.borderRight]));
   const normalCells = [...trs()[0].querySelectorAll("td")];
   check("다른 담당 행은 기본 서식", normalCells.every((td) => !td.style.borderTop.includes("4px")) && normalCells[0].style.fontWeight !== "900");
   await setValue(nameIn("B"), "박종규철", "input");

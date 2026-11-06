@@ -418,10 +418,19 @@ async def _refresh_monthly_api(fetch_all_kj=None, today: Optional[date] = None) 
 
     now_iso = _ts()
     changed: List[Dict[str, Any]] = []
+    replaced_keys: List[str] = []
     for rec in stored:
         match = _match_api_row(rec, api_rows)
         if not match:
             continue
+        # SKD 에 출발지/도착지가 비어 있으면(예: 인천 출발편의 도착 공항) 인천 API 의 공항 코드로 채운다.
+        # 운항 키에 노선이 들어 있으므로 새 키로 옮기고 기존 키는 지운다.
+        fill_dep = rec.get("departure_code") or _norm_code(match.get("departureCode"))
+        fill_arr = rec.get("arrival_code") or _norm_code(match.get("arrivalCode"))
+        if (fill_dep, fill_arr) != (rec.get("departure_code", ""), rec.get("arrival_code", "")):
+            new_key = _record_key(rec["flight_date"], rec["flight"], fill_dep, fill_arr)
+            replaced_keys.append(rec["record_key"])
+            rec = {**rec, "departure_code": fill_dep, "arrival_code": fill_arr, "record_key": new_key}
         gate = str(match.get("gatenumber") or "").strip()
         new_values = {
             "api_time": _api_row_time(match),
@@ -433,6 +442,8 @@ async def _refresh_monthly_api(fetch_all_kj=None, today: Optional[date] = None) 
         else:
             changed.append({**rec, "api_updated_at": now_iso})
     _upsert_rows(changed)
+    new_keys = {r["record_key"] for r in changed}
+    _delete_keys([k for k in replaced_keys if k not in new_keys])
     result = {"checked": len(stored), "updated": len(changed), "days": days, "apiRows": len(api_rows)}
     _last_api_refresh.update({"at": _now_kst(), "result": result})
     return result

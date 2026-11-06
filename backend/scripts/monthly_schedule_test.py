@@ -156,6 +156,25 @@ check("API 변경시각·상태·게이트 반영", flights["KJ967"]["apiTime"] 
 check("게이트 '-'는 빈칸, SKD 시각은 그대로", flights["KJ795"]["apiGate"] == "" and flights["KJ795"]["skdTime"].endswith("23:20"), flights["KJ795"])
 check("API 에 없는 편은 API 값 없음", flights["KJ911"]["apiTime"] == "", flights["KJ911"])
 
+# 도착지가 빈 인천 출발편: 인천 API 공항 코드로 채우고 중복 없이 키를 옮김
+client.post("/flights/monthly-schedule", json={"replaceDates": False, "records": [rec("KJ587", f"{d0} 16:15", "ICN", "")]})
+before = [f for f in client.get("/flights/monthly-schedule").json()["flights"] if f["flight"] == "KJ587"]
+check("준비: ICN 출발 KJ587 의 도착지가 비어 있음", len(before) == 1 and before[0]["arrivalCode"] == "", before)
+
+
+async def fake_all_kj_with_587(start_date, end_date):
+    rows = await fake_all_kj(start_date, end_date)
+    if start_date == d0:
+        rows.append({"flightNo": "KJ587", "departureCode": "ICN", "arrivalCode": "BRU", "formattedScheduleTime": f"{d0.replace('-', '/')} 16:15",
+                     "formattedEstimatedTime": f"{d0.replace('-', '/')} 17:00", "remark": "지연", "gatenumber": "621"})
+    return rows
+
+
+ms._last_api_refresh["at"] = None
+asyncio.run(ms._refresh_monthly_api(fetch_all_kj=fake_all_kj_with_587))
+after = [f for f in client.get("/flights/monthly-schedule").json()["flights"] if f["flight"] == "KJ587"]
+check("API 로 ICN 출발편 도착지(BRU) 채움, 편은 1건만(중복 없음)", len(after) == 1 and after[0]["arrivalCode"] == "BRU" and after[0]["apiTime"].endswith("17:00") and after[0]["recordKey"].endswith("|ICN|BRU"), after)
+
 api_calls.clear()
 asyncio.run(ms._maybe_refresh_monthly_api(10, fetch_all_kj=fake_all_kj))
 check("10분 안 재요청은 인천 API 호출 생략", api_calls == [], api_calls)

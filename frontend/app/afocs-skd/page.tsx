@@ -348,18 +348,11 @@ const thStyle: CSSProperties = {
 const tdStyle: CSSProperties = { border: "1px solid #9ca3af", padding: "6px 6px", color: "#000000", textAlign: "center", verticalAlign: "middle", whiteSpace: "nowrap" };
 const subTextStyle: CSSProperties = { fontSize: 11, color: "#475569" };
 const remarkStyle: CSSProperties = { fontSize: 11, color: "#b45309", fontWeight: 700 };
-/** 행 전체를 굵은 노란 테두리로 두른다(첫 칸 왼쪽, 마지막 칸 오른쪽, 모든 칸 위·아래). 강조가 아니면 기본 셀 서식 */
+/** 강조 행: 글자 굵게 + 모든 칸의 아래쪽 테두리만 굵은 노란색. 강조가 아니면 기본 셀 서식 */
 const HIGHLIGHT_BORDER = "4px solid #facc15";
-function cellStyle(highlight: boolean, index: number, total: number): CSSProperties {
+function cellStyle(highlight: boolean, _index: number, _total: number): CSSProperties {
   if (!highlight) return tdStyle;
-  return {
-    ...tdStyle,
-    fontWeight: 900,
-    borderTop: HIGHLIGHT_BORDER,
-    borderBottom: HIGHLIGHT_BORDER,
-    ...(index === 0 ? { borderLeft: HIGHLIGHT_BORDER } : {}),
-    ...(index === total - 1 ? { borderRight: HIGHLIGHT_BORDER } : {}),
-  };
+  return { ...tdStyle, fontWeight: 900, borderBottom: HIGHLIGHT_BORDER };
 }
 const slotSelectStyle: CSSProperties = { border: "none", background: "transparent", color: "#000000", fontSize: 13, fontWeight: "inherit" as CSSProperties["fontWeight"], textAlign: "center" };
 const deleteButtonStyle: CSSProperties = { padding: "4px 8px", background: "#fee2e2", color: "#b91c1c", border: "1px solid #fca5a5", borderRadius: 6, fontSize: 12, cursor: "pointer" };
