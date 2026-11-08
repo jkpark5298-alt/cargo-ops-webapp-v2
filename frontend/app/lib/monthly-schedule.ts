@@ -176,20 +176,23 @@ export function formatChangeTime(value: string, date: string): string {
   return value.slice(0, 10) === date ? value.slice(11, 16) : value.slice(5, 16);
 }
 
+export type TimeChangeLabel = "API 변경" | "SKD 대비";
+
 /**
- * 유형 1 시각 변경 안내(없으면 빈 배열).
- * - API 변경: 인천 API 예정시각 → 변경시각 (둘이 다를 때만)
- * - SKD 변경: 월간 SKD 시각 → 현재 표시 시각 (둘이 다를 때만)
+ * 유형 1 시각 안내(없으면 빈 배열).
+ * - API 변경: 인천 API 예정시각 → 변경시각 (둘이 다를 때만. 실제로 API 시각이 바뀐 것)
+ * - SKD 대비: 월간 SKD 시각과 현재 시각의 차이. SKD 값이 바뀐 것이 아니라 비교이다.
+ *   SKD 가 API 예정시각과 같으면 'API 변경' 과 같은 내용이므로 생략한다.
  */
-export function timeChangeLines(f: MonthlyFlight, date: string): { label: "API 변경" | "SKD 변경"; text: string }[] {
-  const lines: { label: "API 변경" | "SKD 변경"; text: string }[] = [];
+export function timeChangeLines(f: MonthlyFlight, date: string): { label: TimeChangeLabel; text: string }[] {
+  const lines: { label: TimeChangeLabel; text: string }[] = [];
   const current = f.apiTime || "";
   if (!current) return lines;
   if (f.apiSchedTime && f.apiSchedTime !== current) {
     lines.push({ label: "API 변경", text: `${formatChangeTime(f.apiSchedTime, date)} → ${formatChangeTime(current, date)}` });
   }
-  if (f.skdTime && f.skdTime !== current) {
-    lines.push({ label: "SKD 변경", text: `${formatChangeTime(f.skdTime, date)} → ${formatChangeTime(current, date)}` });
+  if (f.skdTime && f.skdTime !== current && f.skdTime !== f.apiSchedTime) {
+    lines.push({ label: "SKD 대비", text: `${formatChangeTime(f.skdTime, date)} → ${formatChangeTime(current, date)}` });
   }
   return lines;
 }
