@@ -472,8 +472,8 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
     assert.deepStrictEqual(monthly.activeSlots(3), ["A", "B", "C"]);
     assert.deepStrictEqual(Object.values(monthly.assignSlots(list, monthly.activeSlots(2))), ["A", "B", "A", "B", "A"]);
     assert.deepStrictEqual(Object.values(monthly.assignSlots(list, monthly.activeSlots(3))), ["A", "B", "C", "A", "B"]);
-    // 편별 지정은 순환에서 건너뛰고, 사용하지 않는 칸(C) 지정은 자동 배정으로 돌아간다
-    assert.deepStrictEqual(monthly.assignSlots([f("1"), f("2"), f("3", "A"), f("4")], ["A", "B", "C"]), { 1: "A", 2: "B", 3: "A", 4: "C" });
+    // 편별 지정은 그대로 쓰고, 그 다음 편은 지정한 담당 다음 칸부터 이어진다. 사용하지 않는 칸(C) 지정은 자동 배정으로 돌아간다
+    assert.deepStrictEqual(monthly.assignSlots([f("1"), f("2"), f("3", "A"), f("4")], ["A", "B", "C"]), { 1: "A", 2: "B", 3: "A", 4: "B" });
     assert.deepStrictEqual(Object.values(monthly.assignSlots([f("1", "C"), f("2"), f("3")], ["A", "B"])), ["A", "B", "A"]);
     const names = { nameA: "홍길동", nameB: "", nameC: "김철수" };
     assert.strictEqual(monthly.assigneeLabel("A", names), "A(홍길동)");
@@ -536,6 +536,18 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
     // 유형 1 순서(API 시각 순)로 배정한 것과 같다
     const type1 = monthly.flightsForShift(flights, "2026-11-06", "A", 1);
     assert.deepStrictEqual(monthly.assignSlots(monthly.sortForAssignment(type1), ["A", "B"]), slots);
+  });
+  test("맨 위 편이 A이면 B,A… / 맨 위가 B이면 A,B… 로 이어서 배정(2칸), 3칸은 B→C→A", () => {
+    const f = (k, slot = "") => ({ recordKey: k, assigneeSlot: slot });
+    const seq = (list, active) => Object.values(monthly.assignSlots(list, active)).join("");
+    assert.strictEqual(seq([f("1"), f("2"), f("3"), f("4"), f("5")], ["A", "B"]), "ABABA", "맨 위 자동(A)");
+    assert.strictEqual(seq([f("1", "A"), f("2"), f("3"), f("4"), f("5")], ["A", "B"]), "ABABA", "맨 위 A 지정");
+    assert.strictEqual(seq([f("1", "B"), f("2"), f("3"), f("4"), f("5")], ["A", "B"]), "BABAB", "맨 위 B 지정 → 다음 A, 그다음 B");
+    assert.strictEqual(seq([f("1", "B"), f("2"), f("3"), f("4")], ["A", "B", "C"]), "BCAB", "3칸: 맨 위 B → C → A → B");
+    assert.strictEqual(seq([f("1", "C"), f("2"), f("3"), f("4")], ["A", "B", "C"]), "CABC", "3칸: 맨 위 C → A → B → C");
+    // 중간 편을 직접 바꾸면 그 편부터 다시 번갈아 이어진다
+    assert.strictEqual(seq([f("1"), f("2"), f("3", "A"), f("4"), f("5")], ["A", "B"]), "ABABA".replace("ABABA", "ABABA"));
+    assert.strictEqual(seq([f("1"), f("2"), f("3", "B"), f("4"), f("5")], ["A", "B"]), "ABBAB", "3번째를 B로 지정 → 4번째 A, 5번째 B");
   });
   test("출도착 공항: 한쪽만 있으면 다른 쪽은 ICN, 인천 출발 판정", () => {
     assert.strictEqual(monthly.arrivalOf({ departureCode: "CAN", arrivalCode: "" }), "ICN");

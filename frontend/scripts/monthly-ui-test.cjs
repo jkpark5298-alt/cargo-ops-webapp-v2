@@ -330,6 +330,15 @@ const setValue = async (el, value, eventName = "change") => {
   await setValue(nameIn("B"), "", "input");
   await setValue(nameIn("A"), "", "input");
 
+  // 맨 위 편의 담당을 B로 지정하면 다음 A, 그다음 B 로 이어진다 (A·B 두 칸)
+  const topSelect = () => container.querySelector("tbody select");
+  const before = slotsShown();
+  await setValue(topSelect(), "B");
+  const after = slotsShown();
+  check("맨 위 편을 B로 지정 → B, A, B 순서로 이어짐", after.length === 3 && after[0].startsWith("B") && after[1].startsWith("A") && after[2].startsWith("B"), { before, after });
+  await setValue(topSelect(), "");
+  check("지정 해제 → 맨 위 A 부터 다시 A, B, A", slotsShown()[0].startsWith("A") && slotsShown()[1].startsWith("B") && slotsShown()[2].startsWith("A"), slotsShown());
+
   // 월간 SKD 입력(붙여넣기)
   await clickText(container, "월간 SKD 입력");
   const ta = container.querySelector("textarea");

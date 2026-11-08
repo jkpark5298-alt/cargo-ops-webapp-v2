@@ -126,20 +126,26 @@ export function activeSlots(count?: number): SlotCode[] {
 }
 
 /**
- * 근무조 안 시간순으로 사용 칸(active)을 차례로 돌아가며 자동 배정한다.
- * 편별로 지정한 값이 사용 칸에 있으면 그 값을 쓴다.
+ * 근무조 안 시간순으로 사용 칸(active)을 이어서 자동 배정한다.
+ * - 맨 위 편은 직접 지정한 값이 있으면 그 담당, 없으면 첫 칸(A).
+ * - 그다음 편부터는 바로 앞 편의 담당 다음 칸을 쓴다(A→B→A… / 맨 위가 B이면 B→A→B…, 3칸이면 …→C→A).
+ * - 편별로 직접 지정한 값(사용 칸에 있는 값)은 그대로 쓰고, 그 뒤 편은 그 담당 다음부터 이어진다.
  */
 export function assignSlots(list: MonthlyFlight[], active: SlotCode[] = [...SLOTS]): Record<string, SlotCode> {
   const result: Record<string, SlotCode> = {};
-  let cursor = 0;
+  let previous: SlotCode | null = null;
   list.forEach((f) => {
     const fixed = String(f.assigneeSlot || "").toUpperCase() as SlotCode;
+    let slot: SlotCode;
     if (active.includes(fixed)) {
-      result[f.recordKey] = fixed;
+      slot = fixed;
+    } else if (previous === null) {
+      slot = active[0];
     } else {
-      result[f.recordKey] = active[cursor % active.length];
-      cursor += 1;
+      slot = active[(active.indexOf(previous) + 1) % active.length];
     }
+    result[f.recordKey] = slot;
+    previous = slot;
   });
   return result;
 }
