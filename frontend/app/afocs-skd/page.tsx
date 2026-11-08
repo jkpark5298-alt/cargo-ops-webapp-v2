@@ -16,6 +16,7 @@ import {
   displayTime,
   fetchMonthlySchedule,
   flightsForShift,
+  sortForAssignment,
   isIcnDeparture,
   saveMonthlyAssignees,
   setMonthlyAssigneeSlot,
@@ -104,7 +105,8 @@ export default function MonthlyScheduledFlightPage() {
   const list = useMemo(() => (data ? flightsForShift(data.flights, date, shift, viewType) : []), [data, date, shift, viewType]);
   // 담당 칸: 기본 A·B, '3칸' 선택 시 A·B·C
   const usedSlots = useMemo(() => activeSlots(useC ? 3 : 2), [useC]);
-  const slots = useMemo(() => assignSlots(list, usedSlots), [list, usedSlots]);
+  // 담당 배정은 인천 API 시각(없으면 SKD) 순서 기준 — 유형 1·2에서 같은 편은 같은 담당
+  const slots = useMemo(() => assignSlots(sortForAssignment(list), usedSlots), [list, usedSlots]);
   const shiftCounts = useMemo(
     () => Object.fromEntries(SHIFTS.map((s) => [s.code, data ? flightsForShift(data.flights, date, s.code, viewType).length : 0])),
     [data, date, viewType],

@@ -111,6 +111,15 @@ export function flightsForShift(flights: MonthlyFlight[], date: string, shift: S
     .sort((a, b) => displayTime(a, viewType).localeCompare(displayTime(b, viewType)) || a.flight.localeCompare(b.flight));
 }
 
+/**
+ * 담당 배정 순서: 인천 API 시각(없으면 SKD 시각) 기준 시간순. 유형 1·2 어느 화면이든 같은 편은 같은 담당이 되도록
+ * 화면에 보이는 시각이 아니라 이 기준으로 순서를 정한다.
+ */
+export function sortForAssignment(list: MonthlyFlight[]): MonthlyFlight[] {
+  const key = (f: MonthlyFlight) => f.apiTime || f.skdTime;
+  return [...list].sort((a, b) => key(a).localeCompare(key(b)) || a.flight.localeCompare(b.flight));
+}
+
 /** 사용할 담당 칸: 기본 A·B, 3칸 선택 시 A·B·C */
 export function activeSlots(count?: number): SlotCode[] {
   return count === 3 ? [...SLOTS] : SLOTS.slice(0, 2);

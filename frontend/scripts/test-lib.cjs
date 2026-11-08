@@ -521,6 +521,22 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
     // 예전 데이터(API 예정시각 없음): SKD 변경만
     assert.deepStrictEqual(monthly.timeChangeLines({ apiSchedTime: "", apiTime: "2026-11-07 10:00", skdTime: "2026-11-07 09:35" }, "2026-11-07"), [{ label: "SKD 대비", text: "09:35 → 10:00" }]);
   });
+  test("담당 배정 순서는 API 시각 기준: 유형 2(SKD 순)에서도 같은 담당", () => {
+    const flights = [
+      { recordKey: "a", flight: "KJ1", skdTime: "2026-11-06 10:00", apiTime: "2026-11-06 12:00", assigneeSlot: "" },
+      { recordKey: "b", flight: "KJ2", skdTime: "2026-11-06 11:00", apiTime: "2026-11-06 11:00", assigneeSlot: "" },
+      { recordKey: "c", flight: "KJ3", skdTime: "2026-11-06 12:00", apiTime: "", assigneeSlot: "" },
+    ];
+    const bySkd = monthly.flightsForShift(flights, "2026-11-06", "A", 2).map((f) => f.flight);
+    assert.deepStrictEqual(bySkd, ["KJ1", "KJ2", "KJ3"], "유형 2 화면 순서는 SKD 시각 순");
+    const order = monthly.sortForAssignment(flights).map((f) => f.flight);
+    assert.deepStrictEqual(order, ["KJ2", "KJ1", "KJ3"], "배정 순서는 API 시각(없으면 SKD) 순");
+    const slots = monthly.assignSlots(monthly.sortForAssignment(flights), ["A", "B"]);
+    assert.deepStrictEqual(slots, { a: "B", b: "A", c: "A" });
+    // 유형 1 순서(API 시각 순)로 배정한 것과 같다
+    const type1 = monthly.flightsForShift(flights, "2026-11-06", "A", 1);
+    assert.deepStrictEqual(monthly.assignSlots(monthly.sortForAssignment(type1), ["A", "B"]), slots);
+  });
   test("출도착 공항: 한쪽만 있으면 다른 쪽은 ICN, 인천 출발 판정", () => {
     assert.strictEqual(monthly.arrivalOf({ departureCode: "CAN", arrivalCode: "" }), "ICN");
     assert.strictEqual(monthly.arrivalOf({ departureCode: "ICN", arrivalCode: "" }), "");
