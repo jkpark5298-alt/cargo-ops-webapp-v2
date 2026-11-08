@@ -78,8 +78,9 @@ class FlightRangeRequest(BaseModel):
 
 class DailyReportTextSaveRequest(BaseModel):
     workDate: str
-    status: str = "normal"
-    author: str = ""
-    note: str = ""
+    # 보내지 않은(None) 항목은 서버에 저장된 값을 그대로 유지한다(여러 기기가 서로 덮어쓰지 않게).
+    status: Optional[str] = None
+    author: Optional[str] = None
+    note: Optional[str] = None
     images: Optional[List[Dict[str, Any]]] = None
     savedAt: Optional[str] = None

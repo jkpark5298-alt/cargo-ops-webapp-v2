@@ -193,6 +193,7 @@ export default function HomePage() {
   const {
     dailyTextSyncStatus,
     handleLoadDailyTextFromSupabase,
+    dailySyncTick,
     handleSaveDailyTextToSupabase,
     isDailyTextSyncing,
     setDailyTextSyncStatus,
@@ -331,6 +332,12 @@ export default function HomePage() {
       issueSaved: Boolean(issueNotionRecord),
     });
     if (missing.length > 0) return;
+
+    // 이 화면에서 이미 입력을 시작했다면 입력 내용을 지우지 않는다(자동 전환 취소).
+    if (dailyLocalEditAtRef.current > 0) {
+      carryOverDateRef.current = "";
+      return;
+    }
 
     startNewDayFresh(today);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1007,6 +1014,8 @@ export default function HomePage() {
   // 1.5초 디바운스 자동 저장 효과
   useEffect(() => {
     if (!draftHydrated) return;
+    // 이 업무일자의 서버 값을 한 번 받아 오기 전에는 자동 저장하지 않는다(오래된 로컬 값이 다른 기기 입력을 덮어쓰는 것 방지).
+    if (lastSavedValuesRef.current.workDate !== dailyWorkDate) return;
 
     const currentImagesJson = JSON.stringify(images);
     const nextAuthor = normalizeDailyAuthor(author);
@@ -1024,17 +1033,22 @@ export default function HomePage() {
         setIsDailyTextSyncing(true);
         setDailyTextSyncStatus("Supabase 자동 저장 중...");
         try {
+          // 내가 바꾼 항목만 보낸다. 안 바꾼 항목(예: 다른 기기가 올린 사진)은 서버 값을 덮어쓰지 않는다.
+          const last = lastSavedValuesRef.current;
+          const sendAll = dailyWorkDate !== last.workDate;
+          const body: Record<string, unknown> = {
+            workDate: dailyWorkDate,
+            savedAt: new Date().toISOString(),
+          };
+          if (sendAll || dailyStatus !== last.status) body.status = dailyStatus;
+          if (sendAll || nextAuthor !== last.author) body.author = nextAuthor;
+          if (sendAll || note !== last.note) body.note = note;
+          if (sendAll || currentImagesJson !== last.imagesJson) body.images = images;
+
           const response = await fetch(`${BACKEND_URL}/flights/daily-report-text`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              workDate: dailyWorkDate,
-              status: dailyStatus,
-              author: nextAuthor,
-              note,
-              images,
-              savedAt: new Date().toISOString(),
-            }),
+            body: JSON.stringify(body),
           });
           const json = await response.json().catch(() => null);
           if (response.ok && json?.success) {
@@ -1059,7 +1073,7 @@ export default function HomePage() {
     }, 1500);
 
     return () => clearTimeout(timer);
-  }, [dailyStatus, author, note, images, dailyWorkDate, draftHydrated]);
+  }, [dailyStatus, author, note, images, dailyWorkDate, draftHydrated, dailySyncTick]);
 
   // 특이사항 하나를 Notion에 저장한 뒤 다음 특이사항을 쓰려고 입력칸과 저장 연결만 비운다(일일 보고는 그대로).
   const handleStartNewIssue = () => {

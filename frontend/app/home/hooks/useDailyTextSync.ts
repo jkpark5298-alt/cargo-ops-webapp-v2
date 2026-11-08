@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  DEFAULT_DAILY_AUTHOR,
-  loadDailyDraft,
   normalizeDailyAuthor,
   saveDailyDraft,
   saveImages,
@@ -59,6 +57,7 @@ export function useDailyTextSync({
 }: UseDailyTextSyncParams) {
   const [isDailyTextSyncing, setIsDailyTextSyncing] = useState(false);
   const [dailyTextSyncStatus, setDailyTextSyncStatus] = useState("");
+  const [dailySyncTick, setDailySyncTick] = useState(0);
 
 
 
@@ -172,68 +171,65 @@ export function useDailyTextSync({
         cache: "no-store",
       });
       const json = await response.json().catch(() => null);
-      if (response.ok && json?.success && json.report) {
+      if (response.ok && json?.success) {
+        const base = lastSavedValuesRef.current;
+        const synced = base.workDate === workDate;
         const report = json.report;
-        const serverStatus = report.status === "issue" ? "issue" : "normal";
-        const serverAuthor = normalizeDailyAuthor(report.author || "");
-        const serverNote = report.note || "";
-        const serverImages = Array.isArray(report.images) ? report.images : [];
-        const serverSavedAt = Date.parse(String(report.savedAt || "")) || 0;
+
+        // 서버에 저장된 값(없으면 빈 값)
+        const serverStatus: "normal" | "issue" = report?.status === "issue" ? "issue" : "normal";
+        const serverAuthor = normalizeDailyAuthor(report?.author || "");
+        const serverNote: string = report?.note || "";
+        const serverImages: SavedImage[] = Array.isArray(report?.images) ? report.images : [];
+        const serverImagesJson = JSON.stringify(serverImages);
 
         const localStatus = dailyStatusRef.current;
         const localAuthor = normalizeDailyAuthor(authorRef.current);
         const localNote = noteRef.current;
-        const localImages = imagesRef.current;
+        const localImagesJson = JSON.stringify(imagesRef.current);
 
-        const recentlyEditedLocally =
-          Date.now() - dailyLocalEditAtRef.current < 60_000;
-        const isUserTyping =
+        const typing =
+          Date.now() - dailyLocalEditAtRef.current < 60_000 ||
           document.activeElement?.tagName === "TEXTAREA" ||
           document.activeElement?.tagName === "INPUT";
-        const protectTextFields = recentlyEditedLocally || isUserTyping;
 
-        const localDraft = loadDailyDraft();
-        const localDraftAt = Date.parse(String(localDraft?.savedAt || "")) || 0;
-        const localTextIsNewer = localDraftAt > serverSavedAt;
+        // 이 기기에서 아직 서버에 올리지 않은 변경인지(마지막 동기화 값과 다른지) 판단한다.
+        // 처음 동기화(기준값 없음)는 서버에 값이 있으면 서버 값을 쓰고, 서버가 비어 있으면 이 기기 값을 유지해 올린다.
+        const keepLocal = (local: string, baseValue: string, serverValue: string) => {
+          if (local === serverValue) return false;
+          if (!report) return true; // 서버에 저장본이 없으면 이 기기 값을 유지해 올린다
+          if (typing) return true;
+          return synced ? local !== baseValue : serverValue === "" || serverValue === "[]";
+        };
 
-        const statusChanged = serverStatus !== localStatus;
-        const authorChanged = serverAuthor !== localAuthor;
-        const noteChanged = serverNote !== localNote;
-        const imagesChanged = JSON.stringify(serverImages) !== JSON.stringify(localImages);
+        const next = { ...base, workDate };
 
-        if (statusChanged || authorChanged || noteChanged || imagesChanged) {
-          if (statusChanged && !protectTextFields) setDailyStatus(serverStatus);
+        const keepStatus = keepLocal(localStatus, base.status, serverStatus);
+        if (!keepStatus && localStatus !== serverStatus) setDailyStatus(serverStatus);
+        next.status = keepStatus ? (synced ? base.status : serverStatus) : serverStatus;
 
-          if (!protectTextFields && !localTextIsNewer) {
-            if (authorChanged) setAuthor(serverAuthor);
-            if (noteChanged) {
-              setNote(serverNote);
-              saveNote(serverNote);
-            }
-          } else if (authorChanged && localAuthor === DEFAULT_DAILY_AUTHOR && serverAuthor !== DEFAULT_DAILY_AUTHOR) {
-            // 로컬이 기본값일 때만 서버 작성자 반영 (현장 모바일은 normalize로 jkpark)
-            setAuthor(serverAuthor);
-          }
+        const keepAuthor = keepLocal(localAuthor, base.author, serverAuthor);
+        if (!keepAuthor && localAuthor !== serverAuthor) setAuthor(serverAuthor);
+        next.author = keepAuthor ? (synced ? base.author : serverAuthor) : serverAuthor;
 
-          if (imagesChanged && !imagesSavingRef.current) {
-            setImages(serverImages);
-            saveImages(serverImages);
-          }
-
-          lastSavedValuesRef.current = {
-            status: !protectTextFields && statusChanged ? serverStatus : localStatus,
-            author:
-              !protectTextFields && !localTextIsNewer && authorChanged
-                ? serverAuthor
-                : localAuthor,
-            note:
-              !protectTextFields && !localTextIsNewer && noteChanged
-                ? serverNote
-                : localNote,
-            imagesJson: JSON.stringify(imagesChanged ? serverImages : localImages),
-            workDate,
-          };
+        const keepNote = keepLocal(localNote, base.note, serverNote);
+        if (!keepNote && localNote !== serverNote) {
+          setNote(serverNote);
+          saveNote(serverNote);
         }
+        next.note = keepNote ? (synced ? base.note : serverNote) : serverNote;
+
+        const keepImages =
+          imagesSavingRef.current || keepLocal(localImagesJson, base.imagesJson, serverImagesJson);
+        if (!keepImages && localImagesJson !== serverImagesJson) {
+          setImages(serverImages);
+          saveImages(serverImages);
+        }
+        next.imagesJson = keepImages ? (synced ? base.imagesJson : serverImagesJson) : serverImagesJson;
+
+        lastSavedValuesRef.current = next;
+        // 자동 저장 효과가 "이 기기에서 바꾼 항목"을 다시 확인하도록 알린다.
+        setDailySyncTick((tick) => tick + 1);
       }
     } catch (e) {
       console.warn("Background sync error:", e);
@@ -290,6 +286,7 @@ export function useDailyTextSync({
   };
 
   return {
+    dailySyncTick,
     dailyTextSyncStatus,
     handleLoadDailyTextFromSupabase,
     handleSaveDailyTextToSupabase,

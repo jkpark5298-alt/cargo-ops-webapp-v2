@@ -103,11 +103,9 @@ export function useImageSlots({
         const resp = await fetch(`${BACKEND_URL}/flights/daily-report-text`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          // 사진만 보낸다(메모·작성자는 다른 기기 값을 덮어쓰지 않도록 생략).
           body: JSON.stringify({
             workDate: dailyWorkDate,
-            status: dailyStatus,
-            author,
-            note,
             images: nextImages,
             savedAt: new Date().toISOString(),
           }),
