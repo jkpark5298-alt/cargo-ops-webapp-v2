@@ -12,6 +12,7 @@ import {
   datesBetween,
   departureOf,
   isHighlightedAssignee,
+  HIGHLIGHT_ASSIGNEE,
   deleteMonthlyFlight,
   displayTime,
   fetchMonthlySchedule,
@@ -58,6 +59,26 @@ export default function MonthlyScheduledFlightPage() {
   const [showInput, setShowInput] = useState(false);
   const [names, setNames] = useState({ nameA: "", nameB: "", nameC: "" });
   const [useC, setUseC] = useState(false);
+  // '내 담당만': 담당 이름이 박종규인 칸의 편만 표시(기기에 기억)
+  const [mineOnly, setMineOnly] = useState(false);
+  useEffect(() => {
+    try {
+      setMineOnly(window.localStorage.getItem("monthly_mine_only") === "1");
+    } catch {
+      /* 저장소를 쓸 수 없으면 기본값 */
+    }
+  }, []);
+  const toggleMineOnly = () => {
+    setMineOnly((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem("monthly_mine_only", next ? "1" : "0");
+      } catch {
+        /* 무시 */
+      }
+      return next;
+    });
+  };
 
   const load = useCallback(async (refresh: boolean, force = false) => {
     setLoading(true);
@@ -107,6 +128,11 @@ export default function MonthlyScheduledFlightPage() {
   const usedSlots = useMemo(() => activeSlots(useC ? 3 : 2), [useC]);
   // 담당 배정은 인천 API 시각(없으면 SKD) 순서 기준 — 유형 1·2에서 같은 편은 같은 담당
   const slots = useMemo(() => assignSlots(sortForAssignment(list), usedSlots), [list, usedSlots]);
+  const hasMine = usedSlots.some((s) => isHighlightedAssignee(s, names));
+  const shown = useMemo(
+    () => (mineOnly ? list.filter((f) => isHighlightedAssignee(slots[f.recordKey], names)) : list),
+    [mineOnly, list, slots, names],
+  );
   const shiftCounts = useMemo(
     () => Object.fromEntries(SHIFTS.map((s) => [s.code, data ? flightsForShift(data.flights, date, s.code, viewType).length : 0])),
     [data, date, viewType],
@@ -231,16 +257,30 @@ export default function MonthlyScheduledFlightPage() {
               />{" "}
               3칸(C 추가)
             </label>
+            <button
+              type="button"
+              onClick={toggleMineOnly}
+              aria-pressed={mineOnly}
+              data-mine-only={mineOnly ? "1" : "0"}
+              style={mineOnly ? tabActiveStyle : tabStyle}
+            >
+              {mineOnly ? "내 담당만 ✓" : "내 담당만"}
+            </button>
             <label style={{ fontSize: 12, color: "#94a3b8", marginLeft: "auto" }}>
               <input type="checkbox" checked={editMode} onChange={(e) => setEditMode(e.target.checked)} /> 편 삭제
             </label>
           </div>
+          {mineOnly && !hasMine ? (
+            <div style={{ ...errorStyle, color: "#fde68a" }}>
+              '내 담당만'은 담당 이름이 “박종규”인 칸의 편만 보여 줍니다. A·B·C 중 한 칸에 박종규를 입력해 주세요.
+            </div>
+          ) : null}
           {error ? <div style={errorStyle}>{error}</div> : null}
         </section>
 
         <section style={{ ...sectionStyle, padding: 0, overflowX: "auto", background: "#ffffff" }}>
           <div style={sheetTitleStyle}>
-            Daily Job SKD ({date}) · {shiftInfo.label} {shiftInfo.range} · {viewType === 1 ? "실시간" : "월간 SKD 추정"}
+            Daily Job SKD ({date}) · {shiftInfo.label} {shiftInfo.range} · {viewType === 1 ? "실시간" : "월간 SKD 추정"}{mineOnly ? ` · ${HIGHLIGHT_ASSIGNEE} 담당만` : ""}
           </div>
           <table style={tableStyle}>
             <thead>
@@ -252,14 +292,14 @@ export default function MonthlyScheduledFlightPage() {
               </tr>
             </thead>
             <tbody>
-              {list.length === 0 ? (
+              {shown.length === 0 ? (
                 <tr>
                   <td colSpan={editMode ? 9 : 8} style={{ ...tdStyle, color: "#64748b", padding: 16 }}>
-                    {data ? "이 근무조에 해당하는 편이 없습니다." : loading ? "불러오는 중..." : "월간 SKD가 없습니다. '월간 SKD 입력'에서 올려 주세요."}
+                    {data ? (mineOnly ? "박종규 담당 편이 없습니다." : "이 근무조에 해당하는 편이 없습니다.") : loading ? "불러오는 중..." : "월간 SKD가 없습니다. '월간 SKD 입력'에서 올려 주세요."}
                   </td>
                 </tr>
               ) : (
-                list.map((f) => {
+                shown.map((f) => {
                   const time = displayTime(f, viewType);
                   const changeLines = viewType === 1 ? timeChangeLines(f, date) : [];
                   const slot = slots[f.recordKey];

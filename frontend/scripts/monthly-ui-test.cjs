@@ -327,6 +327,19 @@ const setValue = async (el, value, eventName = "change") => {
   check("다른 담당 행은 기본 서식", normalCells.every((td) => !td.style.borderTop.includes("4px")) && normalCells[0].style.fontWeight !== "900");
   await setValue(nameIn("B"), "박종규철", "input");
   check("이름이 다르면 강조 안 함", trs().every((tr) => !tr.getAttribute("data-highlight")));
+
+  // 내 담당만: 박종규 담당 편만 표시
+  const mineBtn = () => container.querySelector("button[data-mine-only]");
+  await setValue(nameIn("B"), "박종규", "input");
+  await act(async () => { mineBtn().dispatchEvent(new w.MouseEvent("click", { bubbles: true })); });
+  await settle();
+  check("내 담당만 켜면 박종규(B) 담당 편 1건만 표시", trs().length === 1 && trs()[0].getAttribute("data-highlight") === "1", trs().length);
+  check("내 담당만: 제목에 '박종규 담당만' 표시", text(container).includes("박종규 담당만"));
+  await setValue(nameIn("B"), "", "input");
+  check("박종규가 없으면 안내 문구와 빈 표", text(container).includes("박종규 담당 편이 없습니다.") && text(container).includes("박종규를 입력"), text(container).slice(0, 300));
+  await act(async () => { mineBtn().dispatchEvent(new w.MouseEvent("click", { bubbles: true })); });
+  await settle();
+  check("내 담당만 끄면 전체 3편 표시", trs().length === 3, trs().length);
   await setValue(nameIn("B"), "", "input");
   await setValue(nameIn("A"), "", "input");
 
