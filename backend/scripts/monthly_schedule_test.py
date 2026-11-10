@@ -194,6 +194,22 @@ ms._last_api_refresh["at"] = _now_kst() - timedelta(minutes=4)
 client.get("/flights/monthly-schedule?refresh=true")
 check("3분이 지나면 일반 열기도 다시 조회", len(api_calls) == 4, api_calls)
 
+# 7-2) ③ 등록번호 / AFOCS 등록 기록으로 빈 등록기호 채우기 (월간에 직접 입력한 값은 유지)
+client.post("/flights/monthly-schedule", json={"replaceDates": False, "records": [
+    rec("KJ610", f"{d0} 10:00", "ICN", "NRT"), rec("KJ611", f"{d0} 11:00", "ICN", "KIX", "HL8001")]})
+client.post("/flights/aircraft-registrations", json={"mode": "merge", "records": [
+    {"date": d0, "flight": "KJ610", "departureCode": "ICN", "arrivalCode": "NRT", "registrationNo": "HL7777", "source": "excel"},
+    {"date": d0, "flight": "KJ611", "departureCode": "ICN", "arrivalCode": "KIX", "registrationNo": "HL9999", "source": "excel"},
+    {"date": "2026-01-01", "flight": "KJ610", "registrationNo": "HL1111", "source": "excel"}]})
+byf = {f["flight"]: f for f in client.get("/flights/monthly-schedule").json()["flights"] if f["flightDate"] == d0}
+check("월간에 등록기호가 없으면 등록 기록으로 채움", byf["KJ610"]["registrationNo"] == "HL7777", byf["KJ610"])
+check("월간에 입력한 등록기호는 등록 기록이 덮어쓰지 않음", byf["KJ611"]["registrationNo"] == "HL8001", byf["KJ611"])
+client.post("/flights/monthly-schedule", json={"replaceDates": False, "records": [rec("KJ612", f"{d0} 12:00", "ICN", "HKG")]})
+client.post("/flights/aircraft-registrations", json={"mode": "merge", "records": [
+    {"date": "2026-01-01", "flight": "KJ612", "registrationNo": "HL2222", "source": "excel"}]})
+byf = {f["flight"]: f for f in client.get("/flights/monthly-schedule").json()["flights"] if f["flightDate"] == d0}
+check("다른 날짜의 같은 편명 기록은 쓰지 않음", byf["KJ612"]["registrationNo"] == "", byf["KJ612"])
+
 # 8) 토큰 보호
 os.environ["API_ACCESS_TOKEN"] = "t"
 check("토큰 설정 시 저장은 토큰 필요", client.post("/flights/monthly-schedule", json={"records": []}).status_code == 401)

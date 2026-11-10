@@ -7,7 +7,12 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services.aircraft_registration import _save_aircraft_registrations
+from app.services.aircraft_registration import (
+    _aircraft_registration_flight_date_key,
+    _aircraft_registration_key,
+    _build_aircraft_registration_lookup,
+    _save_aircraft_registrations,
+)
 from app.services.api_auth import require_api_token
 from app.services.monthly_schedule import (
     _assignee_to_client,
@@ -58,6 +63,32 @@ class AssigneeNamesRequest(BaseModel):
     slotCount: int = 2
 
 
+def _fill_registrations_from_records(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """월간 SKD에 등록기호가 없는 편은 ③ 등록번호 / AFOCS 등록 기록(일자+편명[+노선])으로 채운다.
+    월간 SKD에 직접 입력한 값은 그대로 둔다. 편명만 일치하는 값은 쓰지 않는다(날짜마다 기재가 다를 수 있음)."""
+    missing = [r for r in rows if not r.get("registration_no")]
+    if not missing:
+        return rows
+    try:
+        lookup = _build_aircraft_registration_lookup()
+    except Exception:
+        return rows
+    if not lookup:
+        return rows
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        if row.get("registration_no"):
+            out.append(row)
+            continue
+        date = row.get("flight_date", "")
+        flight = row.get("flight", "")
+        found = lookup.get(
+            _aircraft_registration_key(date, flight, row.get("departure_code", ""), row.get("arrival_code", ""))
+        ) or lookup.get(_aircraft_registration_flight_date_key(date, flight))
+        out.append({**row, "registration_no": found} if found else row)
+    return out
+
+
 def _storage_error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=503, detail=f"월간 SKD 저장소 오류: {exc}")
 
@@ -87,7 +118,7 @@ async def get_monthly_schedule(
         "success": True,
         "title": _monthly_title(),
         "window": {"start": window_start, "end": window_end, "monthLast": month_last},
-        "flights": [_to_client(r) for r in flights],
+        "flights": [_to_client(r) for r in _fill_registrations_from_records(flights)],
         "assignees": [_assignee_to_client(r) for r in assignees],
         "apiRefreshedAt": _last_api_refresh_iso(),
         "refresh": refresh_result,
