@@ -316,7 +316,7 @@ export default function MonthlyScheduledFlightPage() {
                         {shortDateTime(time)}
                         {isSkdMissing(f) ? <div style={missingStyle} data-skd-missing="1">SKD 미입력</div> : null}
                         {changeLines.map((line) => (
-                          <div key={line.label} style={line.label === "API 변경" ? apiChangeStyle : skdChangeStyle} data-change={line.label}>
+                          <div key={line.label} style={line.label === "API 변경" ? apiChangeStyle : line.label === "불일치" ? mismatchStyle : skdChangeStyle} data-change={line.label}>
                             {line.label} {line.text}
                           </div>
                         ))}
@@ -396,6 +396,7 @@ const thStyle: CSSProperties = {
 };
 const tdStyle: CSSProperties = { border: "1px solid #9ca3af", padding: "6px 6px", color: "#000000", textAlign: "center", verticalAlign: "middle", whiteSpace: "nowrap" };
 const apiChangeStyle: CSSProperties = { fontSize: 11, color: "#b45309", fontWeight: 700 };
+const mismatchStyle: CSSProperties = { fontSize: 11, color: "#b91c1c", fontWeight: 800 };
 const skdChangeStyle: CSSProperties = { fontSize: 11, color: "#1d4ed8", fontWeight: 700 };
 const missingStyle: CSSProperties = { fontSize: 11, color: "#b91c1c", fontWeight: 800 };
 const remarkStyle: CSSProperties = { fontSize: 11, color: "#b45309", fontWeight: 700 };

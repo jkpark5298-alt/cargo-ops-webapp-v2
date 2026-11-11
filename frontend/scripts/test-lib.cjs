@@ -499,12 +499,12 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
     assert.strictEqual(monthly.isHighlightedAssignee("A", { nameA: " 박종규 ", nameB: "", nameC: "" }), true, "앞뒤 공백 무시");
     assert.strictEqual(monthly.isHighlightedAssignee("A", { nameA: "박종규철", nameB: "", nameC: "" }), false, "이름이 정확히 같을 때만");
   });
-  test("시각 안내: API 변경(예정→변경)·SKD 대비(SKD→현재), SKD=API 예정이면 SKD 줄 생략, 날짜는 선택 일자와 다를 때만", () => {
+  test("시각 안내: API 변경(예정→변경)·AFOCS 대비(10분 미만)·불일치(10분 이상), AFOCS=API 예정이면 생략, 날짜는 선택 일자와 다를 때만", () => {
     // KJ390: API 예정과 SKD 가 다르고 둘 다 현재와 다름 → 두 줄
     const f = { apiSchedTime: "2026-11-06 12:10", apiTime: "2026-11-07 08:05", skdTime: "2026-11-06 18:25" };
     assert.deepStrictEqual(monthly.timeChangeLines(f, "2026-11-07"), [
       { label: "API 변경", text: "11-06 12:10 → 08:05" },
-      { label: "SKD 대비", text: "11-06 18:25 → 08:05" },
+      { label: "불일치", text: "⚠ AFOCS 11-06 18:25 ↔ API 08:05 (13시간 40분 차이)" },
     ]);
     // KJ386: SKD = API 예정, API 가 앞당김 → 같은 내용이므로 API 변경 한 줄만
     const k = { apiSchedTime: "2026-11-09 06:50", apiTime: "2026-11-09 06:22", skdTime: "2026-11-09 06:50" };
@@ -514,12 +514,16 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
     assert.deepStrictEqual(monthly.timeChangeLines(g, "2026-11-06"), [{ label: "API 변경", text: "14:20 → 14:35" }]);
     // API 는 그대로(예정=변경)인데 SKD 와만 다른 경우(KJ957)
     const h = { apiSchedTime: "2026-11-07 09:35", apiTime: "2026-11-07 09:35", skdTime: "2026-11-07 12:10" };
-    assert.deepStrictEqual(monthly.timeChangeLines(h, "2026-11-07"), [{ label: "SKD 대비", text: "12:10 → 09:35" }]);
+    assert.deepStrictEqual(monthly.timeChangeLines(h, "2026-11-07"), [{ label: "불일치", text: "⚠ AFOCS 12:10 ↔ API 09:35 (2시간 35분 차이)" }]);
+    // 10분 미만 차이(KJ970 22:15 ↔ 22:16)는 경고하지 않고 AFOCS 대비만
+    assert.deepStrictEqual(monthly.timeChangeLines({ apiSchedTime: "2026-11-11 22:16", apiTime: "2026-11-11 22:16", skdTime: "2026-11-11 22:15" }, "2026-11-11"), [{ label: "AFOCS 대비", text: "22:15 → 22:16" }]);
+    // KJ284: AFOCS 01:35 ↔ API 01:05 (30분)
+    assert.deepStrictEqual(monthly.timeChangeLines({ apiSchedTime: "2026-11-12 01:05", apiTime: "2026-11-12 01:05", skdTime: "2026-11-12 01:35" }, "2026-11-11"), [{ label: "불일치", text: "⚠ AFOCS 11-12 01:35 ↔ API 11-12 01:05 (30분 차이)" }]);
     // 변동 없음 / API 값 없음
     assert.deepStrictEqual(monthly.timeChangeLines({ apiSchedTime: "2026-11-07 09:35", apiTime: "2026-11-07 09:35", skdTime: "2026-11-07 09:35" }, "2026-11-07"), []);
     assert.deepStrictEqual(monthly.timeChangeLines({ apiSchedTime: "", apiTime: "", skdTime: "2026-11-07 09:35" }, "2026-11-07"), []);
     // 예전 데이터(API 예정시각 없음): SKD 변경만
-    assert.deepStrictEqual(monthly.timeChangeLines({ apiSchedTime: "", apiTime: "2026-11-07 10:00", skdTime: "2026-11-07 09:35" }, "2026-11-07"), [{ label: "SKD 대비", text: "09:35 → 10:00" }]);
+    assert.deepStrictEqual(monthly.timeChangeLines({ apiSchedTime: "", apiTime: "2026-11-07 10:00", skdTime: "2026-11-07 09:35" }, "2026-11-07"), [{ label: "불일치", text: "⚠ AFOCS 09:35 ↔ API 10:00 (25분 차이)" }]);
   });
   test("담당 배정 순서는 API 시각 기준: 유형 2(SKD 순)에서도 같은 담당", () => {
     const flights = [

@@ -197,13 +197,34 @@ export function formatChangeTime(value: string, date: string): string {
   return value.slice(0, 10) === date ? value.slice(11, 16) : value.slice(5, 16);
 }
 
-export type TimeChangeLabel = "API 변경" | "SKD 대비";
+export type TimeChangeLabel = "API 변경" | "AFOCS 대비" | "불일치";
+
+/** AFOCS(월간 SKD)와 인천 API 시각이 이 분 이상 다르면 '불일치'로 경고한다 */
+export const MISMATCH_MINUTES = 10;
+
+function minutesBetween(a: string, b: string): number | null {
+  const parse = (v: string) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(v || "");
+    return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) / 60000 : null;
+  };
+  const x = parse(a);
+  const y = parse(b);
+  return x === null || y === null ? null : Math.abs(y - x);
+}
+
+function formatGap(minutes: number): string {
+  if (minutes < 60) return `${minutes}분`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `${h}시간 ${m}분` : `${h}시간`;
+}
 
 /**
  * 유형 1 시각 안내(없으면 빈 배열).
  * - API 변경: 인천 API 예정시각 → 변경시각 (둘이 다를 때만. 실제로 API 시각이 바뀐 것)
- * - SKD 대비: 월간 SKD 시각과 현재 시각의 차이. SKD 값이 바뀐 것이 아니라 비교이다.
- *   SKD 가 API 예정시각과 같으면 'API 변경' 과 같은 내용이므로 생략한다.
+ * - AFOCS 대비: 월간 SKD(AFOCS) 시각과 현재 API 시각의 차이. AFOCS 값이 바뀐 것이 아니라 비교이다.
+ *   AFOCS 가 API 예정시각과 같으면 'API 변경' 과 같은 내용이므로 생략한다.
+ * - 불일치: AFOCS 와 현재 API 시각이 MISMATCH_MINUTES 분 이상 다르면 'AFOCS 대비' 대신 경고로 표시한다.
  */
 export function timeChangeLines(f: MonthlyFlight, date: string): { label: TimeChangeLabel; text: string }[] {
   const lines: { label: TimeChangeLabel; text: string }[] = [];
@@ -213,7 +234,12 @@ export function timeChangeLines(f: MonthlyFlight, date: string): { label: TimeCh
     lines.push({ label: "API 변경", text: `${formatChangeTime(f.apiSchedTime, date)} → ${formatChangeTime(current, date)}` });
   }
   if (f.skdTime && f.skdTime !== current && f.skdTime !== f.apiSchedTime) {
-    lines.push({ label: "SKD 대비", text: `${formatChangeTime(f.skdTime, date)} → ${formatChangeTime(current, date)}` });
+    const gap = minutesBetween(f.skdTime, current);
+    if (gap !== null && gap >= MISMATCH_MINUTES) {
+      lines.push({ label: "불일치", text: `⚠ AFOCS ${formatChangeTime(f.skdTime, date)} ↔ API ${formatChangeTime(current, date)} (${formatGap(gap)} 차이)` });
+    } else {
+      lines.push({ label: "AFOCS 대비", text: `${formatChangeTime(f.skdTime, date)} → ${formatChangeTime(current, date)}` });
+    }
   }
   return lines;
 }

@@ -270,7 +270,7 @@ const setValue = async (el, value, eventName = "change") => {
   await clickText(container, "A조");
   const missRow = rows(container).find((r) => r[0] === "KJ387");
   check("유형 1: SKD 미입력 편(KJ387)이 A조에 API 시각(13:45)으로 표시", missRow && missRow[4].includes("11-08 13:45") && missRow[4].includes("SKD 미입력") && missRow[7] === "625", missRow);
-  check("SKD 미입력 편의 'API 변경 13:30 → 13:45'는 표시, 'SKD 대비'는 없음", missRow[4].includes("API 변경 13:30 → 13:45") && !missRow[4].includes("SKD 대비"), missRow);
+  check("SKD 미입력 편의 'API 변경 13:30 → 13:45'는 표시, 'AFOCS'는 없음", missRow[4].includes("API 변경 13:30 → 13:45") && !missRow[4].includes("AFOCS"), missRow);
   check("SKD 미입력 표시는 한 곳만", container.querySelectorAll('[data-skd-missing]').length === 1);
   await clickText(container, "유형 2");
   await setValue(container.querySelector('select[aria-label="일자 선택"]'), "2026-11-08");
@@ -284,13 +284,13 @@ const setValue = async (el, value, eventName = "change") => {
   await setValue(container.querySelector('select[aria-label="일자 선택"]'), "2026-11-07");
   await clickText(container, "A조");
   const r390 = rows(container).find((r) => r[0] === "KJ390");
-  check("KJ390: API 변경 11-06 12:10 → 08:05 / SKD 대비 11-06 18:25 → 08:05 각각 표시", r390 && r390[4].includes("API 변경 11-06 12:10 → 08:05") && r390[4].includes("SKD 대비 11-06 18:25 → 08:05") && r390[4].includes("지연"), r390);
+  check("KJ390: API 변경 11-06 12:10 → 08:05 / 불일치 경고(AFOCS 11-06 18:25 ↔ API 08:05) 각각 표시", r390 && r390[4].includes("API 변경 11-06 12:10 → 08:05") && r390[4].includes("⚠ AFOCS 11-06 18:25 ↔ API 08:05 (13시간 40분 차이)") && r390[4].includes("지연"), r390);
   const r957 = rows(container).find((r) => r[0] === "KJ957");
-  check("KJ957: API 는 그대로, SKD 대비 12:10 → 09:35 만 표시", r957 && !r957[4].includes("API 변경") && r957[4].includes("SKD 대비 12:10 → 09:35"), r957);
+  check("KJ957: API 는 그대로, 불일치 경고 AFOCS 12:10 ↔ API 09:35 만 표시", r957 && !r957[4].includes("API 변경") && r957[4].includes("⚠ AFOCS 12:10 ↔ API 09:35 (2시간 35분 차이)"), r957);
   await setValue(container.querySelector('select[aria-label="일자 선택"]'), "2026-11-06");
   await clickText(container, "A조");
   const dataChange = [...container.querySelectorAll("[data-change]")].length;
-  check("변경 표시 줄이 라벨(API 변경/SKD 대비)로 구분됨", dataChange >= 1, dataChange);
+  check("변경 표시 줄이 라벨(API 변경/AFOCS 대비/불일치)로 구분됨", dataChange >= 1, dataChange);
 
   // 표 글자색·머리글 서식
   await clickText(container, "유형 1");
