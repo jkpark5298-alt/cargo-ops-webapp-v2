@@ -23,6 +23,7 @@ import {
   setMonthlyAssigneeSlot,
   setMonthlyShiftOverride,
   parseShiftOverride,
+  type SlotCode,
   shortDateTime,
   timeChangeLines,
   todayKst,
@@ -167,6 +168,23 @@ export default function MonthlyScheduledFlightPage() {
     }
   };
 
+  // 담당 순서 시작 지정: 맨 위 편만 start 로 지정하고 나머지 편의 직접 지정은 모두 해제 → 자동으로 A→B→A…(또는 B→A→B…)
+  // start 가 ''이면 모든 직접 지정을 해제(맨 위는 첫 칸 A 부터)
+  const restartOrder = async (start: SlotCode | "") => {
+    try {
+      await Promise.all(
+        list.map((f, i) => {
+          const target = i === 0 ? start : "";
+          return (f.assigneeSlot || "") === target ? Promise.resolve() : setMonthlyAssigneeSlot(f.recordKey, target);
+        }),
+      );
+      await load(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "담당 순서 변경 실패");
+    }
+  };
+  const fixedCount = list.filter((f) => f.assigneeSlot).length;
+
   // 편별 조 이동: 지금 보고 있는 일자의 A/C/S 조로 옮기거나(''이면 시간 기준 자동 복귀)
   const changeShift = async (recordKey: string, target: string) => {
     try {
@@ -270,6 +288,15 @@ export default function MonthlyScheduledFlightPage() {
               />{" "}
               3칸(C 추가)
             </label>
+            <span style={labelStyle}>순서 시작</span>
+            {usedSlots.map((slot) => (
+              <button key={slot} type="button" onClick={() => void restartOrder(slot === usedSlots[0] ? "" : slot)} style={tabStyle} aria-label={`${slot}부터 시작`}>
+                {slot}부터 시작
+              </button>
+            ))}
+            <button type="button" onClick={() => void restartOrder("")} disabled={fixedCount === 0} style={tabStyle} aria-label="직접 지정 해제">
+              직접 지정 해제{fixedCount ? ` (${fixedCount})` : ""}
+            </button>
             <button
               type="button"
               onClick={toggleMineOnly}

@@ -408,6 +408,22 @@ const setValue = async (el, value, eventName = "change") => {
   await setValue(topSelect(), "");
   check("지정 해제 → 맨 위 A 부터 다시 A, B, A", slotsShown()[0].startsWith("A") && slotsShown()[1].startsWith("B") && slotsShown()[2].startsWith("A"), slotsShown());
 
+  // 담당 순서 시작 버튼: 편마다 직접 지정이 있어도 한 번에 B→A→B… / A→B→A… 로 정리
+  const selects = () => [...container.querySelectorAll("tbody select")];
+  await setValue(selects()[0], "B");
+  await setValue(selects()[1], "B");
+  await setValue(selects()[2], "A");
+  const sFlights = flightsShown(container);
+  const slotOf = (fl) => DATA.flights.find((f) => f.flight === fl).assigneeSlot;
+  check("준비: 세 편 모두 직접 지정(B,B,A)", slotsShown().map((x) => x[0]).join(",") === "B,B,A" && sFlights.every((fl) => slotOf(fl)), slotsShown());
+  check("직접 지정 해제 버튼에 개수(3) 표시", text(container).includes("직접 지정 해제 (3)"));
+  await clickText(container, "B부터 시작");
+  check("B부터 시작 → B, A, B", slotsShown().map((x) => x[0]).join(",") === "B,A,B", slotsShown());
+  check("맨 위 편만 B 로 지정되고 나머지 직접 지정은 해제", slotOf(sFlights[0]) === "B" && !slotOf(sFlights[1]) && !slotOf(sFlights[2]), sFlights.map(slotOf));
+  await clickText(container, "A부터 시작");
+  check("A부터 시작 → A, B, A 이고 직접 지정은 모두 해제", slotsShown().map((x) => x[0]).join(",") === "A,B,A" && sFlights.every((fl) => !slotOf(fl)), [slotsShown(), sFlights.map(slotOf)]);
+  check("직접 지정이 없으면 해제 버튼 비활성", container.querySelector('button[aria-label="직접 지정 해제"]').disabled === true);
+
   // 월간 SKD 입력(붙여넣기)
   await clickText(container, "월간 SKD 입력");
   const ta = container.querySelector("textarea");
