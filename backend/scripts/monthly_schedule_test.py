@@ -194,6 +194,36 @@ ms._last_api_refresh["at"] = _now_kst() - timedelta(minutes=4)
 client.get("/flights/monthly-schedule?refresh=true")
 check("3분이 지나면 일반 열기도 다시 조회", len(api_calls) == 4, api_calls)
 
+# 7-3) 월간 SKD 에 없는 인천 API 편은 'SKD 미입력' 편(source=api)으로 추가
+async def fake_all_kj_extra(start_date, end_date):
+    rows = await fake_all_kj(start_date, end_date)
+    if start_date == d0:
+        rows.append({"flightNo": "KJ387", "departureCode": "ICN", "arrivalCode": "HAN", "formattedScheduleTime": f"{d0.replace('-', '/')} 05:30",
+                     "formattedEstimatedTime": f"{d0.replace('-', '/')} 05:45", "remark": "", "gatenumber": "625"})
+        rows.append({"flightNo": "KJ948", "departureCode": "PVG", "arrivalCode": "ICN", "formattedScheduleTime": f"{d0.replace('-', '/')} 06:25",
+                     "formattedEstimatedTime": f"{d0.replace('-', '/')} 06:25", "remark": "", "gatenumber": "673"})
+    return rows
+
+
+ms._last_api_refresh["at"] = None
+res_add = asyncio.run(ms._refresh_monthly_api(fetch_all_kj=fake_all_kj_extra))
+all_f = client.get("/flights/monthly-schedule").json()["flights"]
+extra = {f["flight"]: f for f in all_f if f["source"] == "api"}
+check("API 에만 있는 편 2건 추가", set(extra) == {"KJ387", "KJ948"} and res_add["added"] == 2, (res_add, list(extra)))
+check("추가된 편: SKD 시각 비어 있음, API 시각·게이트 저장", extra["KJ387"]["skdTime"] == "" and extra["KJ387"]["apiTime"] == f"{d0} 05:45" and extra["KJ387"]["apiSchedTime"] == f"{d0} 05:30" and extra["KJ387"]["apiGate"] == "625", extra["KJ387"])
+check("추가된 편: 일자·노선 저장", extra["KJ948"]["flightDate"] == d0 and extra["KJ948"]["departureCode"] == "PVG" and extra["KJ948"]["arrivalCode"] == "ICN", extra["KJ948"])
+asyncio.run(ms._refresh_monthly_api(fetch_all_kj=fake_all_kj_extra))
+check("다시 갱신해도 중복 추가 없음", len([f for f in client.get("/flights/monthly-schedule").json()["flights"] if f["flight"] == "KJ387"]) == 1)
+check("월간 SKD 에 있는 편(KJ967)은 SKD 미입력으로 추가되지 않음", len([f for f in client.get("/flights/monthly-schedule").json()["flights"] if f["flight"] == "KJ967"]) == 1)
+
+# 월간 SKD 에 KJ387 을 올리면 SKD 미입력 편은 사라지고 SKD 편이 API 값을 받음
+client.post("/flights/monthly-schedule", json={"replaceDates": False, "records": [rec("KJ387", f"{d0} 05:30", "ICN", "HAN")]})
+asyncio.run(ms._refresh_monthly_api(fetch_all_kj=fake_all_kj_extra))
+k387 = [f for f in client.get("/flights/monthly-schedule").json()["flights"] if f["flight"] == "KJ387"]
+check("SKD 입력 후 KJ387 은 1건(SKD 있음)이고 API 값 반영", len(k387) == 1 and k387[0]["skdTime"].endswith("05:30") and k387[0]["source"] != "api" and k387[0]["apiTime"].endswith("05:45"), k387)
+res_idle = asyncio.run(ms._refresh_monthly_api(fetch_all_kj=fake_all_kj_extra))
+check("남은 SKD 미입력 편은 KJ948 뿐", [f["flight"] for f in client.get("/flights/monthly-schedule").json()["flights"] if f["source"] == "api"] == ["KJ948"])
+
 # 7-2) ③ 등록번호 / AFOCS 등록 기록으로 빈 등록기호 채우기 (월간에 직접 입력한 값은 유지)
 client.post("/flights/monthly-schedule", json={"replaceDates": False, "records": [
     rec("KJ610", f"{d0} 10:00", "ICN", "NRT"), rec("KJ611", f"{d0} 11:00", "ICN", "KIX", "HL8001")]})

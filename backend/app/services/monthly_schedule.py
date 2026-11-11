@@ -177,7 +177,7 @@ def _list_flights(start: Optional[str] = None, end: Optional[str] = None) -> Lis
         offset = 0
         while True:
             query = urllib.parse.urlencode(
-                {"select": "*", "order": "skd_time.asc", "limit": str(_PAGE_SIZE), "offset": str(offset)}
+                {"select": "*", "order": "skd_time.asc,record_key.asc", "limit": str(_PAGE_SIZE), "offset": str(offset)}
             )
             page = _supabase_request(
                 "GET", f"{_FLIGHTS_PATH}?flight_date=gte.{start}&flight_date=lte.{end}&{query}"
@@ -388,7 +388,11 @@ def _match_api_row(rec: Dict[str, Any], candidates: List[Dict[str, Any]]) -> Opt
         same = routed or same
     if not same:
         return None
-    skd = datetime.strptime(rec["skd_time"], "%Y-%m-%d %H:%M")
+    base = rec.get("skd_time") or rec.get("api_sched_time") or ""
+    try:
+        skd = datetime.strptime(base, "%Y-%m-%d %H:%M")
+    except ValueError:
+        return None
 
     def distance(c: Dict[str, Any]) -> float:
         value = _api_row_schedule(c) or _api_row_time(c)
@@ -401,24 +405,89 @@ def _match_api_row(rec: Dict[str, Any], candidates: List[Dict[str, Any]]) -> Opt
     return best if distance(best) <= 12 * 3600 else None
 
 
+def _is_api_only(rec: Dict[str, Any]) -> bool:
+    """월간 SKD 에는 없고 인천 API 에서만 가져온 편(SKD 미입력)."""
+    return rec.get("source") == "api" and not rec.get("skd_time")
+
+
+def _rec_base_time(rec: Dict[str, Any]) -> Optional[datetime]:
+    try:
+        return datetime.strptime(rec.get("skd_time") or rec.get("api_sched_time") or "", "%Y-%m-%d %H:%M")
+    except ValueError:
+        return None
+
+
+def _covered_by(flight: str, when: Optional[datetime], recs: List[Dict[str, Any]]) -> bool:
+    """같은 편명이 12시간 안에 이미 있는지."""
+    if when is None:
+        return False
+    for rec in recs:
+        base = _rec_base_time(rec)
+        if rec.get("flight") == flight and base is not None and abs((base - when).total_seconds()) <= 12 * 3600:
+            return True
+    return False
+
+
+def _api_only_record(row: Dict[str, Any], now_iso: str) -> Optional[Dict[str, Any]]:
+    flight = _norm_flight(row.get("flightNo") or row.get("flightId"))
+    sched = _api_row_schedule(row) or _api_row_time(row)
+    if not re.fullmatch(r"KJ\d{2,4}", flight) or not sched:
+        return None
+    dep = _norm_code(row.get("departureCode"))
+    arr = _norm_code(row.get("arrivalCode"))
+    if dep and dep != "ICN" and not arr:
+        arr = "ICN"
+    elif arr and arr != "ICN" and not dep:
+        dep = "ICN"
+    gate = str(row.get("gatenumber") or "").strip()
+    flight_date = sched[:10]
+    return {
+        "record_key": _record_key(flight_date, flight, dep, arr),
+        "flight_date": flight_date,
+        "flight": flight,
+        "departure_code": dep,
+        "arrival_code": arr,
+        "skd_time": "",
+        "registration_no": "",
+        "assignee_slot": "",
+        "api_time": _api_row_time(row),
+        "api_sched_time": _api_row_schedule(row),
+        "api_remark": str(row.get("remark") or "").strip(),
+        "api_gate": "" if gate in ("-", "") else gate,
+        "api_updated_at": now_iso,
+        "source": "api",
+        "updated_at": now_iso,
+    }
+
+
 async def _refresh_monthly_api(fetch_all_kj=None, today: Optional[date] = None) -> Dict[str, Any]:
-    """오늘 ~ 3일 뒤 편의 변경시각·상태·게이트를 인천 API 로 갱신한다."""
+    """오늘 ~ 3일 뒤 편의 변경시각·상태·게이트를 인천 API 로 갱신한다.
+    월간 SKD 에 없고 인천 API 에만 있는 편은 'SKD 미입력' 편(source=api)으로 추가한다."""
     if fetch_all_kj is None:
         from app.services.incheon_api import get_all_kj_flight_data as fetch_all_kj  # 늦은 import(순환 방지)
     today = today or _now_kst().date()
     days = [(today + timedelta(days=i)).isoformat() for i in range(API_REFRESH_DAYS_AHEAD + 1)]
     stored = _list_flights(days[0], days[-1])
-    if not stored:
-        return {"checked": 0, "updated": 0, "days": days}
 
     api_rows: List[Dict[str, Any]] = []
+    fetched_any = False
     for day in days:
         try:
             api_rows.extend(await fetch_all_kj(start_date=day, end_date=day))
+            fetched_any = True
         except Exception:
             continue
+    if not stored and not api_rows:
+        return {"checked": 0, "updated": 0, "added": 0, "days": days}
 
     now_iso = _ts()
+    real = [r for r in stored if not _is_api_only(r)]
+
+    # 월간 SKD 로 올린 편이 이제 같은 편을 덮으면 SKD 미입력 편은 지운다
+    stale_api_only = [r["record_key"] for r in stored if _is_api_only(r) and _covered_by(r["flight"], _rec_base_time(r), real)]
+    stale_set = set(stale_api_only)
+    stored = [r for r in stored if r["record_key"] not in stale_set]
+
     changed: List[Dict[str, Any]] = []
     replaced_keys: List[str] = []
     for rec in stored:
@@ -444,11 +513,26 @@ async def _refresh_monthly_api(fetch_all_kj=None, today: Optional[date] = None) 
             changed.append({**rec, **new_values, "api_updated_at": now_iso})
         else:
             changed.append({**rec, "api_updated_at": now_iso})
-    _upsert_rows(changed)
-    new_keys = {r["record_key"] for r in changed}
-    _delete_keys([k for k in replaced_keys if k not in new_keys])
-    result = {"checked": len(stored), "updated": len(changed), "days": days, "apiRows": len(api_rows)}
-    _last_api_refresh.update({"at": _now_kst(), "result": result})
+
+    # 월간 SKD 에 없는 인천 API 편 추가 (오늘 ~ 3일 뒤)
+    added: List[Dict[str, Any]] = []
+    seen_keys = {r["record_key"] for r in stored}
+    for row in api_rows:
+        rec = _api_only_record(row, now_iso)
+        if rec is None or rec["flight_date"] not in days or rec["record_key"] in seen_keys:
+            continue
+        if _covered_by(rec["flight"], _rec_base_time(rec), stored):
+            continue
+        seen_keys.add(rec["record_key"])
+        stored.append(rec)  # 같은 API 편이 두 번 들어와도 한 번만 추가
+        added.append(rec)
+
+    _upsert_rows(changed + added)
+    new_keys = {r["record_key"] for r in changed + added}
+    _delete_keys([k for k in replaced_keys if k not in new_keys] + stale_api_only)
+    result = {"checked": len(stored), "updated": len(changed), "added": len(added), "days": days, "apiRows": len(api_rows)}
+    if fetched_any:
+        _last_api_refresh.update({"at": _now_kst(), "result": result})
     return result
 
 

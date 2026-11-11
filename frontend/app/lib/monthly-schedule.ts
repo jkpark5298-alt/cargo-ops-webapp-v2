@@ -86,9 +86,15 @@ export function type1Dates(today: string = todayKst()): string[] {
   return [today, addDays(today, 1), addDays(today, 2)];
 }
 
-/** 화면에 쓸 ETD/ETA: 유형 1은 API 변경시각 우선, 유형 2는 월간 SKD 시각 */
+/** 월간 SKD 에는 없고 인천 API 에서만 가져온 편(SKD 미입력) */
+export function isSkdMissing(flight: MonthlyFlight): boolean {
+  return !flight.skdTime;
+}
+
+/** 화면에 쓸 ETD/ETA: 유형 1은 API 변경시각 우선, 유형 2는 월간 SKD 시각(SKD 미입력 편은 API 예정시각) */
 export function displayTime(flight: MonthlyFlight, viewType: ViewType): string {
-  return viewType === 1 ? flight.apiTime || flight.skdTime : flight.skdTime;
+  if (viewType === 1) return flight.apiTime || flight.skdTime || flight.apiSchedTime;
+  return flight.skdTime || flight.apiSchedTime || flight.apiTime;
 }
 
 /**
@@ -116,7 +122,7 @@ export function flightsForShift(flights: MonthlyFlight[], date: string, shift: S
  * 화면에 보이는 시각이 아니라 이 기준으로 순서를 정한다.
  */
 export function sortForAssignment(list: MonthlyFlight[]): MonthlyFlight[] {
-  const key = (f: MonthlyFlight) => f.apiTime || f.skdTime;
+  const key = (f: MonthlyFlight) => f.apiTime || f.skdTime || f.apiSchedTime;
   return [...list].sort((a, b) => key(a).localeCompare(key(b)) || a.flight.localeCompare(b.flight));
 }
 

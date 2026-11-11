@@ -81,6 +81,7 @@ let DATA = {
     F("KJ795", "2026-11-06 23:15", "ICN", "FRA"),
     F("KJ290", "2026-11-07 00:45", "ORD", "ICN"),
     F("KJ500", "2026-11-20 10:00", "ICN", "NRT"),
+    F("KJ387", "", "ICN", "HAN", { flightDate: "2026-11-08", apiTime: "2026-11-08 13:45", apiSchedTime: "2026-11-08 13:30", apiGate: "625", source: "api", registrationNo: "" }),
   ],
   assignees: [],
   apiRefreshedAt: "2026-11-06T08:55:00",
@@ -262,6 +263,21 @@ const setValue = async (el, value, eventName = "change") => {
   check("유형 2: SKD 시각만, 주기장 비움", r911b[4] === "11-06 09:00" && r911b[7] === "", r911b);
   await setValue(dateSelect2, "2026-11-20");
   check("유형 2: 11/20 A조 KJ500", JSON.stringify(flightsShown(container)) === JSON.stringify(["KJ500"]), flightsShown(container));
+
+  // 월간 SKD 에 없는 인천 API 편: 근무조에 들어오고 'SKD 미입력' 표시
+  await clickText(container, "유형 1");
+  await setValue(container.querySelector('select[aria-label="일자 선택"]'), "2026-11-08");
+  await clickText(container, "A조");
+  const missRow = rows(container).find((r) => r[0] === "KJ387");
+  check("유형 1: SKD 미입력 편(KJ387)이 A조에 API 시각(13:45)으로 표시", missRow && missRow[4].includes("11-08 13:45") && missRow[4].includes("SKD 미입력") && missRow[7] === "625", missRow);
+  check("SKD 미입력 편의 'API 변경 13:30 → 13:45'는 표시, 'SKD 대비'는 없음", missRow[4].includes("API 변경 13:30 → 13:45") && !missRow[4].includes("SKD 대비"), missRow);
+  check("SKD 미입력 표시는 한 곳만", container.querySelectorAll('[data-skd-missing]').length === 1);
+  await clickText(container, "유형 2");
+  await setValue(container.querySelector('select[aria-label="일자 선택"]'), "2026-11-08");
+  await clickText(container, "A조");
+  const missRow2 = rows(container).find((r) => r[0] === "KJ387");
+  check("유형 2: SKD 미입력 편은 API 예정시각(13:30)으로 표시", missRow2 && missRow2[4].includes("11-08 13:30") && missRow2[4].includes("SKD 미입력"), missRow2);
+  await clickText(container, "유형 1");
 
   // 다른 일자로 지연된 편(KJ390)과 SKD 만 다른 편(KJ957): API 변경 / SKD 변경을 각각 표시
   await clickText(container, "유형 1");

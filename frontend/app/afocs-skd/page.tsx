@@ -12,6 +12,7 @@ import {
   datesBetween,
   departureOf,
   isHighlightedAssignee,
+  isSkdMissing,
   HIGHLIGHT_ASSIGNEE,
   deleteMonthlyFlight,
   displayTime,
@@ -184,7 +185,7 @@ export default function MonthlyScheduledFlightPage() {
             {data?.title || "Monthly Scheduled Flight"}
           </div>
           <div style={hintStyle}>
-            월간 SKD 기준 · 유형 1은 오늘~모레 편에 인천 API 변경시각·주기장을 반영(주기장은 당일 무렵 배정)
+            월간 SKD 기준 · 유형 1은 오늘~모레 편에 인천 API 변경시각·주기장을 반영(주기장은 당일 무렵 배정) · 월간 SKD에 없는 인천 API 편은 'SKD 미입력'으로 표시
             {data?.apiRefreshedAt ? ` · API 반영 ${data.apiRefreshedAt.slice(5, 16).replace("T", " ")}` : ""}
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
@@ -313,6 +314,7 @@ export default function MonthlyScheduledFlightPage() {
                       <td style={cell(3)}>{arrivalOf(f)}</td>
                       <td style={cell(4)}>
                         {shortDateTime(time)}
+                        {isSkdMissing(f) ? <div style={missingStyle} data-skd-missing="1">SKD 미입력</div> : null}
                         {changeLines.map((line) => (
                           <div key={line.label} style={line.label === "API 변경" ? apiChangeStyle : skdChangeStyle} data-change={line.label}>
                             {line.label} {line.text}
@@ -395,6 +397,7 @@ const thStyle: CSSProperties = {
 const tdStyle: CSSProperties = { border: "1px solid #9ca3af", padding: "6px 6px", color: "#000000", textAlign: "center", verticalAlign: "middle", whiteSpace: "nowrap" };
 const apiChangeStyle: CSSProperties = { fontSize: 11, color: "#b45309", fontWeight: 700 };
 const skdChangeStyle: CSSProperties = { fontSize: 11, color: "#1d4ed8", fontWeight: 700 };
+const missingStyle: CSSProperties = { fontSize: 11, color: "#b91c1c", fontWeight: 800 };
 const remarkStyle: CSSProperties = { fontSize: 11, color: "#b45309", fontWeight: 700 };
 /** 강조 행: 글자 굵게 + 모든 칸의 아래쪽 테두리만 굵은 노란색. 강조가 아니면 기본 셀 서식 */
 const HIGHLIGHT_BORDER = "4px solid #facc15";
