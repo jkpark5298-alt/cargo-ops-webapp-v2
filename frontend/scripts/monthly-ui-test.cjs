@@ -81,6 +81,9 @@ let DATA = {
     F("KJ795", "2026-11-06 23:15", "ICN", "FRA"),
     F("KJ290", "2026-11-07 00:45", "ORD", "ICN"),
     F("KJ500", "2026-11-20 10:00", "ICN", "NRT"),
+    F("KJ601", "2026-11-08 15:00", "NRT", "ICN", { apiTime: "2026-11-08 16:30", apiSchedTime: "2026-11-08 15:00" }),
+    F("KJ602", "2026-11-08 15:30", "KIX", "ICN", { apiTime: "2026-11-08 15:45", apiSchedTime: "2026-11-08 15:30" }),
+    F("KJ603", "2026-11-08 16:00", "HKG", "ICN"),
     F("KJ387", "", "ICN", "HAN", { flightDate: "2026-11-08", apiTime: "2026-11-08 13:45", apiSchedTime: "2026-11-08 13:30", apiGate: "625", source: "api", registrationNo: "" }),
   ],
   assignees: [],
@@ -290,6 +293,16 @@ const setValue = async (el, value, eventName = "change") => {
   check("A조 목록이 원래대로", JSON.stringify(flightsShown(container)) === JSON.stringify(aBefore), flightsShown(container));
   await act(async () => { shiftBox.dispatchEvent(new w.MouseEvent("click", { bubbles: true })); });
   await settle();
+
+  // 담당 자동 배정은 유형 1·2 모두 화면에 보이는 순서대로 A, B, A… (SKD 순서와 API 순서가 달라도)
+  await clickText(container, "유형 2");
+  await setValue(container.querySelector('select[aria-label="일자 선택"]'), "2026-11-08");
+  await clickText(container, "C조");
+  check("유형 2(SKD 순서): KJ601, KJ602, KJ603 → A, B, A", JSON.stringify(flightsShown(container)) === JSON.stringify(["KJ601", "KJ602", "KJ603"]) && rows(container).map((r) => r[5]).join(",") === "A,B,A", [flightsShown(container), rows(container).map((r) => r[5])]);
+  await clickText(container, "유형 1");
+  await setValue(container.querySelector('select[aria-label="일자 선택"]'), "2026-11-08");
+  await clickText(container, "C조");
+  check("유형 1(API 순서): KJ602, KJ603, KJ601 → A, B, A", JSON.stringify(flightsShown(container)) === JSON.stringify(["KJ602", "KJ603", "KJ601"]) && rows(container).map((r) => r[5]).join(",") === "A,B,A", [flightsShown(container), rows(container).map((r) => r[5])]);
 
   // 월간 SKD 에 없는 인천 API 편: 근무조에 들어오고 'SKD 미입력' 표시
   await clickText(container, "유형 1");
