@@ -96,6 +96,11 @@ global.fetch = w.fetch = async (url, init) => {
     DATA.assignees = [...DATA.assignees.filter((a) => !(a.flightDate === body.flightDate && a.shift === body.shift)), body];
     return j({ success: true, assignee: body });
   }
+  if (u.startsWith("/flights/monthly-schedule/shift")) {
+    const body = JSON.parse(init.body);
+    DATA.flights = DATA.flights.map((f) => (f.recordKey === body.recordKey ? { ...f, shiftOverride: body.shift } : f));
+    return j({ success: true });
+  }
   if (u.startsWith("/flights/monthly-schedule/assignee-slot")) {
     const body = JSON.parse(init.body);
     DATA.flights = DATA.flights.map((f) => (f.recordKey === body.recordKey ? { ...f, assigneeSlot: body.slot } : f));
@@ -263,6 +268,28 @@ const setValue = async (el, value, eventName = "change") => {
   check("유형 2: SKD 시각만, 주기장 비움", r911b[4] === "11-06 09:00" && r911b[7] === "", r911b);
   await setValue(dateSelect2, "2026-11-20");
   check("유형 2: 11/20 A조 KJ500", JSON.stringify(flightsShown(container)) === JSON.stringify(["KJ500"]), flightsShown(container));
+
+  // 편별 조 이동: 11/06 A조의 KJ911 을 C조로 옮기면 A조에서 빠지고 C조에 나타남, 해제하면 복귀
+  await setValue(container.querySelector('select[aria-label="일자 선택"]'), "2026-11-06");
+  await clickText(container, "A조");
+  const aBefore = flightsShown(container);
+  const shiftBox = container.querySelector('input[aria-label="조 변경"]');
+  await act(async () => { shiftBox.dispatchEvent(new w.MouseEvent("click", { bubbles: true })); });
+  await settle();
+  check("조 변경을 켜면 '조' 열과 이동 선택칸이 생김", container.querySelectorAll('select[aria-label$="조 이동"]').length === aBefore.length && text(container).includes("자동(시간 기준)"), aBefore);
+  await setValue(container.querySelector('select[aria-label="KJ911 조 이동"]'), "C");
+  check("A조에서 KJ911 이 빠짐", !flightsShown(container).includes("KJ911") && flightsShown(container).length === aBefore.length - 1, flightsShown(container));
+  await clickText(container, "C조");
+  check("C조에 KJ911 이 나타나고 '조 지정' 표시", flightsShown(container).map((x) => x.replace("조 지정", "")).includes("KJ911") && container.querySelectorAll("[data-shift-override]").length === 1, flightsShown(container));
+  await clickText(container, "S조");
+  check("S조에는 나타나지 않음(지정한 조에만)", !flightsShown(container).includes("KJ911"), flightsShown(container));
+  await clickText(container, "C조");
+  await setValue(container.querySelector('select[aria-label="KJ911 조 이동"]'), "");
+  check("지정 해제하면 C조에서 빠지고 A조로 복귀", !flightsShown(container).includes("KJ911"), flightsShown(container));
+  await clickText(container, "A조");
+  check("A조 목록이 원래대로", JSON.stringify(flightsShown(container)) === JSON.stringify(aBefore), flightsShown(container));
+  await act(async () => { shiftBox.dispatchEvent(new w.MouseEvent("click", { bubbles: true })); });
+  await settle();
 
   // 월간 SKD 에 없는 인천 API 편: 근무조에 들어오고 'SKD 미입력' 표시
   await clickText(container, "유형 1");

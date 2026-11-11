@@ -525,6 +525,17 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
     // 예전 데이터(API 예정시각 없음): SKD 변경만
     assert.deepStrictEqual(monthly.timeChangeLines({ apiSchedTime: "", apiTime: "2026-11-07 10:00", skdTime: "2026-11-07 09:35" }, "2026-11-07"), [{ label: "불일치", text: "⚠ AFOCS 09:35 ↔ API 10:00 (25분 차이)" }]);
   });
+  test("편별 조 지정: 지정한 일자·조에만 표시, 해제하면 시간 기준", () => {
+    const mk = (flight, skdTime, shiftOverride = "") => ({ recordKey: flight, flight, skdTime, apiTime: "", apiSchedTime: "", shiftOverride });
+    const rows = [mk("KJ1", "2026-11-11 09:00"), mk("KJ2", "2026-11-11 10:00", "2026-11-11|C"), mk("KJ3", "2026-11-12 00:30", "2026-11-11|A")];
+    const names = (sh, date = "2026-11-11") => monthly.flightsForShift(rows, date, sh, 2).map((f) => f.flight);
+    assert.deepStrictEqual(names("A"), ["KJ1", "KJ3"], "KJ3 은 S조 시간이지만 A조로 지정");
+    assert.deepStrictEqual(names("C"), ["KJ2"], "KJ2 는 A조 시간이지만 C조로 지정");
+    assert.deepStrictEqual(names("S"), [], "지정한 편은 시간상 S조여도 지정한 조에만");
+    assert.deepStrictEqual(names("C", "2026-11-12"), [], "다른 일자에는 나오지 않음");
+    assert.strictEqual(monthly.parseShiftOverride("2026-11-11|S").shift, "S");
+    assert.strictEqual(monthly.parseShiftOverride("A"), null);
+  });
   test("담당 배정 순서는 API 시각 기준: 유형 2(SKD 순)에서도 같은 담당", () => {
     const flights = [
       { recordKey: "a", flight: "KJ1", skdTime: "2026-11-06 10:00", apiTime: "2026-11-06 12:00", assigneeSlot: "" },

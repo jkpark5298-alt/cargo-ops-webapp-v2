@@ -14,6 +14,8 @@ export type MonthlyFlight = {
   registrationNo: string;
   /** 편별 담당 지정(A/B/C). 비어 있으면 근무조 안에서 시간순 자동 배정 */
   assigneeSlot: string;
+  /** 편별 조 지정: '' = 시간 기준 자동, 'YYYY-MM-DD|A/C/S' = 그 업무일자의 그 조에만 표시 */
+  shiftOverride?: string;
   /** 인천 API 변경시각(오늘~3일 뒤 편만) */
   apiTime: string;
   /** 인천 API 예정시각(변경 전). 'API 변경 예정 → 변경' 표시에 사용 */
@@ -111,9 +113,22 @@ export function isInShift(time: string, date: string, shift: ShiftCode): boolean
   return (day === date && hm >= "22:01") || (day === addDays(date, 1) && hm <= "06:30");
 }
 
+/** 편별 조 지정 값 해석('2026-11-11|A' → {date, shift}). 없으면 null */
+export function parseShiftOverride(value?: string): { date: string; shift: ShiftCode } | null {
+  const m = /^(\d{4}-\d{2}-\d{2})\|([ACS])$/.exec(String(value || ""));
+  return m ? { date: m[1], shift: m[2] as ShiftCode } : null;
+}
+
+/** 이 일자·조에 표시할 편: 조를 직접 지정한 편은 지정한 일자·조에만, 나머지는 시간 기준 */
+export function belongsToShift(f: MonthlyFlight, date: string, shift: ShiftCode, viewType: ViewType): boolean {
+  const override = parseShiftOverride(f.shiftOverride);
+  if (override) return override.date === date && override.shift === shift;
+  return isInShift(displayTime(f, viewType), date, shift);
+}
+
 export function flightsForShift(flights: MonthlyFlight[], date: string, shift: ShiftCode, viewType: ViewType) {
   return flights
-    .filter((f) => isInShift(displayTime(f, viewType), date, shift))
+    .filter((f) => belongsToShift(f, date, shift, viewType))
     .sort((a, b) => displayTime(a, viewType).localeCompare(displayTime(b, viewType)) || a.flight.localeCompare(b.flight));
 }
 
@@ -409,6 +424,11 @@ export function deleteMonthlyFlight(recordKey: string) {
 
 export function setMonthlyAssigneeSlot(recordKey: string, slot: string) {
   return request<{ flight: MonthlyFlight }>("/flights/monthly-schedule/assignee-slot", writeInit("POST", { recordKey, slot }));
+}
+
+/** 편별 조 지정(''이면 시간 기준 자동으로 복귀) */
+export function setMonthlyShiftOverride(recordKey: string, shift: string) {
+  return request<{ flight: MonthlyFlight }>("/flights/monthly-schedule/shift", writeInit("POST", { recordKey, shift }));
 }
 
 export function saveMonthlyAssignees(value: MonthlyAssignee) {

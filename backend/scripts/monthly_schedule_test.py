@@ -240,6 +240,22 @@ client.post("/flights/aircraft-registrations", json={"mode": "merge", "records":
 byf = {f["flight"]: f for f in client.get("/flights/monthly-schedule").json()["flights"] if f["flightDate"] == d0}
 check("다른 날짜의 같은 편명 기록은 쓰지 않음", byf["KJ612"]["registrationNo"] == "", byf["KJ612"])
 
+# 7-4) 편별 조 지정
+k967 = next(f for f in client.get("/flights/monthly-schedule").json()["flights"] if f["flight"] == "KJ967")
+res = client.post("/flights/monthly-schedule/shift", json={"recordKey": k967["recordKey"], "shift": f"{d0}|a"})
+check("편별 조 지정 저장(소문자도 허용)", res.status_code == 200 and res.json()["flight"]["shiftOverride"] == f"{d0}|A", res.text)
+check("조 지정 형식 오류는 400", client.post("/flights/monthly-schedule/shift", json={"recordKey": k967["recordKey"], "shift": "A"}).status_code == 400)
+check("없는 편은 404", client.post("/flights/monthly-schedule/shift", json={"recordKey": "x|y", "shift": ""}).status_code == 404)
+client.post("/flights/monthly-schedule", json={"replaceDates": False, "records": [rec("KJ967", f"{d0} 23:00", "ICN", "HKG")]})
+k967 = next(f for f in client.get("/flights/monthly-schedule").json()["flights"] if f["flight"] == "KJ967")
+check("월간 SKD 재업로드해도 조 지정은 유지", k967["shiftOverride"] == f"{d0}|A", k967)
+asyncio.run(ms._refresh_monthly_api(fetch_all_kj=fake_all_kj))
+k967 = next(f for f in client.get("/flights/monthly-schedule").json()["flights"] if f["flight"] == "KJ967")
+check("API 갱신 후에도 조 지정 유지", k967["shiftOverride"] == f"{d0}|A", k967)
+client.post("/flights/monthly-schedule/shift", json={"recordKey": k967["recordKey"], "shift": ""})
+k967 = next(f for f in client.get("/flights/monthly-schedule").json()["flights"] if f["flight"] == "KJ967")
+check("조 지정 해제(시간 기준으로 복귀)", k967["shiftOverride"] == "", k967)
+
 # 8) 토큰 보호
 os.environ["API_ACCESS_TOKEN"] = "t"
 check("토큰 설정 시 저장은 토큰 필요", client.post("/flights/monthly-schedule", json={"records": []}).status_code == 401)

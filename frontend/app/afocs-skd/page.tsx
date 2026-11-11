@@ -22,6 +22,8 @@ import {
   isIcnDeparture,
   saveMonthlyAssignees,
   setMonthlyAssigneeSlot,
+  setMonthlyShiftOverride,
+  parseShiftOverride,
   shortDateTime,
   timeChangeLines,
   todayKst,
@@ -57,6 +59,7 @@ export default function MonthlyScheduledFlightPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [editMode, setEditMode] = useState(false);
+  const [shiftEdit, setShiftEdit] = useState(false);
   const [showInput, setShowInput] = useState(false);
   const [names, setNames] = useState({ nameA: "", nameB: "", nameC: "" });
   const [useC, setUseC] = useState(false);
@@ -165,6 +168,16 @@ export default function MonthlyScheduledFlightPage() {
     }
   };
 
+  // 편별 조 이동: 지금 보고 있는 일자의 A/C/S 조로 옮기거나(''이면 시간 기준 자동 복귀)
+  const changeShift = async (recordKey: string, target: string) => {
+    try {
+      await setMonthlyShiftOverride(recordKey, target ? `${date}|${target}` : "");
+      await load(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "조 변경 실패");
+    }
+  };
+
   const removeFlight = async (recordKey: string, flight: string) => {
     if (!window.confirm(`${flight} 편을 월간 SKD에서 삭제할까요?`)) return;
     try {
@@ -268,6 +281,9 @@ export default function MonthlyScheduledFlightPage() {
               {mineOnly ? "내 담당만 ✓" : "내 담당만"}
             </button>
             <label style={{ fontSize: 12, color: "#94a3b8", marginLeft: "auto" }}>
+              <input type="checkbox" checked={shiftEdit} onChange={(e) => setShiftEdit(e.target.checked)} aria-label="조 변경" /> 조 변경
+            </label>
+            <label style={{ fontSize: 12, color: "#94a3b8" }}>
               <input type="checkbox" checked={editMode} onChange={(e) => setEditMode(e.target.checked)} /> 편 삭제
             </label>
           </div>
@@ -289,13 +305,14 @@ export default function MonthlyScheduledFlightPage() {
                 {["편명", "등록기호", "DEP", "ARR", "ETD/ETA", "담당자", "T/O R/I", "주기장"].map((h) => (
                   <th key={h} style={thStyle}>{h}</th>
                 ))}
+                {shiftEdit ? <th style={thStyle}>조</th> : null}
                 {editMode ? <th style={thStyle} /> : null}
               </tr>
             </thead>
             <tbody>
               {shown.length === 0 ? (
                 <tr>
-                  <td colSpan={editMode ? 9 : 8} style={{ ...tdStyle, color: "#64748b", padding: 16 }}>
+                  <td colSpan={8 + (shiftEdit ? 1 : 0) + (editMode ? 1 : 0)} style={{ ...tdStyle, color: "#64748b", padding: 16 }}>
                     {data ? (mineOnly ? "박종규 담당 편이 없습니다." : "이 근무조에 해당하는 편이 없습니다.") : loading ? "불러오는 중..." : "월간 SKD가 없습니다. '월간 SKD 입력'에서 올려 주세요."}
                   </td>
                 </tr>
@@ -308,7 +325,10 @@ export default function MonthlyScheduledFlightPage() {
                   const cell = (i: number) => cellStyle(hi, i, editMode ? 9 : 8);
                   return (
                     <tr key={f.recordKey} data-highlight={hi ? "1" : undefined} style={{ background: isIcnDeparture(f) ? "#fff59d" : "#ffffff", fontWeight: hi ? 900 : undefined }}>
-                      <td style={cell(0)}>{f.flight}</td>
+                      <td style={cell(0)}>
+                        {f.flight}
+                        {parseShiftOverride(f.shiftOverride)?.date === date ? <div style={manualShiftStyle} data-shift-override="1">조 지정</div> : null}
+                      </td>
                       <td style={cell(1)}>{f.registrationNo || "-"}</td>
                       <td style={cell(2)}>{departureOf(f)}</td>
                       <td style={cell(3)}>{arrivalOf(f)}</td>
@@ -337,6 +357,21 @@ export default function MonthlyScheduledFlightPage() {
                       </td>
                       <td style={cell(6)} />
                       <td style={cell(7)}>{viewType === 1 ? f.apiGate : ""}</td>
+                      {shiftEdit ? (
+                        <td style={cell(7)}>
+                          <select
+                            value={parseShiftOverride(f.shiftOverride)?.date === date ? parseShiftOverride(f.shiftOverride)?.shift : ""}
+                            onChange={(e) => void changeShift(f.recordKey, e.target.value)}
+                            style={slotSelectStyle}
+                            aria-label={`${f.flight} 조 이동`}
+                          >
+                            <option value="">자동(시간 기준)</option>
+                            {SHIFTS.map((sh) => (
+                              <option key={sh.code} value={sh.code}>{sh.label}으로 이동</option>
+                            ))}
+                          </select>
+                        </td>
+                      ) : null}
                       {editMode ? (
                         <td style={cell(8)}>
                           <button type="button" onClick={() => void removeFlight(f.recordKey, f.flight)} style={deleteButtonStyle}>삭제</button>
@@ -396,6 +431,7 @@ const thStyle: CSSProperties = {
 };
 const tdStyle: CSSProperties = { border: "1px solid #9ca3af", padding: "6px 6px", color: "#000000", textAlign: "center", verticalAlign: "middle", whiteSpace: "nowrap" };
 const apiChangeStyle: CSSProperties = { fontSize: 11, color: "#b45309", fontWeight: 700 };
+const manualShiftStyle: CSSProperties = { fontSize: 11, color: "#6d28d9", fontWeight: 800 };
 const mismatchStyle: CSSProperties = { fontSize: 11, color: "#b91c1c", fontWeight: 800 };
 const skdChangeStyle: CSSProperties = { fontSize: 11, color: "#1d4ed8", fontWeight: 700 };
 const missingStyle: CSSProperties = { fontSize: 11, color: "#b91c1c", fontWeight: 800 };

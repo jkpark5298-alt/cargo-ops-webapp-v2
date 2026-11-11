@@ -26,6 +26,9 @@ SLOTS = ("A", "B", "C")
 API_REFRESH_DAYS_AHEAD = 3
 
 _last_api_refresh: Dict[str, Any] = {"at": None, "result": None}
+# 편별 조 지정 열(shift_override) 유무: Supabase 에서 읽은 행으로 판단한다(SQL 미실행이면 False).
+_SHIFT_COLUMN: Optional[bool] = None
+_SHIFT_OVERRIDE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\|[ACS]$")
 
 
 def _ts() -> str:
@@ -128,6 +131,7 @@ def _to_client(row: Dict[str, Any]) -> Dict[str, Any]:
         "skdTime": row.get("skd_time", ""),
         "registrationNo": row.get("registration_no", ""),
         "assigneeSlot": row.get("assignee_slot", ""),
+        "shiftOverride": row.get("shift_override", "") or "",
         "apiTime": row.get("api_time", ""),
         "apiSchedTime": row.get("api_sched_time", ""),
         "apiRemark": row.get("api_remark", ""),
@@ -168,6 +172,12 @@ def _purge_outside_window() -> None:
     _write_file(data)
 
 
+def _note_shift_column(rows: List[Dict[str, Any]]) -> None:
+    global _SHIFT_COLUMN
+    if rows:
+        _SHIFT_COLUMN = "shift_override" in rows[0]
+
+
 def _list_flights(start: Optional[str] = None, end: Optional[str] = None) -> List[Dict[str, Any]]:
     w_start, w_end, _ = _retention_window()
     start = max(start or w_start, w_start)
@@ -186,6 +196,7 @@ def _list_flights(start: Optional[str] = None, end: Optional[str] = None) -> Lis
                 raise RuntimeError("월간 SKD 저장소 응답 형식이 올바르지 않습니다.")
             rows.extend(r for r in page if isinstance(r, dict))
             if len(page) < _PAGE_SIZE:
+                _note_shift_column(rows)
                 return rows
             offset += _PAGE_SIZE
     data = _read_file()
@@ -197,6 +208,11 @@ def _upsert_rows(rows: List[Dict[str, Any]]) -> None:
     if not rows:
         return
     if _supabase_usage_enabled():
+        # shift_override 열이 있을 때만 보낸다(열이 없는데 보내면 저장 전체가 실패한다)
+        if _SHIFT_COLUMN:
+            rows = [{**r, "shift_override": r.get("shift_override", "")} for r in rows]
+        else:
+            rows = [{k: v for k, v in r.items() if k != "shift_override"} for r in rows]
         for i in range(0, len(rows), 200):
             _supabase_request(
                 "POST",
@@ -255,6 +271,7 @@ def _save_monthly_flights(raw_records: List[Dict[str, Any]], replace_dates: bool
                 merged[field] = old[field]
         if not merged.get("assignee_slot"):
             merged["assignee_slot"] = old.get("assignee_slot", "")
+        merged["shift_override"] = old.get("shift_override", "")
         if not merged.get("registration_no"):
             merged["registration_no"] = old.get("registration_no", "")
         rows.append(merged)
@@ -300,6 +317,24 @@ def _set_assignee_slot(record_key: str, slot: str) -> Optional[Dict[str, Any]]:
     for row in _list_flights(flight_date, flight_date):
         if row.get("record_key") == record_key:
             updated = {**row, "assignee_slot": slot, "updated_at": _ts()}
+            _upsert_rows([updated])
+            return updated
+    return None
+
+
+def _set_shift_override(record_key: str, value: str) -> Optional[Dict[str, Any]]:
+    """편별 조 지정. value 는 '' (시간 기준 자동) 또는 'YYYY-MM-DD|A/C/S'(그 업무일자의 그 조에만 표시)."""
+    value = str(value or "").strip()
+    if len(value) == 12 and value[10] == "|":
+        value = value[:11] + value[11].upper()
+    if value and not _SHIFT_OVERRIDE_RE.match(value):
+        raise ValueError("조 지정 형식이 올바르지 않습니다(예: 2026-11-11|A).")
+    flight_date = record_key.split("|")[0]
+    for row in _list_flights(flight_date, flight_date):
+        if row.get("record_key") == record_key:
+            if _supabase_usage_enabled() and not _SHIFT_COLUMN:
+                raise RuntimeError("조 지정 열이 없습니다. supabase/monthly_schedule_shift_override.sql 을 실행해 주세요.")
+            updated = {**row, "shift_override": value, "updated_at": _ts()}
             _upsert_rows([updated])
             return updated
     return None

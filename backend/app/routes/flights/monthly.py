@@ -27,6 +27,7 @@ from app.services.monthly_schedule import (
     _save_assignees,
     _save_monthly_flights,
     _set_assignee_slot,
+    _set_shift_override,
     _to_client,
 )
 
@@ -52,6 +53,12 @@ class MonthlySaveRequest(BaseModel):
 class AssigneeSlotRequest(BaseModel):
     recordKey: str
     slot: str = ""
+
+
+class ShiftOverrideRequest(BaseModel):
+    recordKey: str
+    # '' = 시간 기준 자동, 'YYYY-MM-DD|A/C/S' = 그 업무일자의 그 조에 표시
+    shift: str = ""
 
 
 class AssigneeNamesRequest(BaseModel):
@@ -162,6 +169,19 @@ async def set_monthly_assignee_slot(payload: AssigneeSlotRequest) -> Dict[str, A
         updated = _set_assignee_slot(payload.recordKey, payload.slot)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if updated is None:
+        raise HTTPException(status_code=404, detail="해당 편을 찾을 수 없습니다.")
+    return {"success": True, "flight": _to_client(updated)}
+
+
+@router.post("/monthly-schedule/shift", dependencies=[Depends(require_api_token)])
+async def set_monthly_shift(payload: ShiftOverrideRequest) -> Dict[str, Any]:
+    try:
+        updated = _set_shift_override(payload.recordKey, payload.shift)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     if updated is None:
         raise HTTPException(status_code=404, detail="해당 편을 찾을 수 없습니다.")
     return {"success": True, "flight": _to_client(updated)}
