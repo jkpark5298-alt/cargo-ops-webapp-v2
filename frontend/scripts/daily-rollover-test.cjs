@@ -63,13 +63,18 @@ global.Notification = w.Notification = { permission: "default", requestPermissio
 // ===== 일일 보고/특이사항 임시저장 시나리오 =====
 const calls = [];
 let notionFound = false;
+let serverReport = null;
+const postBodies = [];
 global.fetch = w.fetch = async (url, init) => {
   const u = String(url).replace(/^https?:\/\/[^/]+/, "");
   calls.push(((init && init.method) || "GET") + " " + u);
   const j = (o) => ({ ok: true, status: 200, json: async () => o, text: async () => JSON.stringify(o) });
   if (/notion\/daily-records\?date=/.test(u)) return j(notionFound ? { success: true, found: true, pageId: "np1", url: "https://n" } : { success: true, found: false });
   if (/notion\/daily-records$/.test(u) && init && init.method === "POST") return j({ success: true, pageId: "n1", url: "https://n/n1" });
-  if (/daily-report-text/.test(u)) return j({ success: true, report: null });
+  if (/daily-report-text/.test(u)) {
+    if (init && init.method === "POST") { postBodies.push(JSON.parse(init.body)); return j({ success: true, report: {} }); }
+    return j({ success: true, report: serverReport });
+  }
   if (/latest-schedule|schedule-slots/.test(u)) return j({ success: true, room: null, active: null, archive: null, linkedSlot: "active" });
   if (/aircraft-registrations/.test(u)) return j({ success: true, records: [] });
   return j({ success: true, items: [], data: [], count: 0 });
@@ -226,6 +231,24 @@ const stored = (k) => { try { return JSON.parse(w.localStorage.getItem(k)); } ca
   notionFound = true; // 그 사이 Notion 저장이 확인됨(다른 기기·느린 서버 응답)
   await click(r.container, "Notion 일일 기록 저장");
   check("입력을 시작한 지난 날짜는 Notion 저장이 확인돼도 입력 내용을 지우지 않음", ta(r.container).some((t) => t.value === "어제 메모 + 방금 입력") && dateValue(r.container) === "2026-11-05", [dateValue(r.container), ta(r.container).map((t) => t.value)]);
+  await act(async () => { r.root.unmount(); });
+
+  // 1-4) 앱 복귀(focus) 때 기기 저장소에 없는 사진을 화면에서 지우거나 서버 사진을 빈 목록으로 덮어쓰지 않음
+  notionFound = false;
+  serverReport = { workDate: "2026-11-06", status: "normal", author: "jkpark", note: "", images: [img("daily-schedule"), img("aircraft-check"), img("inspection-result")], savedAt: "2026-11-06T00:00:00.000Z" };
+  const realSetItem = w.Storage.prototype.setItem;
+  w.Storage.prototype.setItem = function (k, v) { if (k === KEYS.img) throw new Error("QuotaExceededError"); return realSetItem.call(this, k, v); };
+  postBodies.length = 0;
+  r = await open(() => {});
+  const imgCount = () => r.container.querySelectorAll("img").length;
+  const before = imgCount();
+  await act(async () => { w.dispatchEvent(new w.Event("focus")); w.dispatchEvent(new w.Event("pageshow")); });
+  for (let i = 0; i < 12; i++) await act(async () => { await sleep(150); });
+  check("서버 사진 3장이 화면에 표시됨(저장소 쓰기가 실패해도)", before > 0, before);
+  check("앱 복귀(focus) 후에도 화면 사진이 그대로", imgCount() === before, [before, imgCount()]);
+  check("사진을 빈 목록으로 서버에 덮어쓰지 않음", !postBodies.some((b) => Array.isArray(b.images) && b.images.length === 0), postBodies.map((b) => Object.keys(b)));
+  w.Storage.prototype.setItem = realSetItem;
+  serverReport = null;
   await act(async () => { r.root.unmount(); });
 
   // 2) 어제 날짜·미저장·내용 전부 비어 있어도 Notion 저장이 필요(저장만으로 통과)

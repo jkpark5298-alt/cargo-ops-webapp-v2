@@ -487,22 +487,26 @@ export default function HomePage() {
       const savedDailyDraft = loadDailyDraft();
       const savedIssueDraft = loadIssueDraft();
 
-      setImages(loadImages());
-      setNote(savedDailyDraft?.note ?? loadNote());
+      // 사진: 화면에 이미 사진이 있으면 기기 저장소 값으로 덮어쓰지 않는다.
+      // (붙여넣은 사진이 용량 제한 등으로 저장소에 못 들어갔을 때, 앱 복귀 때 화면에서 사라지고 서버 사진까지 지워지는 것을 막는다)
+      if (imagesRef.current.length === 0) setImages(loadImages());
 
-      if (savedDailyDraft?.status) setDailyStatus(savedDailyDraft.status);
-      if (savedDailyDraft?.author) setAuthor(normalizeDailyAuthor(savedDailyDraft.author));
-      else setAuthor(DEFAULT_DAILY_AUTHOR);
-      if (savedDailyDraft?.workDate) setDailyWorkDate(savedDailyDraft.workDate);
+      // 이 화면에서 이미 입력(사진·메모·특이사항)을 시작했다면 화면 상태가 더 최신이므로 저장소 값으로 되돌리지 않는다.
+      if (dailyLocalEditAtRef.current === 0) {
+        setNote(savedDailyDraft?.note ?? loadNote());
 
-      if (savedIssueDraft) {
-        setIssueFlight(savedIssueDraft.flight);
-        setIssueRoute(savedIssueDraft.route);
-        setIssueHlnbr(savedIssueDraft.hlnbr);
-        setIssueText(savedIssueDraft.text);
-        if (savedIssueDraft.author) setAuthor(normalizeDailyAuthor(savedIssueDraft.author));
-      } else {
-        // keep daily author
+        if (savedDailyDraft?.status) setDailyStatus(savedDailyDraft.status);
+        if (savedDailyDraft?.author) setAuthor(normalizeDailyAuthor(savedDailyDraft.author));
+        else setAuthor(DEFAULT_DAILY_AUTHOR);
+        if (savedDailyDraft?.workDate) setDailyWorkDate(savedDailyDraft.workDate);
+
+        if (savedIssueDraft) {
+          setIssueFlight(savedIssueDraft.flight);
+          setIssueRoute(savedIssueDraft.route);
+          setIssueHlnbr(savedIssueDraft.hlnbr);
+          setIssueText(savedIssueDraft.text);
+          if (savedIssueDraft.author) setAuthor(normalizeDailyAuthor(savedIssueDraft.author));
+        }
       }
 
       void checkScheduleApiAndSync(false);
