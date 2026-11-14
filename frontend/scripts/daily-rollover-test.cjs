@@ -211,6 +211,23 @@ const stored = (k) => { try { return JSON.parse(w.localStorage.getItem(k)); } ca
   check("저장소에도 오늘 날짜·빈 메모", stored(KEYS.daily).workDate === "2026-11-06" && stored(KEYS.daily).note === "" && (stored(KEYS.img) || []).length === 0, stored(KEYS.daily));
   await act(async () => { r.root.unmount(); });
 
+  // 1-3) 지난 날짜에서 이미 입력을 시작했으면(사진·메모 입력 중) Notion 저장 확인이 늦게 와도 입력칸을 비우지 않음
+  notionFound = false;
+  r = await open(() => {
+    w.localStorage.setItem(KEYS.daily, dailyDraft("2026-11-05", "어제 메모"));
+    w.localStorage.setItem(KEYS.note, "어제 메모");
+  });
+  const memoBox = ta(r.container)[0];
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(w.HTMLTextAreaElement.prototype, "value").set;
+    setter.call(memoBox, "어제 메모 + 방금 입력");
+    memoBox.dispatchEvent(new w.Event("input", { bubbles: true }));
+  });
+  notionFound = true; // 그 사이 Notion 저장이 확인됨(다른 기기·느린 서버 응답)
+  await click(r.container, "Notion 일일 기록 저장");
+  check("입력을 시작한 지난 날짜는 Notion 저장이 확인돼도 입력 내용을 지우지 않음", ta(r.container).some((t) => t.value === "어제 메모 + 방금 입력") && dateValue(r.container) === "2026-11-05", [dateValue(r.container), ta(r.container).map((t) => t.value)]);
+  await act(async () => { r.root.unmount(); });
+
   // 2) 어제 날짜·미저장·내용 전부 비어 있어도 Notion 저장이 필요(저장만으로 통과)
   notionFound = false;
   r = await open(() => {

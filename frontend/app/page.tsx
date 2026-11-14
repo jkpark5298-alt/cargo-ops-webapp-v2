@@ -175,7 +175,7 @@ export default function HomePage() {
     openLatestImage,
     openPhotoLibrary,
     setImages,
-  } = useImageSlots({ author, dailyStatus, dailyWorkDate, issueFlight, issueHlnbr, issueRoute, issueText, lastSavedValuesRef, note, setNotice });
+  } = useImageSlots({ author, dailyLocalEditAtRef, dailyStatus, dailyWorkDate, issueFlight, issueHlnbr, issueRoute, issueText, lastSavedValuesRef, note, setNotice });
   const {
     handleDeleteIssueFromNotion,
     handleSaveIssueToNotion,
@@ -1272,11 +1272,20 @@ export default function HomePage() {
             todayText={todayText}
             currentTimeText={getCurrentTimeText()}
             issueFlight={issueFlight}
-            setIssueFlight={setIssueFlight}
+            setIssueFlight={(value) => {
+              markDailyLocalEdit();
+              setIssueFlight(value);
+            }}
             issueRoute={issueRoute}
-            setIssueRoute={setIssueRoute}
+            setIssueRoute={(value) => {
+              markDailyLocalEdit();
+              setIssueRoute(value);
+            }}
             issueHlnbr={issueHlnbr}
-            setIssueHlnbr={setIssueHlnbr}
+            setIssueHlnbr={(value) => {
+              markDailyLocalEdit();
+              setIssueHlnbr(value);
+            }}
             author={author}
             setAuthor={(value) => {
               markDailyLocalEdit();
@@ -1284,7 +1293,10 @@ export default function HomePage() {
             }}
             weatherSummary={getWeatherSummary(weather)}
             issueText={issueText}
-            setIssueText={setIssueText}
+            setIssueText={(value) => {
+              markDailyLocalEdit();
+              setIssueText(value);
+            }}
             issueNotionRecord={issueNotionRecord}
             isIssueSaving={isIssueSaving}
             handleStartNewIssue={handleStartNewIssue}

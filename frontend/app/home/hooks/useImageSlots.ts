@@ -19,6 +19,8 @@ import { resizeImageDataUrl } from "../../lib/image-utils";
 
 export type UseImageSlotsParams = {
   author: string;
+  /** 사진을 붙여넣거나 지울 때 갱신 — 지난 날짜 자동 전환·서버 동기화가 입력 중인 사진을 지우지 않게 한다 */
+  dailyLocalEditAtRef: React.MutableRefObject<number>;
   dailyStatus: "normal" | "issue";
   dailyWorkDate: string;
   issueFlight: string;
@@ -33,6 +35,7 @@ export type UseImageSlotsParams = {
 /** 일일 업무 사진 슬롯(촬영·갤러리·뷰어·메모·저장) */
 export function useImageSlots({
   author,
+  dailyLocalEditAtRef,
   dailyStatus,
   dailyWorkDate,
   issueFlight,
@@ -63,6 +66,7 @@ export function useImageSlots({
   };
 
   const persistImages = (nextImages: SavedImage[], successMessage: string) => {
+    dailyLocalEditAtRef.current = Date.now();
     setImages(nextImages);
     const saved = saveImages(nextImages);
 
