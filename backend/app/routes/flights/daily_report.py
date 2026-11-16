@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from app.routes.flights.models import DailyReportTextSaveRequest
 from app.services.daily_report_store import (
@@ -17,7 +17,7 @@ router = APIRouter()
 
 
 @router.get("/daily-report-text")
-async def get_daily_report_text(workDate: str) -> Dict[str, Any]:
+async def get_daily_report_text(workDate: str, since: Optional[str] = None) -> Dict[str, Any]:
     work_date = _normalize_daily_report_text_date(workDate)
 
     try:
@@ -29,6 +29,10 @@ async def get_daily_report_text(workDate: str) -> Dict[str, Any]:
             "message": str(exc),
             "report": None,
         }
+
+    # since 가 저장본의 저장 시각과 같으면 사진이 든 본문을 다시 보내지 않는다(자동 동기화 데이터 절약).
+    if since and report and str(report.get("savedAt") or "") == since:
+        return {"success": True, "configured": _supabase_usage_enabled(), "unchanged": True, "report": None}
 
     return {
         "success": True,

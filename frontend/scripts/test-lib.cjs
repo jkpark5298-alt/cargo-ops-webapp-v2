@@ -525,6 +525,16 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
     // 예전 데이터(API 예정시각 없음): SKD 변경만
     assert.deepStrictEqual(monthly.timeChangeLines({ apiSchedTime: "", apiTime: "2026-11-07 10:00", skdTime: "2026-11-07 09:35" }, "2026-11-07"), [{ label: "불일치", text: "⚠ AFOCS 09:35 ↔ API 10:00 (25분 차이)" }]);
   });
+  test("사진 목록: 같은 항목은 최근 4장까지만 유지, 다른 항목은 영향 없음", () => {
+    const helpers = require(path.join(outDir, "app/home/helpers.js"));
+    const im = (type, id) => ({ id, type, label: type, savedAt: "x", dataUrl: "d" });
+    let list = [];
+    for (let i = 1; i <= 6; i++) list = helpers.upsertImageBySlot(list, im("aircraft-check", "a" + i));
+    list = helpers.upsertImageBySlot(list, im("daily-schedule", "d1"));
+    assert.deepStrictEqual(list.filter((x) => x.type === "aircraft-check").map((x) => x.id), ["a6", "a5", "a4", "a3"], "최근 4장만");
+    assert.strictEqual(list[0].id, "d1", "새로 붙인 사진이 맨 앞");
+    assert.strictEqual(list.filter((x) => x.type === "daily-schedule").length, 1);
+  });
   test("편별 조 지정: 지정한 일자·조에만 표시, 해제하면 시간 기준", () => {
     const mk = (flight, skdTime, shiftOverride = "") => ({ recordKey: flight, flight, skdTime, apiTime: "", apiSchedTime: "", shiftOverride });
     const rows = [mk("KJ1", "2026-11-11 09:00"), mk("KJ2", "2026-11-11 10:00", "2026-11-11|C"), mk("KJ3", "2026-11-12 00:30", "2026-11-11|A")];

@@ -35,7 +35,16 @@ export function upsertImageBySlot(
   images: SavedImage[],
   nextImage: SavedImage,
 ): SavedImage[] {
-  return [nextImage, ...images].slice(0, 20);
+  // 같은 항목(슬롯)에는 최근 4장까지만 남겨 사진 용량이 계속 불어나지 않게 한다. 전체 20장 한도는 유지.
+  const kept: SavedImage[] = [];
+  const perSlot: Record<string, number> = {};
+  for (const image of [nextImage, ...images]) {
+    const count = perSlot[image.type] || 0;
+    if (count >= 4) continue;
+    perSlot[image.type] = count + 1;
+    kept.push(image);
+  }
+  return kept.slice(0, 20);
 }
 
 export function getImagesBySlot(images: SavedImage[], slotKey: ImageSlotKey) {

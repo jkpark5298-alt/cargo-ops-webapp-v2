@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   normalizeDailyAuthor,
   saveDailyDraft,
@@ -58,6 +58,7 @@ export function useDailyTextSync({
   const [isDailyTextSyncing, setIsDailyTextSyncing] = useState(false);
   const [dailyTextSyncStatus, setDailyTextSyncStatus] = useState("");
   const [dailySyncTick, setDailySyncTick] = useState(0);
+  const lastServerStampRef = useRef<{ date: string; stamp: string }>({ date: "", stamp: "" });
 
 
 
@@ -167,11 +168,17 @@ export function useDailyTextSync({
     try {
       const workDate = dailyWorkDateRef.current || dailyWorkDate;
       const query = new URLSearchParams({ workDate });
+      // 서버 저장본이 마지막으로 받은 것과 같으면 사진이 든 본문을 다시 받지 않는다.
+      if (lastServerStampRef.current.date === workDate && lastServerStampRef.current.stamp) {
+        query.set("since", lastServerStampRef.current.stamp);
+      }
       const response = await fetch(`${BACKEND_URL}/flights/daily-report-text?${query.toString()}`, {
         cache: "no-store",
       });
       const json = await response.json().catch(() => null);
+      if (response.ok && json?.success && json.unchanged) return;
       if (response.ok && json?.success) {
+        lastServerStampRef.current = { date: workDate, stamp: String(json.report?.savedAt || "") };
         const base = lastSavedValuesRef.current;
         const synced = base.workDate === workDate;
         const report = json.report;

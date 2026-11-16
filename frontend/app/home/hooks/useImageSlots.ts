@@ -152,17 +152,22 @@ export function useImageSlots({
         [...IMAGE_SLOTS, ISSUE_IMAGE_SLOT].find((slot) => slot.key === slotKey) ||
         IMAGE_SLOTS[0];
       const label = `${slotInfo.title} · ${sourceLabel}`;
+      // 글자가 읽히도록 높은 화질부터 시도하고, 기기 저장소에 들어가지 않으면 한 단계씩 낮춘다.
       const resizePlans =
         sourceLabel === "붙여넣기"
           ? [
-              { maxSize: 960, quality: 0.62 },
-              { maxSize: 720, quality: 0.55 },
-              { maxSize: 540, quality: 0.5 },
+              { maxSize: 1600, quality: 0.85 },
+              { maxSize: 1400, quality: 0.8 },
+              { maxSize: 1200, quality: 0.75 },
+              { maxSize: 960, quality: 0.68 },
+              { maxSize: 720, quality: 0.6 },
             ]
           : [
-              { maxSize: 1280, quality: 0.72 },
-              { maxSize: 960, quality: 0.62 },
-              { maxSize: 720, quality: 0.55 },
+              { maxSize: 1920, quality: 0.85 },
+              { maxSize: 1600, quality: 0.8 },
+              { maxSize: 1280, quality: 0.75 },
+              { maxSize: 960, quality: 0.68 },
+              { maxSize: 720, quality: 0.6 },
             ];
 
       let savedImage: SavedImage | null = null;
@@ -192,7 +197,8 @@ export function useImageSlots({
       }
 
       if (!savedImage) {
-        const dataUrl = await resizeImageDataUrl(originalDataUrl, 420, 0.45);
+        // 기기 저장소에 못 넣는 경우라도 화면과 서버에는 읽을 수 있는 화질로 올린다(서버가 기준 저장본).
+        const dataUrl = await resizeImageDataUrl(originalDataUrl, 1280, 0.75);
         savedImage = {
           id: `${Date.now()}`,
           type: slotKey,
