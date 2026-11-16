@@ -153,8 +153,11 @@ export function useImageSlots({
         IMAGE_SLOTS[0];
       const label = `${slotInfo.title} · ${sourceLabel}`;
       // 글자가 읽히도록 높은 화질부터 시도하고, 기기 저장소에 들어가지 않으면 한 단계씩 낮춘다.
-      const resizePlans =
-        sourceLabel === "붙여넣기"
+      // 화물기 CHECK 사항은 항상 1장만 저장하므로 더 높은 화질부터 시도한다.
+      const topPlan = slotKey === "aircraft-check" ? [{ maxSize: 2000, quality: 0.9 }] : [];
+      const resizePlans = [
+        ...topPlan,
+        ...(sourceLabel === "붙여넣기"
           ? [
               { maxSize: 1600, quality: 0.85 },
               { maxSize: 1400, quality: 0.8 },
@@ -168,7 +171,8 @@ export function useImageSlots({
               { maxSize: 1280, quality: 0.75 },
               { maxSize: 960, quality: 0.68 },
               { maxSize: 720, quality: 0.6 },
-            ];
+            ]),
+      ];
 
       let savedImage: SavedImage | null = null;
       let savedImages: SavedImage[] = [];

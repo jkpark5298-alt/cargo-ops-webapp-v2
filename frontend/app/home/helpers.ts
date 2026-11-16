@@ -31,16 +31,19 @@ export function getImageBySlot(images: SavedImage[], slotKey: ImageSlotKey) {
   return images.find((image) => image.type === slotKey) || null;
 }
 
+/** 항상 1장만 쓰는 사진 항목: 새로 올리면 이전 사진을 대체한다 */
+export const SINGLE_IMAGE_SLOTS: string[] = ["aircraft-check"];
+
 export function upsertImageBySlot(
   images: SavedImage[],
   nextImage: SavedImage,
 ): SavedImage[] {
-  // 같은 항목(슬롯)에는 최근 4장까지만 남겨 사진 용량이 계속 불어나지 않게 한다. 전체 20장 한도는 유지.
+  // 같은 항목(슬롯)에는 최근 N장까지만 남겨 사진 용량이 계속 불어나지 않게 한다(화물기 CHECK 사항은 항상 1장). 전체 20장 한도는 유지.
   const kept: SavedImage[] = [];
   const perSlot: Record<string, number> = {};
   for (const image of [nextImage, ...images]) {
     const count = perSlot[image.type] || 0;
-    if (count >= 4) continue;
+    if (count >= (SINGLE_IMAGE_SLOTS.includes(image.type) ? 1 : 4)) continue;
     perSlot[image.type] = count + 1;
     kept.push(image);
   }

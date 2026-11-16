@@ -529,11 +529,15 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
     const helpers = require(path.join(outDir, "app/home/helpers.js"));
     const im = (type, id) => ({ id, type, label: type, savedAt: "x", dataUrl: "d" });
     let list = [];
-    for (let i = 1; i <= 6; i++) list = helpers.upsertImageBySlot(list, im("aircraft-check", "a" + i));
+    for (let i = 1; i <= 6; i++) list = helpers.upsertImageBySlot(list, im("inspection-result", "a" + i));
     list = helpers.upsertImageBySlot(list, im("daily-schedule", "d1"));
-    assert.deepStrictEqual(list.filter((x) => x.type === "aircraft-check").map((x) => x.id), ["a6", "a5", "a4", "a3"], "최근 4장만");
+    assert.deepStrictEqual(list.filter((x) => x.type === "inspection-result").map((x) => x.id), ["a6", "a5", "a4", "a3"], "최근 4장만");
     assert.strictEqual(list[0].id, "d1", "새로 붙인 사진이 맨 앞");
     assert.strictEqual(list.filter((x) => x.type === "daily-schedule").length, 1);
+    // 화물기 CHECK 사항은 항상 1장: 새로 올리면 이전 사진을 대체
+    let one = [];
+    for (let i = 1; i <= 3; i++) one = helpers.upsertImageBySlot(one, im("aircraft-check", "c" + i));
+    assert.deepStrictEqual(one.map((x) => x.id), ["c3"], "화물기 CHECK 사항은 최신 1장만");
   });
   test("편별 조 지정: 지정한 일자·조에만 표시, 해제하면 시간 기준", () => {
     const mk = (flight, skdTime, shiftOverride = "") => ({ recordKey: flight, flight, skdTime, apiTime: "", apiSchedTime: "", shiftOverride });
