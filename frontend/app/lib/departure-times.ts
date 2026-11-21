@@ -81,6 +81,42 @@ export function parseDepartureInput(dateText: string, timeText: string, schedule
   return { kind: "ok", value: `${year}-${pad(month)}-${pad(day)} ${pad(hour)}:${pad(minute)}` };
 }
 
+/**
+ * 출발(입력값)부터 도착(변경 시각)까지 소요 시간(분). 계산할 수 없으면 null.
+ * 도착 일시의 연도는 예정 일자에 가장 가까운 해로 정한다(연말·연초).
+ */
+export function flightDurationMinutes(
+  departure: string,
+  changeDate: string,
+  changeTime: string,
+  scheduleDate: string,
+): number | null {
+  const dm = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(departure || "");
+  const am = /^(\d{2})\.(\d{2})$/.exec(String(changeDate || "").trim());
+  const tm = /^(\d{1,2}):(\d{2})$/.exec(String(changeTime || "").trim());
+  const sm = /^(\d{4})-(\d{2})-(\d{2})/.exec(scheduleDate || "");
+  if (!dm || !am || !tm) return null;
+
+  const minutes = (y: number, mo: number, d: number, h: number, mi: number) => Date.UTC(y, mo - 1, d, h, mi) / 60000;
+  const dep = minutes(Number(dm[1]), Number(dm[2]), Number(dm[3]), Number(dm[4]), Number(dm[5]));
+  const baseYear = sm ? Number(sm[1]) : Number(dm[1]);
+  const anchor = sm ? minutes(Number(sm[1]), Number(sm[2]), Number(sm[3]), 12, 0) : dep;
+  let best: number | null = null;
+  for (const year of [baseYear - 1, baseYear, baseYear + 1]) {
+    const candidate = minutes(year, Number(am[1]), Number(am[2]), Number(tm[1]), Number(tm[2]));
+    if (best === null || Math.abs(candidate - anchor) < Math.abs(best - anchor)) best = candidate;
+  }
+  return best === null ? null : best - dep;
+}
+
+/** 305 → '5시간 5분', 45 → '45분', 120 → '2시간' */
+export function formatDuration(totalMinutes: number): string {
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h === 0) return `${m}분`;
+  return m === 0 ? `${h}시간` : `${h}시간 ${m}분`;
+}
+
 export async function fetchDepartureTimes(): Promise<DepartureMap> {
   const res = await fetch(`${BACKEND_URL}/flights/departure-times`, { cache: "no-store" });
   const json = await res.json().catch(() => null);

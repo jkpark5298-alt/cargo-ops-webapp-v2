@@ -549,6 +549,20 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
     assert.strictEqual(dep.isInboundToIcn("ICN", "HAN"), false);
     assert.strictEqual(dep.toMonthDay("2026-11-21"), "11.21");
   });
+  test("소요 시간: 출발~도착(변경 시각), 자정·연말 넘김, 표시 형식", () => {
+    const dep = require(path.join(outDir, "app/lib/departure-times.js"));
+    const D = (d, cd, ct, s = "2026-11-21") => dep.flightDurationMinutes(d, cd, ct, s);
+    assert.strictEqual(D("2026-11-21 14:10", "11.21", "19:20"), 310, "같은 날 5시간 10분");
+    assert.strictEqual(D("2026-11-20 22:00", "11.21", "07:30"), 570, "자정을 넘김");
+    assert.strictEqual(D("2026-12-31 20:00", "01.01", "05:00", "2027-01-01"), 540, "연말→연초");
+    assert.strictEqual(D("2026-11-21 14:10", "11.21", "14:10"), 0);
+    assert.ok(D("2026-11-21 19:00", "11.21", "18:00") < 0, "도착이 출발보다 빠르면 음수");
+    assert.strictEqual(D("", "11.21", "19:20"), null);
+    assert.strictEqual(D("2026-11-21 14:10", "", "19:20"), null);
+    assert.strictEqual(dep.formatDuration(310), "5시간 10분");
+    assert.strictEqual(dep.formatDuration(45), "45분");
+    assert.strictEqual(dep.formatDuration(120), "2시간");
+  });
   test("사진 목록: 같은 항목은 최근 4장까지만 유지, 다른 항목은 영향 없음", () => {
     const helpers = require(path.join(outDir, "app/home/helpers.js"));
     const im = (type, id) => ({ id, type, label: type, savedAt: "x", dataUrl: "d" });

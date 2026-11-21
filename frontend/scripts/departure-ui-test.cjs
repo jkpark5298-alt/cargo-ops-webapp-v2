@@ -167,6 +167,14 @@ async function open() {
   check("월일+시각이 채워지면 자동 저장(일자·편명·출발 일시)", posts.dep.length === 1 && posts.dep[0].date === "2026-11-06" && posts.dep[0].flight === "KJ918" && posts.dep[0].departure === "2026-11-06 14:10", posts.dep);
   check("입력값이 화면에 유지", dTime().value === "14:10");
 
+  const dur = () => cardOf(c, "KJ918", "KJ387").querySelector("[data-flight-duration]");
+  check("변경 아래에 소요 시간 5시간 10분(도착 19:20 - 출발 14:10) 표시", dur() && dur().textContent === "소요 5시간 10분" && dur().getAttribute("data-flight-duration") === "ok", dur() && dur().textContent);
+  check("인천 출발편(KJ387)에는 소요 시간이 없음", !cardOf(c, "KJ387", "KJ918").querySelector("[data-flight-duration]"));
+  await typeInto(dTime(), "21:00");
+  check("출발이 도착보다 늦으면 확인 안내", dur() && dur().getAttribute("data-flight-duration") === "check", dur() && dur().textContent);
+  await typeInto(dTime(), "14:10");
+  check("다시 정상 값으로 고치면 소요 시간 표시", dur() && dur().textContent === "소요 5시간 10분");
+
   // 3) 같은 값으로 다시 포커스를 벗어나도 다시 저장하지 않음
   const nPosts = posts.dep.length;
   await typeInto(dTime(), "14:10");

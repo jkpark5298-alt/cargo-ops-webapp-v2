@@ -11,7 +11,7 @@ import { completedBadgeStyle, focusBadgeStyle } from "../styles";
 import { CompactDateTimeFields } from "./CompactDateTimeFields";
 import { DepartureRow } from "./DepartureRow";
 import { RegistrationRow } from "./RegistrationRow";
-import { isInboundToIcn } from "../../../lib/departure-times";
+import { flightDurationMinutes, formatDuration, isInboundToIcn } from "../../../lib/departure-times";
 
 export type FlightItemCardProps = {
   canDragReorder: boolean;
@@ -155,6 +155,28 @@ export function FlightItemCard({
                 readOnly
               />
             </div>
+
+            {isInboundToIcn(item.departureCode, item.arrivalCode) && onUpdateDeparture && departure ? (() => {
+              // 출발(입력) → 도착(변경 시각) 소요 시간. 출발·도착 모두 한국 시각 기준.
+              const minutes = flightDurationMinutes(departure, item.changeTimeDate, item.changeTimeTime, item.scheduleDate);
+              if (minutes === null) return null;
+              const abnormal = minutes <= 0 || minutes > 30 * 60;
+              return (
+                <div
+                  data-flight-duration={abnormal ? "check" : "ok"}
+                  style={{
+                    textAlign: "right",
+                    marginTop: -4,
+                    marginBottom: 6,
+                    fontSize: 12,
+                    fontWeight: 800,
+                    color: abnormal ? "#fca5a5" : "#67e8f9",
+                  }}
+                >
+                  {abnormal ? "출발·도착 시각을 확인하세요 (소요 시간 이상)" : `소요 ${formatDuration(minutes)}`}
+                </div>
+              );
+            })() : null}
 
             {isInboundToIcn(item.departureCode, item.arrivalCode) && onUpdateDeparture ? (
               <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: 0.2, color: "#dbeafe", whiteSpace: "nowrap", marginBottom: 8 }}>

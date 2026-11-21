@@ -71,7 +71,7 @@
 
 ### 초기화면 카드: 출발 일시·등록번호 수정
 - 인천 도착편(ARR=ICN, DEP≠ICN) 카드는 노선 줄을 한 칸 아래로 내리고 그 자리에 `출발 [MM.DD][HH:mm]` 입력칸을 둡니다. 월일은 예정 도착일로 미리 채우고, **월일과 시각이 모두 채워지면 자동 저장**(둘 다 비우면 삭제, 한쪽만 있으면 저장하지 않음)합니다. 연도는 예정 도착일 기준으로 정합니다(`parseDepartureInput`).
-- 출발 일시는 일자+편명(`YYYY-MM-DD|KJ918`)을 키로 서버 `app_state_documents`(doc_key `flight_departure_times`, 파일 `/tmp` 대체)에 저장하며 별도 SQL은 필요 없습니다(`GET/POST /flights/departure-times`, 쓰기는 `require_api_token`, 45일 지난 값은 저장 때 정리). 카드는 열 때·앱 복귀 때·1분마다 다시 읽습니다. 알림·변경 감지에는 쓰지 않는 표시용 값입니다.
+- 출발 일시는 일자+편명(`YYYY-MM-DD|KJ918`)을 키로 서버 `app_state_documents`(doc_key `flight_departure_times`, 파일 `/tmp` 대체)에 저장하며 별도 SQL은 필요 없습니다(`GET/POST /flights/departure-times`, 쓰기는 `require_api_token`, 45일 지난 값은 저장 때 정리). 카드는 열 때·앱 복귀 때·1분마다 다시 읽습니다. 알림·변경 감지에는 쓰지 않는 표시용 값입니다. 출발 일시가 있으면 `변경` 줄 아래에 `소요 5시간 10분`(변경 도착 시각 − 출발)을 표시하고, 출발·도착은 모두 한국 시각 기준이며 소요가 0 이하이거나 30시간을 넘으면 확인 안내를 보여 줍니다.
 - 등록 번호는 평소 읽기 전용이고 `수정` 버튼을 눌렀을 때만 입력칸이 열립니다. 저장하면 등록 기록(`aircraft_registration_records`, 일자+편명+노선, 가장 최근 저장분 우선)으로 서버에 저장하고(실패하면 카드에 오류를 보이고 값은 바뀌지 않음) 카드에 바로 반영하며 `수정됨`을 표시합니다. 4~5자리 숫자만 쓰면 HL을 붙입니다.
 
 ### Schedule Flight 편 삭제
