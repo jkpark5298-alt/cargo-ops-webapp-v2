@@ -1,6 +1,7 @@
 import { type FlightRow, type MonitorRoom } from "../../lib/flight-types";
 import { applyScheduleFlightOrder, normalizeSummaryFlightKey } from "../../lib/schedule-order";
 import { getFlightNo, getRegistrationNo } from "../../lib/flight-keys";
+import { getAircraftRegistrationDateFromRow } from "../../lib/aircraft-registration";
 import {
   parseAfocsDateTime,
   parseAfocsSkdSortValueFromParts,
@@ -108,6 +109,8 @@ export function getFlightRouteItems(room: MonitorRoom | null) {
         hasResult: true,
         departureCode: row.departureCode || "",
         arrivalCode: row.arrivalCode || "",
+        scheduleDate: getAircraftRegistrationDateFromRow(row),
+        registrationEdited: Boolean(row.registrationNoEdited),
       };
     })
     .filter((item): item is FlightRouteItem => Boolean(item));
@@ -159,6 +162,8 @@ export function getFlightRouteItems(room: MonitorRoom | null) {
       hasResult: false,
       departureCode: "",
       arrivalCode: "",
+      scheduleDate: "",
+      registrationEdited: false,
     }));
 }
 
@@ -365,6 +370,23 @@ export const afocsCompactFieldStyles = {
     width: 58,
     minWidth: 58,
     color: "#fcd34d",
+  } satisfies CSSProperties,
+};
+
+export const departureCompactFieldStyles = {
+  date: {
+    ...compactFieldBaseStyle,
+    width: 54,
+    minWidth: 54,
+    color: "#67e8f9",
+    border: "1px solid rgba(34, 211, 238, 0.6)",
+  } satisfies CSSProperties,
+  time: {
+    ...compactFieldBaseStyle,
+    width: 58,
+    minWidth: 58,
+    color: "#67e8f9",
+    border: "1px solid rgba(34, 211, 238, 0.6)",
   } satisfies CSSProperties,
 };
 

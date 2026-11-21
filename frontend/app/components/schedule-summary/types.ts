@@ -12,6 +12,8 @@ export type ScheduleSummaryCardProps = {
   flightAlertHistory?: FlightAlertHistoryItem[];
   onDeleteAlertHistoryItem?: (item: FlightAlertHistoryItem) => void;
   onUpdateAfocsSkd?: (flight: string, date: string, time: string) => void;
+  /** 카드에서 등록번호를 직접 수정(등록 기록에 매뉴얼 저장). 실패하면 throw */
+  onUpdateRegistration?: (flight: string, scheduleDate: string, departureCode: string, arrivalCode: string, registrationNo: string) => Promise<void>;
   onDeleteFlight?: (flight: string) => void;
   /** CSM CHECK LIST 전달 시 "CSM Report 내용"으로 함께 보낼 일일 보고 주요 사항 */
   csmReport?: { text: string; workDate?: string };
@@ -38,4 +40,8 @@ export type FlightRouteItem = {
   hasResult: boolean;
   departureCode: string;
   arrivalCode: string;
+  /** 예정(없으면 변경) 일자 YYYY-MM-DD — 출발 일시 저장 키와 등록 기록 일자에 쓴다 */
+  scheduleDate: string;
+  /** 매뉴얼로 등록번호를 고친 편 */
+  registrationEdited: boolean;
 };

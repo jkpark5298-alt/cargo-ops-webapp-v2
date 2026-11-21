@@ -2,7 +2,13 @@
 
 import { type MonitorRoom } from "../../../lib/flight-types";
 import { type FlightAlertHistoryItem } from "../../../lib/flight-alerts";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  departureKey,
+  fetchDepartureTimes,
+  saveDepartureTime,
+  type DepartureMap,
+} from "../../../lib/departure-times";
 import { normalizeSummaryFlightKey } from "../../../lib/schedule-order";
 import { isFinalCompletedFlightStatus } from "../../../lib/flight-status";
 import { openCsmChecklistWithFlights } from "../../../lib/csm-checklist";
@@ -36,6 +42,7 @@ export function FlightRouteRows({
   flightDeleting = false,
   onDeleteAlertHistoryItem,
   onUpdateAfocsSkd,
+  onUpdateRegistration,
   onDeleteFlight,
   csmReport,
 }: {
@@ -44,6 +51,7 @@ export function FlightRouteRows({
   flightDeleting?: boolean;
   onDeleteAlertHistoryItem?: (item: FlightAlertHistoryItem) => void;
   onUpdateAfocsSkd?: (flight: string, date: string, time: string) => void;
+  onUpdateRegistration?: (flight: string, scheduleDate: string, departureCode: string, arrivalCode: string, registrationNo: string) => Promise<void>;
   onDeleteFlight?: (flight: string) => void;
   csmReport?: { text: string; workDate?: string };
 }) {
@@ -69,6 +77,51 @@ export function FlightRouteRows({
   const [focusNowMs, setFocusNowMs] = useState<number | null>(null);
   const [csmTransferStatus, setCsmTransferStatus] = useState("");
   const [csmTransferOk, setCsmTransferOk] = useState(true);
+
+  // 인천 도착편 출발 일시(서버 저장, 표시용): 열 때·앱 복귀 때·1분마다 다시 읽는다.
+  const [departureTimes, setDepartureTimes] = useState<DepartureMap>({});
+  const loadDepartureTimes = useCallback(() => {
+    fetchDepartureTimes()
+      .then(setDepartureTimes)
+      .catch(() => {
+        /* 조회에 실패해도 카드는 그대로 표시한다 */
+      });
+  }, []);
+  useEffect(() => {
+    loadDepartureTimes();
+    const timer = window.setInterval(loadDepartureTimes, 60_000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") loadDepartureTimes();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [loadDepartureTimes]);
+
+  const handleUpdateDeparture = async (item: import("../types").FlightRouteItem, departure: string) => {
+    const key = departureKey(item.scheduleDate, item.flight);
+    const previous = departureTimes;
+    // 화면에는 바로 반영하고, 저장에 실패하면 되돌린다.
+    setDepartureTimes((prev) => {
+      const next = { ...prev };
+      if (departure) next[key] = { departure, updatedAt: new Date().toISOString() };
+      else delete next[key];
+      return next;
+    });
+    try {
+      setDepartureTimes(await saveDepartureTime(item.scheduleDate, item.flight, departure));
+    } catch (error) {
+      setDepartureTimes(previous);
+      throw error;
+    }
+  };
+
+  const handleUpdateRegistration = onUpdateRegistration
+    ? (item: import("../types").FlightRouteItem, registrationNo: string) =>
+        onUpdateRegistration(item.flight, item.scheduleDate, item.departureCode, item.arrivalCode, registrationNo)
+    : undefined;
 
   const toggleExpandFlight = (flight: string) => {
     const key = normalizeSummaryFlightKey(flight);
@@ -215,7 +268,7 @@ export function FlightRouteRows({
             focusNowMs != null && !completed && isItemInFocusWindow(item, focusNowMs);
 
           return (
-          <FlightItemCard key={`${normalizeSummaryFlightKey(item.flight)}-${item.route}`} canDragReorder={canDragReorder} completed={completed} draggingIndex={draggingIndex} endDrag={endDrag} expandedFlights={expandedFlights} flightAlertHistory={flightAlertHistory} flightDeleting={flightDeleting} focused={focused} index={index} item={item} onDeleteAlertHistoryItem={onDeleteAlertHistoryItem} onDeleteFlight={onDeleteFlight} onDragMove={onDragMove} onUpdateAfocsSkd={onUpdateAfocsSkd} pendingDeleteFlight={pendingDeleteFlight} setPendingDeleteFlight={setPendingDeleteFlight} startDrag={startDrag} toggleExpandFlight={toggleExpandFlight} />
+          <FlightItemCard key={`${normalizeSummaryFlightKey(item.flight)}-${item.route}`} canDragReorder={canDragReorder} completed={completed} draggingIndex={draggingIndex} endDrag={endDrag} expandedFlights={expandedFlights} flightAlertHistory={flightAlertHistory} flightDeleting={flightDeleting} focused={focused} index={index} item={item} onDeleteAlertHistoryItem={onDeleteAlertHistoryItem} onDeleteFlight={onDeleteFlight} onDragMove={onDragMove} onUpdateAfocsSkd={onUpdateAfocsSkd} departure={departureTimes[departureKey(item.scheduleDate, item.flight)]?.departure || ""} onUpdateDeparture={handleUpdateDeparture} onUpdateRegistration={handleUpdateRegistration} pendingDeleteFlight={pendingDeleteFlight} setPendingDeleteFlight={setPendingDeleteFlight} startDrag={startDrag} toggleExpandFlight={toggleExpandFlight} />
           );
         })
       ) : items.length > 0 ? (

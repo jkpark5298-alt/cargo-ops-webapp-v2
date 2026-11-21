@@ -66,6 +66,7 @@ import {
   applyRegistrationToRows,
   fetchAircraftRegistrationRecordsFromServer,
   loadAircraftRegistrationRecords,
+  saveAircraftRegistrationRecordsToServer,
 } from "./lib/aircraft-registration";
 import { BackendScheduleCheckResult, IncheonApiUsage, SavedImage, WeatherInfo } from "./home/types";
 import {
@@ -610,6 +611,44 @@ export default function HomePage() {
         console.error("Failed to sync AFOCS SKD via latest-schedule:", fallbackError);
       }
     }
+  };
+
+  // 초기화면 카드에서 등록번호를 직접 수정: 등록 기록(매뉴얼 수정)으로 저장하고 카드에 바로 반영한다.
+  // 서버 저장에 실패하면 throw 해서 카드가 오류를 보여 주고 값은 바뀌지 않는다.
+  const handleUpdateRegistration = async (
+    flight: string,
+    scheduleDate: string,
+    departureCode: string,
+    arrivalCode: string,
+    registrationNo: string,
+  ) => {
+    if (!latestRoom) throw new Error("Schedule Flight 카드가 없습니다.");
+    const flightKey = normalizeFlightKey(flight);
+    await saveAircraftRegistrationRecordsToServer(
+      [
+        {
+          date: scheduleDate,
+          flight: flightKey,
+          departureCode,
+          arrivalCode,
+          registrationNo,
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+      "merge",
+    );
+
+    const updatedRoom: MonitorRoom = {
+      ...latestRoom,
+      rows: (latestRoom.rows || []).map((row) =>
+        normalizeFlightKey(getFlightNo(row)) === flightKey
+          ? { ...row, hlnbr: registrationNo, registrationNo, aircraftRegNo: registrationNo, registrationNoEdited: true }
+          : row,
+      ),
+    };
+    const nextRooms = mergeLatestScheduleRoom(loadRooms(), updatedRoom);
+    setRooms(nextRooms);
+    saveRooms(nextRooms);
   };
 
   const handleDeleteFlightFromSchedule = async (flight: string) => {
@@ -1185,6 +1224,7 @@ export default function HomePage() {
           flightAlertHistory={flightAlertHistory}
           onDeleteAlertHistoryItem={handleDeleteFlightAlertHistoryItem}
           onUpdateAfocsSkd={handleUpdateAfocsSkd}
+          onUpdateRegistration={handleUpdateRegistration}
           onDeleteFlight={handleDeleteFlightFromSchedule}
           csmReport={{ text: note, workDate: dailyWorkDate }}
         />

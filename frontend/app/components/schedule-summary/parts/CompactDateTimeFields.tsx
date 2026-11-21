@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { afocsCompactFieldStyles, changeCompactFieldStyles } from "../helpers";
+import { afocsCompactFieldStyles, changeCompactFieldStyles, departureCompactFieldStyles } from "../helpers";
 import { compactDateTimeLabelStyle } from "../styles";
 
 export function CompactDateTimeFields({
@@ -17,7 +17,7 @@ export function CompactDateTimeFields({
   label: string;
   date: string;
   time: string;
-  tone: "afocs" | "change";
+  tone: "afocs" | "change" | "departure";
   flight?: string;
   editable?: boolean;
   readOnly?: boolean;
@@ -25,7 +25,8 @@ export function CompactDateTimeFields({
 }) {
   const [dateValue, setDateValue] = useState(date);
   const [timeValue, setTimeValue] = useState(time);
-  const fieldStyles = tone === "afocs" ? afocsCompactFieldStyles : changeCompactFieldStyles;
+  const fieldStyles =
+    tone === "afocs" ? afocsCompactFieldStyles : tone === "departure" ? departureCompactFieldStyles : changeCompactFieldStyles;
 
   useEffect(() => {
     setDateValue(date);

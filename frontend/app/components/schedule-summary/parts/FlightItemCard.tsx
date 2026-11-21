@@ -9,6 +9,9 @@ import {
 } from "../../flight-alert-history/helpers";
 import { completedBadgeStyle, focusBadgeStyle } from "../styles";
 import { CompactDateTimeFields } from "./CompactDateTimeFields";
+import { DepartureRow } from "./DepartureRow";
+import { RegistrationRow } from "./RegistrationRow";
+import { isInboundToIcn } from "../../../lib/departure-times";
 
 export type FlightItemCardProps = {
   canDragReorder: boolean;
@@ -25,6 +28,10 @@ export type FlightItemCardProps = {
   onDeleteFlight: ((flight: string) => void) | undefined;
   onDragMove: (e: React.PointerEvent<HTMLDivElement>, index: number) => void;
   onUpdateAfocsSkd: ((flight: string, date: string, time: string) => void) | undefined;
+  /** 인천 도착편 출발 일시(저장값 YYYY-MM-DD HH:MM)와 자동 저장 핸들러 */
+  departure?: string;
+  onUpdateDeparture?: (item: import("../types").FlightRouteItem, departure: string) => Promise<void> | void;
+  onUpdateRegistration?: (item: import("../types").FlightRouteItem, registrationNo: string) => Promise<void>;
   pendingDeleteFlight: string;
   setPendingDeleteFlight: React.Dispatch<React.SetStateAction<string>>;
   startDrag: (e: React.PointerEvent<HTMLDivElement>, index: number) => void;
@@ -47,6 +54,9 @@ export function FlightItemCard({
   onDeleteFlight,
   onDragMove,
   onUpdateAfocsSkd,
+  departure = "",
+  onUpdateDeparture,
+  onUpdateRegistration,
   pendingDeleteFlight,
   setPendingDeleteFlight,
   startDrag,
@@ -130,9 +140,13 @@ export function FlightItemCard({
                 marginBottom: 8,
               }}
             >
-              <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: 0.2, color: "#dbeafe", whiteSpace: "nowrap" }}>
-                {item.departureCode || "-"} → {item.arrivalCode || "-"}
-              </div>
+              {isInboundToIcn(item.departureCode, item.arrivalCode) && onUpdateDeparture ? (
+                <DepartureRow item={item} stored={departure} disabled={flightDeleting} onSave={onUpdateDeparture} />
+              ) : (
+                <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: 0.2, color: "#dbeafe", whiteSpace: "nowrap" }}>
+                  {item.departureCode || "-"} → {item.arrivalCode || "-"}
+                </div>
+              )}
               <CompactDateTimeFields
                 label="변경"
                 date={item.changeTimeDate}
@@ -142,19 +156,13 @@ export function FlightItemCard({
               />
             </div>
 
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: 8,
-              }}
-            >
-              <div style={{ color: "#92a7c5", fontSize: 12 }}>등록 번호</div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: "white", fontVariantNumeric: "tabular-nums" }}>
-                {item.registrationNo || "-"}
+            {isInboundToIcn(item.departureCode, item.arrivalCode) && onUpdateDeparture ? (
+              <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: 0.2, color: "#dbeafe", whiteSpace: "nowrap", marginBottom: 8 }}>
+                {item.departureCode || "-"} → {item.arrivalCode || "-"}
               </div>
-            </div>
+            ) : null}
+
+            <RegistrationRow item={item} disabled={flightDeleting} onSave={onUpdateRegistration} />
 
             {(() => {
               const flightKey = item.flight.replace(/\s+/g, "").toUpperCase();

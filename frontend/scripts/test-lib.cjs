@@ -18,7 +18,7 @@ const compile = (rel) => {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.writeFileSync(dest, js);
 };
-["lib/flight-types", "lib/flight-keys", "lib/flight-status", "lib/aircraft-registration", "lib/schedule-store", "lib/api-config", "lib/afocs-skd", "lib/csm-checklist", "lib/monthly-schedule", "lib/flight-status", "lib/flight-alerts", "home/helpers", "home/constants", "home/types",
+["lib/flight-types", "lib/flight-keys", "lib/flight-status", "lib/aircraft-registration", "lib/schedule-store", "lib/api-config", "lib/afocs-skd", "lib/csm-checklist", "lib/monthly-schedule", "lib/departure-times", "lib/flight-status", "lib/flight-alerts", "home/helpers", "home/constants", "home/types",
   "flights/lib/helpers", "flights/lib/types", "flights/lib/constants"].forEach(compile);
 
 // 브라우저 환경 흉내
@@ -524,6 +524,30 @@ test("mergeScheduleRegistrationIntoRoom: 기록(최근 저장) > 이전 방 값 
     assert.deepStrictEqual(monthly.timeChangeLines({ apiSchedTime: "", apiTime: "", skdTime: "2026-11-07 09:35" }, "2026-11-07"), []);
     // 예전 데이터(API 예정시각 없음): SKD 변경만
     assert.deepStrictEqual(monthly.timeChangeLines({ apiSchedTime: "", apiTime: "2026-11-07 10:00", skdTime: "2026-11-07 09:35" }, "2026-11-07"), [{ label: "불일치", text: "⚠ AFOCS 09:35 ↔ API 10:00 (25분 차이)" }]);
+  });
+  test("출발 일시 입력: 월일·시각 해석, 연도는 예정 도착일 기준, 한쪽만 있으면 저장하지 않음", () => {
+    const dep = require(path.join(outDir, "app/lib/departure-times.js"));
+    const P = (d, t, s = "2026-11-21") => dep.parseDepartureInput(d, t, s);
+    assert.deepStrictEqual(P("11.21", "14:10"), { kind: "ok", value: "2026-11-21 14:10" });
+    assert.deepStrictEqual(P("1121", "1410"), { kind: "ok", value: "2026-11-21 14:10" }, "구분 기호 없이도");
+    assert.deepStrictEqual(P("11-20", "9:05"), { kind: "ok", value: "2026-11-20 09:05" }, "전날 출발");
+    assert.deepStrictEqual(P("", ""), { kind: "empty" });
+    assert.deepStrictEqual(P("11.21", ""), { kind: "incomplete" });
+    assert.deepStrictEqual(P("", "14:10"), { kind: "incomplete" });
+    assert.strictEqual(P("13.01", "10:00").kind, "invalid", "월 오류");
+    assert.strictEqual(P("02.30", "10:00").kind, "invalid", "없는 날짜");
+    assert.strictEqual(P("11.21", "25:00").kind, "invalid", "시각 오류");
+    assert.strictEqual(P("11.21", "ab").kind, "invalid");
+    // 연초 도착편의 전년도 출발
+    assert.deepStrictEqual(P("12.31", "22:00", "2027-01-01"), { kind: "ok", value: "2026-12-31 22:00" });
+    // 연말: 같은 해 안에서는 그대로
+    assert.deepStrictEqual(P("12.30", "08:00", "2026-12-31"), { kind: "ok", value: "2026-12-30 08:00" });
+    assert.deepStrictEqual(dep.splitDeparture("2026-11-21 14:10"), { date: "11.21", time: "14:10" });
+    assert.deepStrictEqual(dep.splitDeparture(""), { date: "", time: "" });
+    assert.strictEqual(dep.departureKey("2026-11-21", "kj 918"), "2026-11-21|KJ918");
+    assert.strictEqual(dep.isInboundToIcn("TAO", "ICN"), true);
+    assert.strictEqual(dep.isInboundToIcn("ICN", "HAN"), false);
+    assert.strictEqual(dep.toMonthDay("2026-11-21"), "11.21");
   });
   test("사진 목록: 같은 항목은 최근 4장까지만 유지, 다른 항목은 영향 없음", () => {
     const helpers = require(path.join(outDir, "app/home/helpers.js"));
