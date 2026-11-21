@@ -159,6 +159,7 @@ async function open() {
   const dTime = () => q(c, "KJ918 출발 시간");
   check("인천 도착편에 출발 월일·시각 입력칸", !!dDate() && !!dTime(), [...c.querySelectorAll("input")].map((i) => i.getAttribute("aria-label")));
   check("출발 월일은 예정 도착일(11.06)로 미리 채워지고 시각은 비어 있음", dDate() && dDate().value === "11.06" && dTime().value === "", [dDate() && dDate().value, dTime() && dTime().value]);
+  check("출발 칸에 KST 표기, 인천 출발편에는 없음", cardOf(c, "KJ918", "KJ387").querySelectorAll("[data-label-note]").length === 1 && cardOf(c, "KJ918", "KJ387").textContent.includes("KST") && !cardOf(c, "KJ387", "KJ918").textContent.includes("KST"));
   check("인천 출발편(KJ387)에는 출발 입력칸이 없음", !q(c, "KJ387 출발 월일") && !q(c, "KJ387 출발 시간"));
   check("인천 도착편은 노선이 아래 줄로 내려가 표시", cardOf(c, "KJ918", "KJ387").textContent.includes("TAO → ICN"));
 
@@ -168,12 +169,12 @@ async function open() {
   check("입력값이 화면에 유지", dTime().value === "14:10");
 
   const dur = () => cardOf(c, "KJ918", "KJ387").querySelector("[data-flight-duration]");
-  check("변경 아래에 소요 시간 5시간 10분(도착 19:20 - 출발 14:10) 표시", dur() && dur().textContent === "소요 5시간 10분" && dur().getAttribute("data-flight-duration") === "ok", dur() && dur().textContent);
+  check("변경 아래에 소요 시간 5시간 10분(도착 19:20 - 출발 14:10) 표시", dur() && dur().textContent === "소요 5시간 10분 (KST 기준)" && dur().getAttribute("data-flight-duration") === "ok", dur() && dur().textContent);
   check("인천 출발편(KJ387)에는 소요 시간이 없음", !cardOf(c, "KJ387", "KJ918").querySelector("[data-flight-duration]"));
   await typeInto(dTime(), "21:00");
   check("출발이 도착보다 늦으면 확인 안내", dur() && dur().getAttribute("data-flight-duration") === "check", dur() && dur().textContent);
   await typeInto(dTime(), "14:10");
-  check("다시 정상 값으로 고치면 소요 시간 표시", dur() && dur().textContent === "소요 5시간 10분");
+  check("다시 정상 값으로 고치면 소요 시간 표시", dur() && dur().textContent === "소요 5시간 10분 (KST 기준)");
 
   // 3) 같은 값으로 다시 포커스를 벗어나도 다시 저장하지 않음
   const nPosts = posts.dep.length;

@@ -6,6 +6,7 @@ import { compactDateTimeLabelStyle } from "../styles";
 
 export function CompactDateTimeFields({
   label,
+  labelNote,
   date,
   time,
   tone,
@@ -15,6 +16,8 @@ export function CompactDateTimeFields({
   onSave,
 }: {
   label: string;
+  /** 라벨 뒤에 작게 붙이는 표기(예: KST) */
+  labelNote?: string;
   date: string;
   time: string;
   tone: "afocs" | "change" | "departure";
@@ -51,6 +54,9 @@ export function CompactDateTimeFields({
         }
       `}</style>
       <span style={compactDateTimeLabelStyle}>{label}</span>
+      {labelNote ? (
+        <span style={{ ...compactDateTimeLabelStyle, color: "#67e8f9", fontSize: 9 }} data-label-note="1">{labelNote}</span>
+      ) : null}
       {showEditor ? (
         <>
           <input

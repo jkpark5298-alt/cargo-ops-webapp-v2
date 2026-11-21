@@ -57,6 +57,7 @@ export function DepartureRow({
     <div style={{ display: "grid", gap: 3, minWidth: 0 }}>
       <CompactDateTimeFields
         label="출발"
+        labelNote="KST"
         date={parts.date || defaultDate}
         time={parts.time}
         tone="departure"

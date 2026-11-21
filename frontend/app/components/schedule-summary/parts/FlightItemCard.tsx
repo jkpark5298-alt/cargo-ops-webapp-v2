@@ -173,7 +173,7 @@ export function FlightItemCard({
                     color: abnormal ? "#fca5a5" : "#67e8f9",
                   }}
                 >
-                  {abnormal ? "출발·도착 시각을 확인하세요 (소요 시간 이상)" : `소요 ${formatDuration(minutes)}`}
+                  {abnormal ? "출발·도착 시각을 확인하세요 (소요 시간 이상)" : `소요 ${formatDuration(minutes)} (KST 기준)`}
                 </div>
               );
             })() : null}

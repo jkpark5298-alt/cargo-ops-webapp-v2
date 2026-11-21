@@ -48,7 +48,7 @@ export function ScheduleSummaryCard({
       {apiSyncStatus ? <div style={apiSyncStatusStyle}>{apiSyncStatus}</div> : null}
       {syncCheckedAt ? <div style={syncStatusStyle}>초기화면 반영 확인 · {syncCheckedAt}</div> : null}
       <div style={apiGuideStyle}>
-        AFOCS SKD는 월일·시간(MM.DD / HH:mm)을 각각 수정할 수 있고, 인천 도착편은 출발 일시도 입력할 수 있습니다(월일·시간을 모두 채우면 자동 저장). 등록 번호는 수정 버튼으로 고칩니다. 편 삭제 → 삭제 확인을 누르면 Schedule Flight 카드·초기화면에 함께 반영됩니다. API 즉시 확인은 Schedule Flight API를 조회한 뒤 서버 기준과 초기화면에 반영합니다.
+        AFOCS SKD는 월일·시간(MM.DD / HH:mm)을 각각 수정할 수 있고, 인천 도착편은 출발 일시도 한국 시간(KST)으로 입력할 수 있습니다(월일·시간을 모두 채우면 자동 저장). 등록 번호는 수정 버튼으로 고칩니다. 편 삭제 → 삭제 확인을 누르면 Schedule Flight 카드·초기화면에 함께 반영됩니다. API 즉시 확인은 Schedule Flight API를 조회한 뒤 서버 기준과 초기화면에 반영합니다.
       </div>
       <div style={buttonStackStyle}>
         <button
